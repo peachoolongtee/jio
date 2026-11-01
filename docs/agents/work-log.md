@@ -1890,3 +1890,32 @@ Darryl's UAT items 5 and 6. **The lead's word:** "only the host can drop and for
     - `session_member_needs` is `6589abe1…`;
     - `apply_session_plan` and `guard_session_changes` are unchanged;
     - rows are unchanged (9 sessions, 6 users, 14 members).
+
+## Round 46: outings together, and "Jio remembers" (2026-10-30)
+
+**The lead's word:** "go ahead", on the session's three suggestions:
+- rename the Invite page's "Jio streak" (a count, not a run) to outings together;
+- show it on profiles and where an outing finishes;
+- "Jio remembers": tell only the person it helped that the planner weighs their past travel.
+
+No database change.
+
+| Piece | Agent | Branch | Brief, in short |
+|---|---|---|---|
+| Outings together | frontend engineer | `feat/outings-together`, off `dev` at `32c001b` | Rename the badge and its words. Add "N outings together · last on <day>" to someone's profile and a count beside each name in your Friends list. Mark the 1st, 5th, 10th… outing with a friend where the outing finishes, for real and demo accounts. Counted from the sessions already read, nothing stored. |
+| Jio remembers | implementer | `feat/jio-remembers`, off `dev` | On Locate, only the person whose past travel the planner weighed sees one true sentence about it. Its wording follows the rule the session used. For a real account it is read from the server, own row only, from the travel ledger in Supabase; the demo works from its own ledger. |
+- **Results:** both pieces were built and joined on `feat/outings-together`. One code review, then a fix agent.
+  - **Found by reading the planner:** session spots rank by `longest`, and past travel only breaks an exact tie on unrounded minutes, so it rarely moves a pick. The lead was told.
+  - **The lead's word on the sentence:** "just make it simple this spot is closer to you". It shows on the first spot only, when the person's debt is at least 5 minutes and their own minutes to it are below the group's average, so it is true whenever it shows.
+  - **Other review fixes:**
+    - the demo sends past travel only on the spots request;
+    - closed outings do not count as past travel;
+    - the milestone line waits for names;
+    - the profile reads the sessions only when they are not loaded.
+  - **Checked by the session on `1e89c4c`:**
+    - backend 2089 passed, also with outbound calls blocked;
+    - frontend 2969 passed;
+    - build succeeded;
+    - e2e 17 of 17;
+    - the line seen in a browser at 320 px.
+- **Also added:** the unit and component test allocation, in `frontend/tests/e2e/README.md`.

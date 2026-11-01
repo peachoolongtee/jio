@@ -555,6 +555,16 @@ export async function getSessionTripsHome(sessionId) {
   return data
 }
 
+// Whether the signed-in person's own past travel counts in the pick of the meeting spots (GET /api/sessions/:id/travel-lean): their own flag and the
+// rule in use, and nothing about anyone else. Resolves { owed: boolean, rule: 'longest' | 'balanced' }. Anything else is an error, never a
+// guess: the line on the Locate step is shown only for an answer this function accepts.
+// How to call: const { owed, rule } = await getSessionTravelLean('3b1f...') // { owed: true, rule: 'longest' }
+export async function getSessionTravelLean(sessionId) {
+  const { data } = await api.get(sessionPath(sessionId, '/travel-lean'), { timeout: SESSION_TIMEOUT_MS })
+  if (typeof data?.owed !== 'boolean' || !['longest', 'balanced'].includes(data.rule)) throw new Error(notJsonMessage())
+  return { owed: data.owed, rule: data.rule }
+}
+
 // The host confirms the plan (E12). `order` is 'voted' (the winners in the order of their slots) or 'suggested' with the `basis` of the
 // suggestion the host saw. A `basis` may go with the voted order too (the one the server gave when the host looked at the votes): one that is
 // no longer the votes' own is refused with 409 `order_stale` and nothing is written, so what the host saw is what is saved. The server also

@@ -1,13 +1,12 @@
 <script setup>
 // The friends a host can pick on the Invite page, in their groups ("Frequent hangouts", then "All friends", or one "Friends"
-// list), each with their Jio streak and a Select chip (named "Select Ana", then "Selected Ana", so the name starts with the words on it). The page keeps who is picked; this only draws the lists and says which
+// list), each with their count of outings together and a Select chip (named "Select Ana", then "Selected Ana", so the name starts with the words on it). The page keeps who is picked; this only draws the lists and says which
 // row was pressed. Used for the demo's sessions and for a real account's shared ones alike.
 //   <FriendPickList :lists="lists" :picked="picked" @toggle="toggle" />
-// lists: [{ id, title, people: [{ id, name, username, homeArea, streak }] }]; a list with nobody in it is hidden.
-import AppIcon from '@/components/ui/AppIcon.vue'
+// lists: [{ id, title, people: [{ id, name, username, homeArea, together }] }]; a list with nobody in it is hidden.
 import ChipButton from '@/components/ui/ChipButton.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
-import { streakText } from '@/lib/hangouts.js'
+import OutingsTogether from './OutingsTogether.vue'
 
 defineProps({
   lists: { type: Array, required: true },
@@ -25,9 +24,7 @@ const emit = defineEmits(['toggle'])
         <span class="invite__who">
           <span class="invite__name">
             <span class="title-sm truncate">{{ person.name }}</span>
-            <span v-if="person.streak" class="invite__streak caption-sm tnum" :title="`Jio streak: ${streakText(person.streak)}`" data-testid="jio-streak">
-              <AppIcon name="sparkle" :size="12" /><span class="sr-only">Jio streak: {{ streakText(person.streak) }}</span><span aria-hidden="true">{{ person.streak }}</span>
-            </span>
+            <OutingsTogether :count="person.together" />
           </span>
           <span class="caption-sm text-muted truncate">@{{ person.username }}<template v-if="person.homeArea"> · {{ person.homeArea }}</template></span>
         </span>
@@ -46,6 +43,4 @@ const emit = defineEmits(['toggle'])
 .invite__row.is-picked { background: color-mix(in srgb, var(--primary) 6%, var(--canvas)); }
 .invite__who { display: flex; flex: 1; flex-direction: column; min-width: 0; }
 .invite__name { display: flex; align-items: center; gap: var(--spacing-xs); min-width: 0; }
-/* The Jio streak: a small count of outings together beside the name, in the brand's soft tint. Its text is the error red, 4.85:1 on the tint (Rausch pressed was 4.3:1). */
-.invite__streak { flex-shrink: 0; display: inline-flex; align-items: center; gap: 2px; height: 20px; padding: 0 6px; border-radius: var(--rounded-full); background: color-mix(in srgb, var(--primary) 10%, var(--canvas)); color: var(--primary-error-text); font-weight: 600; }
 </style>

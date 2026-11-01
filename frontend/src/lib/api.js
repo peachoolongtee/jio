@@ -26,6 +26,7 @@ import { createPeopleSource, isUuid, personFromRow } from './peopleSource.js'
 import { isSearchable, rankPeople, searchTerm } from './peopleSearch.js'
 import { WORDS as SHARING_WORDS, createSessionsRemote } from './sessionsRemote.js'
 import { releasedNotice } from './startChoice.js'
+import { localDebts, localLean } from './travelLean.js'
 import { ClashError, findClash } from './clash.js'
 import { tallyOptions } from './planVotes.js'
 import { isLegacyRealSave, remapLegacySave } from './legacySave.js'
@@ -432,6 +433,7 @@ const remote = createSessionsRemote({
     syncPlan: (sessionId) => planner.syncSessionPlan(sessionId),
     setRadius: (sessionId, metres) => planner.putSessionRadius(sessionId, metres),
     getDietary: (sessionId) => planner.sessionDietary(sessionId),
+    getTravelLean: (sessionId) => planner.getSessionTravelLean(sessionId),
     putDietary: (sessionId, body) => planner.putSessionDietary(sessionId, body),
     deleteSlot: (sessionId, slotId) => planner.deleteSessionSlot(sessionId, slotId),
     restoreSlots: (sessionId) => planner.restoreSessionSlots(sessionId),
@@ -795,15 +797,48 @@ function isSessionDay(session) {
 
 // Each person with a start location, as the backend expects them: start and end as points. A name is not sent: the planner
 // uses only the id (a name it would only echo back, and a long one made of emoji can be over its limit while within the
-// database's, which would refuse every request of a session).
-function membersFor(session) {
+// database's, which would refuse every request of a session). With `debts`, a person who travelled more than their share in the outings this
+// browser has finished lately carries it as `travelDebtMinutes`, which the planner counts as it does a real account's ledger (lib/travelLean.js).
+// Only the request for the meeting area (the spots) asks for it (spotMembers), so no other ranking, of places or of a slot, changes by it; a person
+// with none sends no such field, so the request is as it always was.
+// How to call: membersFor(session) -> [{ id, start, end }]; membersFor(session, { debts: true }) -> [{ id, start, end, travelDebtMinutes? }]
+function membersFor(session, { debts: withDebts = false } = {}) {
+  const debts = withDebts ? pastDebts(session.id) : new Map()
   return activeIds(session)
     .filter((id) => session.locations[id]?.start)
     .map((id) => {
       const start = areaById(session.locations[id].start.areaId)
       const end = endPlaceOf(session, id)
-      return { id, start: { lat: start.lat, lng: start.lng }, end: { lat: end.lat, lng: end.lng } }
+      const owed = Math.round((debts.get(id) ?? 0) * 100) / 100
+      return { id, start: { lat: start.lat, lng: start.lng }, end: { lat: end.lat, lng: end.lng }, ...(owed > 0 ? { travelDebtMinutes: owed } : {}) }
     })
+}
+
+// The people for a request for the meeting area: membersFor with each person's past travel from this browser's finished outings.
+// How to call: await askMeeting(session, spotMembers(session), { alternatives: 2 }, { spots: true })
+const spotMembers = (session) => membersFor(session, { debts: true })
+
+// Each person's travel debt from the outings this browser has finished in the last 90 days, other than the session `exceptId`.
+// How to call: pastDebts('s9').get('ian') -> 8.5
+const pastDebts = (exceptId) => localDebts(db.sessions, { now: Date.now(), exceptId })
+
+// Whether the signed-in person's own past travel counts in the pick of this session's meeting spots, for the quiet line on the Locate step:
+// { owed, rule }, where `rule` is the one the pick is made by (the line says what is true of that rule, lib/travelLean.js). Their own flag
+// only: it says nothing of anyone else. A session on the server asks the server (GET /api/sessions/:id/travel-lean, worked out from the ledger
+// in Supabase); a session in this browser works it out from the outings this browser has finished, by the same rules (it is locating, the host
+// did not name the place, two starts are in, routing is on, and the debt is at least MIN_DEBT_MINUTES). Resolves null when the account changed meanwhile.
+// Rejects when the server cannot answer; the screen then shows nothing.
+// How to call: await travelLean('s1') -> { owed: true, rule: 'longest' }
+export async function travelLean(id) {
+  if (onServer() && serverMembers.has(id)) {
+    const asked = epoch
+    const answer = await remote.travelLean(id)
+    return asked === epoch ? answer : null
+  }
+  const session = sessionById(id)
+  const mine = me()
+  const located = membersFor(session)
+  return localLean({ session, myId: mine, debts: pastDebts(id), routing: db.conditions.routing, starts: located.length, mine: located.some((m) => m.id === mine) })
 }
 
 // Who ranking places is for: the people with a start, as membersFor sends them. A known place can be set before
@@ -1137,7 +1172,8 @@ async function computeMeeting(session) {
   // prompt instead.
   const wantMeeting = !locating || members.length === activeIds(session).length
   const extra = locating ? { alternatives: APP_SPOTS - 1, include: suggestedAreas(session) } : {}
-  const data = await askMeeting(session, members, extra, { bar: wantMeeting, spots: locating })
+  const asked = spotMembers(session)
+  const data = await askMeeting(session, asked, extra, { bar: wantMeeting, spots: locating })
   return { meeting: wantMeeting ? meetingFrom(members, data) : null, spots: locating ? spotsFrom(members, data) : null, pinnedSpot: null }
 }
 
@@ -2837,7 +2873,7 @@ export async function suggestSpot(id, personId, areaId, { here = false } = {}) {
         session,
         async () => {
           assertSpotsOpen(session)
-          const members = membersFor(session)
+          const members = spotMembers(session)
           return { members, data: await askMeeting(session, members, { alternatives: APP_SPOTS - 1, include: suggestedAreas(session) }, { spots: true }) }
         },
         ({ members, data }) => { lost = applyPlannedSpots(session, spotsFrom(members, data)) },
@@ -5004,7 +5040,7 @@ export async function getLedger(id) {
 // Completes an outing. `how` is kept as `endedBy`: 'hand' ("Finish outing"), 'auto' (its end time passed) or 'closed' (two days
 // past its end with no confirmed plan). A confirmed plan pays every member who is in it, but only when at least two people are
 // (lib/session.js earnsCoins): an outing of one is a way to find places, not a way to earn coins, so it can be repeated for
-// nothing. A closed one pays nobody, and counts for nobody's Jio streak. The session keeps `paid` (whether coins were paid) so
+// nothing. A closed one pays nobody, and counts for nobody's outings together. The session keeps `paid` (whether coins were paid) so
 // its page can say why none were. Saves nothing itself: the caller saves. Answers whether coins were paid.
 // How to call: if (completeOuting(session, 'auto')) emit({ type: 'stats' })
 function completeOuting(session, how) {

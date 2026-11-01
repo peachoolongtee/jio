@@ -1,4 +1,4 @@
-// Screens of the app drawn for real (lib/__tests__/domless.js) on top of the demo tour's data: the invite page's Jio streaks, which
+// Screens of the app drawn for real (lib/__tests__/domless.js) on top of the demo tour's data: the invite page's outings together, which
 // must come only from the saves the tour shows (lib/sessionFilter.js), and Home, which settles outings that ended while the
 // person was on another page. The planner backend is not there (a closed port); the maps need a browser and are stood in for.
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -72,14 +72,14 @@ describe('the invite page at a tour checkpoint', () => {
     return view
   }
 
-  it('shows no Jio streak at checkpoint 1, where the friends are still to be invited, though the story\'s last save is completed', async () => {
+  it('shows no outings together at checkpoint 1, where the friends are still to be invited, though the story\'s last save is completed', async () => {
     const [id] = t.tour.manifest.story
     const view = await invitePage(0, id)
     expect(view.errors).toEqual([])
     // The three friends of the story are listed, with no history: one plain list.
     expect(view.text()).toContain('Darius')
     expect(view.text()).not.toContain('Frequent hangouts')
-    expect(view.all('[data-testid="jio-streak"]')).toHaveLength(0)
+    expect(view.all('[data-testid="outings-together"]')).toHaveLength(0)
   })
 
   it('shows none at checkpoint 2 either', async () => {
@@ -87,7 +87,7 @@ describe('the invite page at a tour checkpoint', () => {
     const view = await invitePage(1, id)
     expect(view.errors).toEqual([])
     expect(view.text()).not.toContain('Frequent hangouts')
-    expect(view.all('[data-testid="jio-streak"]')).toHaveLength(0)
+    expect(view.all('[data-testid="outings-together"]')).toHaveLength(0)
   })
 
   it('shows them when the finished save is the one the tour shows', async () => {
@@ -95,6 +95,6 @@ describe('the invite page at a tour checkpoint', () => {
     const [id] = t.tour.manifest.story
     const view = await invitePage(9, id)
     expect(view.text()).toContain('Frequent hangouts')
-    expect(view.all('[data-testid="jio-streak"]').length).toBeGreaterThanOrEqual(3)
+    expect(view.all('[data-testid="outings-together"]').length).toBeGreaterThanOrEqual(3)
   })
 })
