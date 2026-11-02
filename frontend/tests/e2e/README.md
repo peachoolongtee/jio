@@ -93,16 +93,16 @@ Jonathan's first test is one test for each width, so his file holds six tests in
 
 ## Unit and component tests
 
-The course asks each person for 1 unit test and 2 component tests as well. These are existing tests in `frontend/src/lib/__tests__/` (Nichole's unit test is in `backend/tests/`), one person each, on that person's feature. A unit test mounts nothing; a component test mounts a real screen through `domless.js`. Run one with `pnpm --filter jio-frontend exec vitest run src/lib/__tests__/<file>`.
+The course asks each person for 1 unit test and 2 component tests as well. These are existing tests in `frontend/src/lib/__tests__/` (Nichole's unit test is in `backend/tests/`), one person each, on that person's feature. A unit test mounts nothing; a component test mounts a real screen through `domless.js`. Each teammate's are tests they wrote themselves (by git blame of the test's own line), except Ian's, which were written in his sessions. Run one file with `pnpm --filter jio-frontend exec vitest run src/lib/__tests__/<file>`. Reallocated on 2 November 2026 after the walkthrough merges.
 
 | Person | Unit | Component |
 |---|---|---|
-| Ian | `startChoice.test.js`: the two choices, the fairest spot the default | `startChoice.screen.test.js`: starts the session with the fairest spot saved in the same update<br>`changePlan.screen.test.js`: "fairest" changes the session and goes to Locate |
-| Faith | `clash.test.js`: `findClash` names the meetup in the way | `clashScreens.test.js`: the clash dialog says what is wrong, with the way to the other meetup<br>`sessionsSpotsScreen.test.js`: Locate lists the spots with Vote and the host's one main action |
+| Ian | `startChoice.test.js`: the two choices, the fairest spot the default | `startChoice.screen.test.js`: starts the session with the fairest spot saved in the same update<br>`changePlan.screen.test.js`: shows the same two cards with words for what the button does, and "fairest" goes to Locate |
+| Faith | `clash.test.js`: `findClash` names the meetup in the way | `changePlan.screen.test.js`: "Change meeting spot" asks on the page, "Keep" changes nothing, and picking the place yourself comes back to Locate<br>`outingScreens.test.js`: "CDC vouchers" beside the filter keeps only the Eat and Drink places that take them, and leaves Shop and Activity |
 | Nichole | `backend/tests/cdc.test.js`: CDC matching by name or site, never by distance alone | `outingScreens.test.js`: the create form holds Next when the start has passed in Singapore<br>`outingScreens.test.js`: the create form holds Next for a session with no length (23:59) |
-| darryl | `profileSessions.test.js`: Upcoming lists sessions still going, soonest first | `dietaryConfirm.test.js`: asks before taking off a need someone else has<br>`editProfile.test.js`: starts from the signed-in person and saves to Supabase |
-| Darius | `outingLifecycle.test.js`: never finishes a confirmed plan by the clock; the person finishes it | `homeSettle.test.js`: Home leaves a confirmed outing past its end time open and unpaid until someone finishes it<br>`outingFlowFixes.test.js`: Finish outing goes on to the review page |
-| Jonathan | `radioGroup.test.js`: arrow keys skip disabled radios | `outingScreens.test.js`: finishing alone goes on to "How was it?", which says it earned nothing<br>`outingFlowFixes.test.js`: "What next?" in place of the empty timeline |
+| darryl | `profileSessions.test.js`: Upcoming lists sessions still going, soonest first | `replaceStop.test.js`: swaps the chosen place into the itinerary and goes back to it<br>`editProfile.test.js`: starts from the signed-in person and saves to Supabase |
+| Darius | `outingLifecycle.test.js`: reads the end from the session's own date and end time | `createAlreadyOut.test.js`: hides the day and times, asks where you are, and starts a light meetup for today that opens its itinerary<br>`homeRanges.test.js`: Home starts on This week, with counts, and pins only what is listed |
+| Jonathan | `radioGroup.test.js`: arrow keys skip disabled radios | `outingScreens.test.js`: finishing alone goes on to "How was it?", which says it earned nothing<br>`outingFlowPolish.test.js`: the Invite page takes a host with two in back to the Start choice, with nobody selected |
 
 ## Tests never use real services
 
