@@ -24,8 +24,15 @@ const props = defineProps({
   wholeItem: { type: Boolean, default: false },
   hint: { type: String, default: '' },
 })
-// The hint shown when none is passed: it names what can be dragged.
-const hintText = computed(() => props.hint || (props.wholeItem ? 'Drag a stop to reorder (press and hold on a phone), or focus its grip and press the up or down arrow key.' : 'Drag the grip to reorder, or focus it and press the up or down arrow key.'))
+// Whether the main pointer is a finger, so the hint speaks of pressing and holding instead of keys a phone does not have (a phone
+// check of 3 November 2026). Read once: a screen that changes between touch and mouse mid-page is rare.
+const touch = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
+// The hint shown when none is passed: it names what can be dragged, and how, for a finger or for a mouse and keyboard.
+const hintText = computed(() => {
+  if (props.hint) return props.hint
+  if (touch) return props.wholeItem ? 'Press and hold a stop, then drag it up or down to reorder.' : 'Press and hold the grip, then drag it up or down to reorder.'
+  return props.wholeItem ? 'Drag a stop to reorder, or focus its grip and press the up or down arrow key.' : 'Drag the grip to reorder, or focus it and press the up or down arrow key.'
+})
 const emit = defineEmits(['move'])
 
 const list = ref(null)

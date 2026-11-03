@@ -45,7 +45,8 @@ const props = defineProps({
   spokes: { type: Boolean, default: false },
   selected: { type: String, default: '' },
   label: { type: String, default: 'Map' },
-  // What the view fits to: 'all' (default), or 'places' to frame the stops and the meeting area only.
+  // What the view fits to: 'all' (default), 'places' to frame the stops and the meeting area only, or 'keep' to frame the `keep`
+  // points only (Locate on a phone: the meeting spots, so pins a few streets apart do not sit on top of each other).
   fitTo: { type: String, default: 'all' },
   zoomPosition: { type: String, default: 'topleft' },
   finding: { type: Boolean, default: false },
@@ -194,8 +195,9 @@ function draw() {
   }
 
   // Fit the view when the set of things on the map changes, not on every small update.
-  for (const p of props.keep) points.push([p.lat, p.lng])
-  const frame = props.fitTo === 'places' && focus.length ? focus : points
+  const kept = props.keep.map((p) => [p.lat, p.lng])
+  points.push(...kept)
+  const frame = props.fitTo === 'places' && focus.length ? focus : props.fitTo === 'keep' && kept.length ? kept : points
   const key = frame.map((p) => p.join(',')).sort().join('|')
   if (key !== fittedKey) {
     fittedKey = key

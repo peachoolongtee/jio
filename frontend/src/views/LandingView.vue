@@ -687,8 +687,11 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 .home__tools { position: absolute; z-index: 2; top: var(--spacing-md); left: var(--gutter); display: flex; flex-direction: column; align-items: center; gap: var(--spacing-sm); }
 @media (min-width: 744px) { .home__tools { right: var(--gutter); left: auto; } }
 @media (max-width: 743px) {
-  /* Phones: the avatar sits top right, so the greeting keeps clear of it on both sides (to stay centred). */
-  .hero__hello { align-self: stretch; padding-right: calc(var(--gutter) + 52px); padding-left: calc(var(--gutter) + 52px); }
+  /* Phones: the avatar sits top right and the tools column top left, so the greeting keeps clear of both, by the same amount on
+     each side to stay centred. The column is as wide as its widest piece, the post button's caption, held to two short lines
+     (a phone check of 3 November 2026 found "From a post" running into the first line of the greeting). */
+  .hero__hello { align-self: stretch; padding-right: calc(var(--gutter) + 60px); padding-left: calc(var(--gutter) + 60px); }
+  .home__tools :deep(.lm__caption) { max-width: 56px; }
   /* The map is narrow here, so it fades out later, nearer the edges. */
   .hero__map { --edge: radial-gradient(ellipse 70% 60% at 50% 50%, #000 70%, transparent 100%); }
   /* A smaller clearing to match the smaller map. */

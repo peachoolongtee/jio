@@ -14,8 +14,8 @@
 //   a mouse      hover for 120 ms; stays while the pointer is on the pin or the card; closes 150 ms after leaving
 //   a keyboard   focus on the pin (a mouse click does not count); Escape closes it and keeps focus on the pin
 //   a touch      a tap selects the pin and opens its card; a tap elsewhere or on another pin closes or moves it
-// It sits above the pin (below or beside when there is no room), slides to stay in the map's box and, on a phone, may use
-// the viewport (lib/homeMeetups.js placeCard), and is placed again when its own size changes (lib/sizeWatch.js). It is not a dialog: no backdrop, no focus trap. Its "Vote" sits
+// It sits above the pin (below or beside when there is no room) and slides to stay in the map's box; on a phone, where the map
+// is too short for it, it is pulled into the map and may cover its pin, since the map clips anything outside it (lib/homeMeetups.js placeCard), and is placed again when its own size changes (lib/sizeWatch.js). It is not a dialog: no backdrop, no focus trap. Its "Vote" sits
 // inside the pin's wrapper, so pressing it neither closes a card a tap opened nor lets a hovered or focused one fade.
 // Only areas are shown, never a member's exact place.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
@@ -160,28 +160,31 @@ function onOutside(event) {
   if (tapId && !event.target.closest?.('.swrap')) hide()
 }
 
-// The box the card may use: the map's, less the bars; and the viewport, less the bars, for a phone where the map is too
-// short. Everything in viewport px.
-// How to call: boxes() -> { map: { left, right, top, bottom }, viewport: { left, right, top, bottom } }
+// The box the card may use: the map's, less the bars, in viewport px. The map's frame clips what spills out of it, so the card
+// never borrows the rest of the screen: on a phone, where the map is too short for the card above or below a pin, it is pulled
+// into the map's box and may cover its pin rather than be cut off (lib/homeMeetups.js placeCard, "nowhere fits").
+// The screen's sticky footer (Locate's Confirm) counts as a bar too, so the card's own buttons are never under it.
+// How to call: boxes() -> { map: { left, right, top, bottom } }
 function boxes() {
   const area = layer.value.getBoundingClientRect()
   const bars = barHeights()
   const left = Math.max(area.left, 0) + MARGIN
   const right = Math.min(area.right, document.documentElement.clientWidth) - MARGIN
   const top = bars.top + MARGIN
-  const bottom = window.innerHeight - bars.bottom - MARGIN
-  return {
-    map: { left, right, top: Math.max(area.top, top), bottom: Math.min(area.bottom, bottom) },
-    viewport: { left, right, top, bottom },
-  }
+  const footer = layer.value.closest('.screen')?.querySelector(':scope > .screen__footer')?.getBoundingClientRect()
+  const floor = footer && footer.height > 0 && footer.top < window.innerHeight ? footer.top : window.innerHeight - bars.bottom
+  const bottom = floor - MARGIN
+  return { map: { left, right, top: Math.max(area.top, top), bottom: Math.min(area.bottom, bottom) } }
 }
 // Measure the card once it is in the page and put it by its pin. The wrapper has no size: its corner is the pin's tip.
 let placedFor = ''
 // The open card's size is watched, so a new error line or a changed "works for" count places it again and it never runs past the
 // map's edge. The same card placed again keeps showing while it moves.
 const resized = sizeWatch(() => place(openId.value))
+// When the part of the map in view is too short for a card a tap opened (the page was scrolled so the map sits under the footer or
+// off the top), the map is brought into view first, once, and the card is placed again. A hovered card never scrolls the page.
 // How to call: await place('bugis') (or place('') to clear)
-async function place(id) {
+async function place(id, scrolled = false) {
   // The same card placed again (its pin was selected and grew) keeps showing while it moves; a new one starts hidden.
   if (id !== placedFor) placement.value = null
   placedFor = id
@@ -192,9 +195,15 @@ async function place(id) {
   if (!anchor) return
   resized.watch(card)
   const tip = { x: anchor.getBoundingClientRect().x, y: anchor.getBoundingClientRect().y }
-  const { map, viewport } = boxes()
+  const { map } = boxes()
   const reach = id === props.selectedId ? REACH.selected : REACH.rest
-  const spot = placeCard({ tip, pin: { height: reach, halfWidth: REACH.halfWidth }, size: { w: card.offsetWidth, h: card.offsetHeight }, bounds: map, fallback: viewport })
+  const spot = placeCard({ tip, pin: { height: reach, halfWidth: REACH.halfWidth }, size: { w: card.offsetWidth, h: card.offsetHeight }, bounds: map })
+  const frame = layer.value?.closest('.split__map') || layer.value
+  if (!spot.inside && !scrolled && tapId === id && frame?.scrollIntoView) {
+    frame.scrollIntoView({ block: 'center', behavior: 'instant' })
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+    return place(id, true)
+  }
   placement.value = { side: spot.side, left: spot.left - tip.x, top: spot.top - tip.y, caret: spot.caret }
 }
 // Again when the pin's selection changes (a selected pin is bigger, so its card must clear it) or the map moves under it.

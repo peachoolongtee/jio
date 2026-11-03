@@ -605,7 +605,7 @@ async function endPlan() {
       </template>
     </div>
 
-    <footer v-if="footer" class="screen__footer">
+    <footer v-if="footer" class="screen__footer" :class="{ 'screen__footer--pair': footer === 'finish' && mayEdit }">
       <!-- Secondary while "What next?" is the page, so "Finish outing" does not compete with the places' ticks; it is still here. -->
       <!-- Two ways on: leave the plan as it is, or (from the outing's day) say it is done and review it. -->
       <template v-if="footer === 'finish' && mayEdit">
@@ -673,7 +673,9 @@ async function endPlan() {
 .map-open { position: absolute; top: var(--spacing-md); right: var(--spacing-md); z-index: 500; box-shadow: var(--shadow-float); }
 @media (min-width: 1128px) { a.map-open, button.map-open { display: none; } }
 
-/* The timeline: one rail joins every stop, leg and the end point. */
+/* The timeline: one rail joins every stop, leg and the end point. The drag hint at its top sits over the rail, on the card's own
+   background, so the rail starts under it instead of running through its words. */
+.timeline :deep(.sortable__hint) { position: relative; z-index: 1; margin-bottom: 0; padding-bottom: var(--spacing-md); background: var(--canvas); }
 .timeline:focus { outline: none; }
 .ai-note { display: flex; align-items: flex-start; gap: 6px; margin: 0; }
 .ai-note :deep(svg) { flex-shrink: 0; margin-top: 2px; }

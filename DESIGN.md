@@ -1316,3 +1316,15 @@ The review of what was merged after #206 (work-log round 47) fixed the screens b
 | Grey cards | `SpotRow`, `GroupDetailView`, `MemberList` | The spot cards and the people card are `--surface-strong` with a hairline (a spot card turns `--hairline-soft` on hover and white with a 2px ink edge when selected). Text on them, and on the status badges, is held at 4.5:1 (Known Conflicts item 32). |
 | The Invite step | `InviteView` | With the Start choice carried and nobody invited the button is off and a line says "A session needs two people. Invite a friend to start it."; with someone invited it says "The session starts once a friend accepts." |
 
+
+### Phone fixes, 3 Nov 2026 (branch `fix/phone-layout`)
+
+A phone check at 390 by 844 with touch, before the demo video (work-log round 48), found four things a viewer would notice. Each was checked in a browser at that size afterwards.
+
+| Piece | Where | What it is now |
+|---|---|---|
+| Locate's map on a phone | `GroupDetailView`, `PlannerMap` (`fitTo: 'keep'`) | Below 744 px the map frames the meeting spots alone, not everyone's starts across the island, so spots a few streets apart stand apart (about 85 to 180 px in the check) and each pin can be tapped without zooming. Wider screens frame everything as before. |
+| A spot pin's card | `SpotPins` | The card stays inside the map's box and above the sticky footer: the map's frame clips anything outside it, so the card never borrows the rest of the screen. When the part of the map in view is too short for a card a tap opened, the map is scrolled into view first. A hovered card never scrolls the page. |
+| The sticky footer on a phone | `styles/app.css` (`.screen__footer`, `--pair`) | Slimmer padding and a hairline on top, so the page reads as going on underneath; 73 px with one button. Two actions share one row (`screen__footer--pair`), as on the itinerary ("Back to Home", "Finish and review"). |
+| Home's tools column | `LandingView` | The post button's caption is held to two short lines ("From a / post"), and the greeting keeps 60 px clear on each side, so neither runs into the other. |
+| The drag hint | `SortableList`, `EventView` | On a touch screen: "Press and hold a stop, then drag it up or down to reorder." With a mouse and keyboard it names the arrow keys. On the itinerary the hint sits over the timeline's rail, on the card's background, so the rail starts under it. |

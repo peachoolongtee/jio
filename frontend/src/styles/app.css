@@ -79,6 +79,13 @@ svg { display: block; flex-shrink: 0; }
 .screen__titles { display: flex; flex-direction: column; gap: var(--spacing-xs); min-width: 0; }
 .screen__body { flex: 1 1 auto; display: flex; flex-direction: column; gap: var(--spacing-lg); padding: 0 var(--gutter) var(--spacing-lg); }
 .screen__footer { position: sticky; bottom: 0; z-index: 5; flex-shrink: 0; display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-base) var(--gutter) calc(var(--spacing-lg) + env(safe-area-inset-bottom, 0px)); background: var(--canvas); }
+/* On a phone the footer takes less of the screen, and a hairline over it says the page goes on underneath. Two actions side by
+   side (screen__footer--pair) share one row instead of stacking. */
+@media (max-width: 743.98px) {
+  .screen__footer { gap: var(--spacing-sm); padding-top: var(--spacing-sm); padding-bottom: calc(var(--spacing-base) + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--hairline); }
+  .screen__footer--pair { flex-direction: row; }
+  .screen__footer--pair > .btn { flex: 1 1 0; min-width: 0; }
+}
 /* From tablet up the main action sits at the end of the content, right-aligned at a normal width,
    not stretched across the window. Phones keep the full-width button, where the thumb is. */
 @media (min-width: 744px) {
