@@ -144,6 +144,30 @@ export function dropKnownPlaces(candidates, known, { meters = 300, minSimilarity
 
 const readOptionalJson = (name) => (fs.existsSync(new URL(name, MOCK_DIR)) ? readJson(name) : null)
 
+// The CDC sites checked by hand for vegan food on 3 November 2026 (docs/dietary/vegan-check-2026-11-03.md): vegetarian
+// restaurants with vegan dishes, none of them fully vegan. No CDC name says "vegan", so without this list no food place is.
+// Check them again before relying on them: restaurants change, and two have conflicting sources.
+export const VEGAN_CHECKED = {
+  checked: '2026-11-03',
+  ids: ['cdc_678051', 'cdc_640479', 'cdc_651296', 'cdc_329857', 'cdc_269758', 'cdc_388183', 'cdc_530501'],
+}
+
+/**
+ * Marks the places on the checked vegan list as vegan "likely", with where that came from. A place already known better keeps its level.
+ *
+ * How to call:
+ *   markCheckedVegan({ id: 'cdc_678051', diet: { vegan: 'unknown' } })
+ *   // { id, diet: { vegan: 'likely' }, dataQuality: { veganSource: 'checked', veganChecked: '2026-11-03' } }
+ */
+export function markCheckedVegan(venue) {
+  if (!VEGAN_CHECKED.ids.includes(venue.id)) return venue
+  return {
+    ...venue,
+    diet: { ...venue.diet, vegan: betterDiet(venue.diet?.vegan, 'likely') },
+    dataQuality: { ...venue.dataQuality, veganSource: 'checked', veganChecked: VEGAN_CHECKED.checked },
+  }
+}
+
 /**
  * The attribution the Singapore Open Data Licence asks for, to show wherever OneMap's or NEA's data is shown.
  *
@@ -205,7 +229,7 @@ export function loadPlanData({ fresh = false, today = singaporeToday(), includeF
     [...mockVenues, ...curatedMerged, ...onemapMerged, ...cdc.filter((v) => !dropped.has(v.id))],
     closures,
   )
-  const venues = withClosures.map((v) => withEstimatedMrtWalk(v, areas))
+  const venues = withClosures.map((v) => markCheckedVegan(withEstimatedMrtWalk(v, areas)))
 
   // The closure dates run out: say when, and say so in the log once, because after that every centre looks open on its cleaning days.
   const coverage = closureCoverage(closures)
