@@ -1968,3 +1968,11 @@ No database change.
     - `DESIGN.md` brought up to what ships.
   - **Measured:** Tampines + Bishan picks Paya Lebar on the area table. In 500 random pairs, 134 had fewer than 3 drink or shop places within 3 km, 12 of them an empty list. In 500 random triples, 125 and 4.
   - **Not seen in a browser:** the pin's warning and Home's overdue banner (tested only).
+
+## Round 48: a phone check of every feature, before the demo video (2026-11-03)
+
+**The lead's word:** a demo video of every feature, mostly filmed on a phone, "to make sure the phone is also as intuitive… and all the features are phone friendly", then "go" on the session's plan. First a read-only check of every feature at 390 by 844 with touch, in a real browser, on `dev` at the head named below, with the demo account, the showcase and the stub backend. It reports by severity with screenshots, and nothing in the app is changed without the lead. Then the storyboard, the clips and a cue sheet.
+
+| Piece | Agent | Brief, in short |
+|---|---|---|
+| Phone check | frontend engineer, read-only on the app | Every screen and feature at phone size with touch: fit, thumb reach, gestures and their alternatives, hover-only things, clarity. Throwaway Playwright scripts outside the commit; screenshots in the session's scratch folder. |
