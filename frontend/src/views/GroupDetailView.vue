@@ -152,6 +152,10 @@ const shown = computed(() => (session.value ? shownFor(session.value, picked.val
 const shownSpot = computed(() => spotList.value.find((s) => s.areaId === shown.value) || null)
 // The map keeps every spot in view.
 const keepPoints = computed(() => spotList.value.map((s) => ({ lat: s.area.lat, lng: s.area.lng })))
+// On a phone the map frames the meeting spots alone: framed with everyone's starts across the island, spots a few streets apart
+// sat on top of each other and could not be tapped. A wider screen frames everything, as before.
+const phone = typeof matchMedia === 'function' && matchMedia('(max-width: 743px)').matches
+const mapFit = computed(() => (phone && keepPoints.value.length > 1 ? 'keep' : 'all'))
 // Where a point is on the map, for the pins laid over it.
 // How to call: projectPoint(1.35, 103.82) -> { x, y }
 const projectPoint = (lat, lng) => mapRef.value?.project(lat, lng) ?? null
@@ -506,7 +510,7 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
             <div v-if="session.remote && choosing && !isHost" class="leave"><LeaveSession :session-id="session.id" /></div>
           </template>
           <template #map>
-            <PlannerMap ref="mapRef" :people="mapPeople" :area="settled && !loading ? settled.area : null" :finding="loading" spokes :keep="settled ? [] : keepPoints" label="Meeting area map" @view="refreshPins" />
+            <PlannerMap ref="mapRef" :people="mapPeople" :area="settled && !loading ? settled.area : null" :finding="loading" spokes :keep="settled ? [] : keepPoints" :fit-to="settled ? 'all' : mapFit" label="Meeting area map" @view="refreshPins" />
             <SpotPins v-if="!settled && spotList.length" ref="pinsRef" :spots="spotList" :session="session" :selected-id="shown || ''" :confirmed-id="confirmedId" :project="projectPoint" :names="nameOf" :my-id="myId" :is-host="isHost" @select="picked = $event" />
             <div v-if="loading" class="map-wait map-wait--finding title-sm" role="status">Finding the meeting point… {{ Math.round(loadPct) }}%</div>
             <!-- Confirming the meeting spot, once it has taken 600 ms: a spinner over the map only (the list view says it on the buttons). -->
