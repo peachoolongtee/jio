@@ -517,6 +517,8 @@ async function showUnconfirmed(on) {
 const needLabel = (need) => DIETARY_OPTIONS.find((o) => o.value === need)?.label ?? need
 // The change being saved, { mine, dropped }, or null. The tags and chips show it at once, while the places load behind them.
 const pendingDiet = ref(null)
+// Whether a chip change is being saved: the chips are off until it ends, so two taps never race.
+const dietBusy = ref(false)
 // The person's own needs and the dropped ones as the page shows them: the change being saved, else the outing's.
 const shownMine = computed(() => pendingDiet.value?.mine ?? plan.value?.myDietary ?? [])
 const shownDropped = computed(() => pendingDiet.value?.dropped ?? plan.value?.dietDropped ?? [])
