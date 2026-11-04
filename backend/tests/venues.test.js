@@ -4,7 +4,7 @@ import { test } from 'vitest';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import { fromFrontendVenue, parseHours } from '../src/planner/venue-adapter.js';
-import { loadPlanData, mergeCuratedWithCdc, withEstimatedMrtWalk, dropKnownPlaces, carryOverFromCdcSite } from '../src/db/venues.js';
+import { loadPlanData, mergeCuratedWithCdc, withEstimatedMrtWalk, dropKnownPlaces, carryOverFromCdcSite, markCheckedVegan, VEGAN_CHECKED } from '../src/db/venues.js';
 import { converge, roam, searchVenues } from '../src/planner/engine.js';
 import { isOpenAt, filterByConstraints, needsVerification } from '../src/planner/filters.js';
 import { fromOneMapRow } from '../src/planner/onemap-adapter.js';
@@ -352,4 +352,19 @@ test('the curated file is what the builder makes from the frontend list: a hand 
     'tiong-bahru-market': [2, '2026-10-18'], 'maxwell-food-centre': [1, '2026-10-18'], 'chinatown-complex': [1, '2026-10-18'],
     'newton-food-centre': [9, '2026-10-18'], 'serangoon-garden-market': [3, '2026-10-18'], 'kovan-209-market': [1, '2026-10-18'],
   });
+});
+
+test('the seven places checked for vegan food are vegan likely, and a vegan group is offered them', () => {
+  // The places in docs/dietary/vegan-check-2026-11-03.md: none was vegan before, since no CDC name says so.
+  const data = loadPlanData({ fresh: true, includeFictional: false });
+  const vegan = data.venues.filter((v) => v.category === 'eat' && v.diet?.vegan === 'likely');
+  assert.deepStrictEqual(vegan.map((v) => v.id).sort(), [...VEGAN_CHECKED.ids].sort());
+  for (const v of vegan) assert.deepStrictEqual([v.dataQuality.veganSource, v.dataQuality.veganChecked], ['checked', '2026-11-03']);
+  // A place known better keeps its level, and a place not on the list is left alone.
+  assert.strictEqual(markCheckedVegan({ id: 'cdc_678051', diet: { vegan: 'full' } }).diet.vegan, 'full');
+  const other = { id: 'cdc_000000', diet: { vegan: 'unknown' } };
+  assert.strictEqual(markCheckedVegan(other), other);
+  // The strict food filter keeps them for a vegan.
+  const { passed } = filterByConstraints(vegan, { ...strictHalal, members: [{ id: 'a', dietary: ['vegan'] }] });
+  assert.strictEqual(passed.length, vegan.length);
 });

@@ -77,9 +77,9 @@ async function go() {
 
 <template>
   <div v-if="mayChange" class="change-plan">
-    <AppButton variant="secondary" small class="change-plan__button" data-testid="change-plan" @click="open">
+    <AppButton variant="secondary" small class="change-plan__button" :aria-label="CHANGE_PLAN.button" :title="CHANGE_PLAN.button" data-testid="change-plan" @click="open">
       <AppIcon name="edit" :size="16" />
-      {{ CHANGE_PLAN.button }}
+      <span class="change-plan__word">{{ CHANGE_PLAN.button }}</span>
     </AppButton>
 
     <!-- Escape and the backdrop are ignored while "Choose places again" runs: the plan would still open, the page would jump, and a failure would land on a closed dialog. -->
@@ -118,6 +118,11 @@ async function go() {
 <style scoped>
 .change-plan { display: flex; justify-content: flex-end; }
 .change-plan__button { min-height: var(--tap-min); gap: var(--spacing-sm); }
+/* Phones: in the header beside Hold to cancel there is room only for the pencil, a round button; its name stays its label and tooltip. */
+@media (max-width: 743.98px) {
+  .change-plan__button { width: var(--tap-min); min-width: var(--tap-min); padding: 0; }
+  .change-plan__word { display: none; }
+}
 .change-plan__choices { display: flex; flex-direction: column; gap: var(--spacing-sm); }
 /* Each choice is one button, as tall as its words; 44px at least. */
 .change-plan__choice {

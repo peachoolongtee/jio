@@ -186,6 +186,45 @@ export function optionRow(category, r, { source = 'planner', addedBy = null } = 
   return { category, venue_id: r.venueId, rank: Number.isInteger(r.rank) ? r.rank : null, score: finiteOrNull(r.score), source, added_by: addedBy, details: optionDetails(r) }
 }
 
+// A saved place Jio does not know, as a place in a vote: its copy is kept in the option's details, where every member reads it, and nowhere else. Its
+// words are the person's or the post's, and Google's terms allow keeping the place id. The planner never ranks it, so it has no rank or score.
+const SAVED_ID = 'saved_'
+// How to call: isSavedPlaceId('saved_7f3c') -> true
+export const isSavedPlaceId = (id) => String(id ?? '').startsWith(SAVED_ID)
+
+// The id a saved place has in a vote. How to call: savedPlaceId({ id: '7f3c' }) -> 'saved_7f3c'
+export const savedPlaceId = (saved) => (isSavedPlaceId(saved.id) ? saved.id : `${SAVED_ID}${saved.id}`)
+
+// May this copy need checking against the group's needs? Its dietary levels are not known. `checkNeeds` names no need, and only food and drink are checked.
+const savedNeedsCheck = (category, needs) => (category === 'eat' || category === 'drink') && needs.some((n) => (n.dietary ?? []).length > 0)
+
+// The option row of a saved place's copy. One with no pin stands at the meeting area, for the travel times, and `noPin` keeps it off the map.
+//
+// How to call:
+//   savedOptionRow({ id: '7f3c', name: 'Nylon', category: 'drink', address: null, lat: null, lng: null, rough: false, googlePlaceId: null }, { addedBy, centre, needs })
+export function savedOptionRow(saved, { addedBy, centre, needs = [] }) {
+  const noPin = saved.lat == null
+  const id = savedPlaceId(saved)
+  const place = { ...saved, id, lat: noPin ? centre.lat : saved.lat, lng: noPin ? centre.lng : saved.lng, ...(noPin ? { noPin: true } : {}) }
+  return {
+    category: saved.category,
+    venue_id: id,
+    rank: null,
+    score: null,
+    source: 'member',
+    added_by: addedBy,
+    details: { place, reasons: [], warnings: [], approximate: !!saved.rough, ...(savedNeedsCheck(saved.category, needs) ? { checkNeeds: true } : {}) },
+  }
+}
+
+// The same row brought up to date when a slot is worked out again: a place with no pin follows the meeting area, and the needs may have changed.
+//
+// How to call: refreshedSavedRow(option, { centre, needs })
+export function refreshedSavedRow(option, { centre, needs }) {
+  const { noPin, ...place } = option.details.place
+  return { ...savedOptionRow(noPin ? { ...place, lat: null, lng: null } : place, { addedBy: option.added_by, centre, needs }), source: option.source }
+}
+
 // The forecast the ranking was scored on, in the few fields a card needs to say so.
 //
 // How to call:

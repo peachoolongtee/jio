@@ -236,7 +236,6 @@ async function confirmDelete() {
 
         <PolaroidLine v-model:index="current" class="rise" :photos="prints" label="Photos from the day" @open="openPhoto($event, 'line')" />
         <div class="gallery__line">
-          <p class="caption text-muted">Select the photo in the middle, or any photo below, to open it larger.</p>
           <AppButton variant="secondary" small data-testid="share-current" @click="share(ordered[current])">
             <AppIcon name="share" :size="16" />
             Share this photo

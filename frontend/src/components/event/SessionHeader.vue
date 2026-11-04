@@ -17,6 +17,7 @@ import ModalDialog from '../ui/ModalDialog.vue'
 import CountdownChip from '../ui/CountdownChip.vue'
 import SessionSteps, { backFor } from './SessionSteps.vue'
 import InviteDialog from '../group/InviteDialog.vue'
+import ChangePlan from './ChangePlan.vue'
 import { CANCEL_OUTING, dateLine } from '@/lib/session.js'
 import { exitFor, goBackIfBehind } from '@/lib/stepNav.js'
 import { useAuthStore } from '@/stores/auth.js'
@@ -28,6 +29,9 @@ const props = defineProps({
   title: { type: String, default: '' },
   // Where the back arrow goes. Leave it out and it follows the steps (backFor).
   back: { type: String, default: '' },
+  // "Change plan" beside Hold to cancel, on every session page where it applies (Darius, 4 November 2026); ChangePlan itself decides when
+  // (the host, while voting or confirmed). False hides it, as on the Vote page while one stop is being replaced.
+  changePlan: { type: Boolean, default: true },
 })
 
 const route = useRoute()
@@ -37,6 +41,8 @@ const auth = useAuthStore()
 const cancelOpen = ref(false)
 const inviteOpen = ref(false)
 const busy = ref(false)
+// The column of cards over a full-screen map, hidden by the tab beside it. Each page opens with it shown.
+const panelHidden = ref(false)
 
 const status = computed(() => props.session.status)
 const back = computed(() => (props.back ? { label: 'Back', to: props.back } : backFor(props.session, route.fullPath, props.session.hostId === auth.myId, exitFor())))
@@ -54,26 +60,37 @@ async function cancelSession() {
 </script>
 
 <template>
-  <header class="screen__header session-head">
+  <header class="screen__header session-head" :class="{ 'is-panel-hidden': panelHidden }">
     <div class="screen__bar">
       <IconButton :label="back.label" :to="back.to" @click.capture="goBackIfBehind($event, router, back.to)"><AppIcon name="back" /></IconButton>
       <span class="session-head__actions">
         <!-- Screen-specific icon actions, for example Map and Edit on the itinerary. -->
         <slot name="actions" />
+        <ChangePlan v-if="changePlan" class="session-head__change" :session="session" />
         <IconButton v-if="canInvite" label="Invite friends" @click="inviteOpen = true"><AppIcon name="user-plus" /></IconButton>
-        <HoldButton v-if="canCancel" :label="CANCEL_OUTING.hold" :action="CANCEL_OUTING.action" @done="cancelOpen = true" />
+        <HoldButton v-if="canCancel" :label="CANCEL_OUTING.hold" short="Cancel" :action="CANCEL_OUTING.action" @done="cancelOpen = true" />
         <span v-else-if="!$slots.actions" class="session-head__spacer" />
       </span>
     </div>
-    <!-- The steps come before the title, so they are in the same place on every session screen whatever the title's length. -->
-    <SessionSteps :session="session" />
-    <div class="screen__titles">
-      <h1 class="display-xl clamp-2">{{ title || session.title }}</h1>
-      <p class="session-head__meta">
-        <span class="body-sm text-muted tnum">{{ title ? session.title : dateLine(session) }}</span>
-        <CountdownChip :session="session" />
-      </p>
+    <!-- The steps come before the title, so they are in the same place on every session screen whatever the title's length. Both sit in
+         one box: a plain column here, and on a map-first page (Locate, the itinerary, from 1128px) a card floating at the top left of the
+         full-screen map, the title first (app.css). -->
+    <div class="session-head__card">
+      <SessionSteps :session="session" />
+      <div class="screen__titles">
+        <h1 class="display-xl clamp-2">{{ title || session.title }}</h1>
+        <p class="session-head__meta">
+          <span class="body-sm text-muted tnum">{{ title ? session.title : dateLine(session) }}</span>
+          <CountdownChip :session="session" />
+        </p>
+      </div>
     </div>
+
+    <!-- On a map-first page from 1128px (Locate, Vote, the itinerary, What next), a tab at the side of the column of cards hides them, sliding
+         off to the right, and brings them back (Darius, 4 November 2026). Nowhere else is it shown (app.css "Map-first pages"). -->
+    <button type="button" class="session-head__panel" :aria-label="panelHidden ? 'Show details' : 'Hide details'" :title="panelHidden ? 'Show details' : 'Hide details'" :aria-expanded="panelHidden ? 'false' : 'true'" data-testid="map-panel-toggle" @click="panelHidden = !panelHidden">
+      <AppIcon name="chevron-right" :size="18" />
+    </button>
 
     <InviteDialog v-model:open="inviteOpen" :session="session" />
 
@@ -86,7 +103,10 @@ async function cancelSession() {
 </template>
 
 <style scoped>
+.session-head__card { display: flex; flex-direction: column; gap: var(--spacing-sm); min-width: 0; }
 .session-head__spacer { width: var(--tap-min); }
 .session-head__actions { display: flex; align-items: center; gap: var(--spacing-sm); }
+/* The narrowest phones: closer together, so Change plan, Invite and Hold to cancel all fit beside the back arrow. */
+@media (max-width: 359.98px) { .session-head__actions { gap: var(--spacing-xxs); } }
 .session-head__meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-sm); }
 </style>

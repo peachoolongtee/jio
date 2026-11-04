@@ -8,7 +8,8 @@
 // readers; these buttons are the way in.
 // pins: [{ id, lat, lng, offset: { x, y }, label, name }] (lib/homeMeetups.js pinsFor, with a label and a name added).
 // label: the short word on the pin ("Sat"). name: what a screen reader says (title, area and date).
-// The selected pin is bigger, filled red, white inside and bobbing, so it differs from the rest by more than colour.
+// The selected pin is bigger, filled red, white inside and bobbing, so it differs from the rest by more than colour. While none is
+// selected, every pin hops slowly, each at its own moment, so the map invites a tap (Darius, 4 November 2026).
 // A pin stays inside the box (its tip is moved in from the edge if its area is near it).
 // The popover (MeetupSummary, compact), one at a time, never changes the selection (clicking a pin does):
 //   a mouse      hover for 120 ms; it stays while the pointer is on the pin or the card, and closes 150 ms after leaving
@@ -33,6 +34,8 @@ const props = defineProps({
   selectedId: { type: String, default: '' },
   center: { type: Object, required: true },
   span: { type: Array, required: true },
+  // No popover on the selected pin, for a screen that already shows the selected meetup's card beside the map (Home).
+  quietSelected: { type: Boolean, default: false },
 })
 const emit = defineEmits(['select', 'drawn'])
 
@@ -47,9 +50,10 @@ const layer = ref(null)
 const cardId = (id) => `${uid}-card-${id}`
 const byId = computed(() => Object.fromEntries(props.meetups.map((m) => [m.id, m])))
 
-// How pins stand in a row: 58px apart, so the selected pin, drawn 1.2 times larger (60px), still clears its neighbours, and a pin's
-// width and height for telling when two would overlap.
-const ROW = { fan: 58, width: 60, height: 76 }
+// How pins near each other stand: 76px apart and scattered a little up and down (lib/homeMeetups.js layoutPins, Darius, 4 November 2026:
+// spread out, not on one line), so even with the sideways jitter neighbours are at least 65px apart and the selected pin, drawn 1.2 times
+// larger, still clears them; and a pin's width and height for telling when two would overlap.
+const ROW = { fan: 76, width: 60, height: 76, scatter: true }
 // Map units per degree (lib/singaporeDots.js project: x grows with longitude, y falls with latitude).
 const UNITS_PER_DEGREE = 1000
 // How far a pin's tip stays from the box's sides, in px (the clamp in .mwrap's CSS).
@@ -91,9 +95,9 @@ const placed = computed(() => {
   })
   const k = scale.value
   const moves = k ? layoutPins(shown.map((s) => ({ id: s.pin.id, x: s.dx * k, y: s.dy * k })), { ...ROW, maxX: box.value.width / 2 - EDGE_PX }) : null
-  return shown.map(({ pin, dx, dy }) => {
+  return shown.map(({ pin, dx, dy }, index) => {
     const move = moves ? moves.get(pin.id) : { x: pin.offset?.x || 0, y: pin.offset?.y || 0 }
-    return { ...pin, style: { '--dx': dx, '--dy': dy, '--ox': move.x, '--oy': move.y } }
+    return { ...pin, style: { '--dx': dx, '--dy': dy, '--ox': move.x, '--oy': move.y, '--n': index } }
   })
 })
 const frame = computed(() => ({ '--w': props.span[0], '--h': props.span[1] }))
@@ -108,6 +112,8 @@ watch(placed, (list) => {
 
 // ── The popover ──
 const openId = ref('')
+// The card on screen: the open one, unless it is the selected pin's and that one is kept quiet.
+const shownId = computed(() => (props.quietSelected && openId.value === props.selectedId ? '' : openId.value))
 const placement = ref(null)
 let hoverId = ''
 let focusId = ''
@@ -158,7 +164,7 @@ function onFocusOut(id, event) {
   settle()
 }
 function onKeydown(event) {
-  if (event.key !== 'Escape' || !openId.value) return
+  if (event.key !== 'Escape' || !shownId.value) return
   hide()
   // Back to the pin without reopening the card that focus would otherwise open.
   quiet = true
@@ -213,16 +219,21 @@ async function place(id) {
   placement.value = { side: spot.side, left: spot.left - tip.x, top: spot.top - tip.y, caret: spot.caret }
 }
 // Again when the pin's selection changes: a selected pin is bigger, so its card must clear it.
-watch([openId, () => props.selectedId], ([id]) => place(id))
+watch([shownId, () => props.selectedId], ([id]) => place(id))
 // A pin that goes away (the meetup finished) takes its card with it.
 watch(placed, (list) => { if (openId.value && !list.some((p) => p.id === openId.value)) hide() })
 const cardStyle = computed(() => (placement.value ? { left: `${placement.value.left}px`, top: `${placement.value.top}px`, '--caret': `${placement.value.caret}px` } : { visibility: 'hidden' }))
 
+// The pins' one hop: on for the first moments after the map is drawn, then off, so it never plays again while Home is open.
+const hello = ref(true)
+let helloTimer = 0
 onMounted(() => {
+  helloTimer = setTimeout(() => (hello.value = false), 2500)
   document.addEventListener('pointerdown', onOutside)
   window.addEventListener('resize', hide)
 })
 onBeforeUnmount(() => {
+  clearTimeout(helloTimer)
   clearTimers()
   document.removeEventListener('pointerdown', onOutside)
   window.removeEventListener('resize', hide)
@@ -230,13 +241,13 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="layer" class="pins" :style="frame" role="group" aria-label="Meetups on the map">
+  <div ref="layer" class="pins" :class="{ 'is-hello': hello, 'is-idle': !selectedId && !hello }" :style="frame" role="group" aria-label="Meetups on the map">
     <!-- Each wrapper is a point (the pin's tip) that holds the pin and, while open, its card, so the card follows the pin in the tab order. -->
     <div
       v-for="pin in placed"
       :key="pin.id"
       class="mwrap"
-      :class="{ 'is-selected': pin.id === selectedId, 'is-open': pin.id === openId }"
+      :class="{ 'is-selected': pin.id === selectedId, 'is-open': pin.id === shownId }"
       :style="pin.style"
       @pointerenter="onEnter(pin.id, $event)"
       @pointerleave="onLeave(pin.id, $event)"
@@ -249,7 +260,7 @@ onBeforeUnmount(() => {
         class="mpin"
         :aria-label="pin.name"
         :aria-pressed="pin.id === selectedId"
-        :aria-describedby="pin.id === openId ? cardId(pin.id) : undefined"
+        :aria-describedby="pin.id === shownId ? cardId(pin.id) : undefined"
         @click="onPinClick(pin, $event)"
       >
         <span class="mpin__body">
@@ -264,7 +275,7 @@ onBeforeUnmount(() => {
         <span class="mpin__shadow" aria-hidden="true" />
       </button>
       <Transition name="mcard">
-        <div v-if="pin.id === openId" :id="cardId(pin.id)" class="mcard" :data-side="placement?.side" :style="cardStyle">
+        <div v-if="pin.id === shownId" :id="cardId(pin.id)" class="mcard" :data-side="placement?.side" :style="cardStyle">
           <MeetupSummary compact :meetup="byId[pin.id]" :my-id="myId" :names="names" />
         </div>
       </Transition>
@@ -326,7 +337,18 @@ onBeforeUnmount(() => {
 .is-selected .mpin .mpin__bob { animation: meetup-pin-bob 2.8s ease-in-out infinite; }
 .is-selected .mpin .mpin__shadow { animation: meetup-pin-bob-shadow 2.8s ease-in-out infinite; }
 @keyframes meetup-pin-bob { 50% { transform: translateY(-10px); } }
+/* A pin that is not selected gives one small hop when it first appears, one after another, so a person new to Home sees the pins can be
+   tapped (Darius, 4 November 2026). Once only: it is the pin's first draw. */
+.pins.is-hello .mwrap:not(.is-selected) .mpin__bob { animation: meetup-pin-hello 700ms cubic-bezier(0.34, 1.56, 0.64, 1); animation-delay: calc(400ms + var(--n, 0) * 90ms); }
+@keyframes meetup-pin-hello { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-14px); } }
 @keyframes meetup-pin-bob-shadow { 50% { transform: translateX(-50%) scale(0.75); opacity: 0.55; } }
+/* Nothing selected yet (after the first hops): every pin hops slowly and softly, out of step with the others, its shadow shrinking as it
+   rises. A pin under the pointer, or with focus, keeps still. */
+.pins.is-idle .mwrap .mpin__bob { animation: meetup-pin-idle 3.6s ease-in-out infinite; animation-delay: calc(var(--n, 0) * -1.3s); }
+.pins.is-idle .mwrap .mpin__shadow { animation: meetup-pin-idle-shadow 3.6s ease-in-out infinite; animation-delay: calc(var(--n, 0) * -1.3s); }
+.pins.is-idle .mwrap:is(:hover, :focus-within) :is(.mpin__bob, .mpin__shadow) { animation-play-state: paused; }
+@keyframes meetup-pin-idle { 0%, 55%, 100% { transform: translateY(0); } 25% { transform: translateY(-9px); } 40% { transform: translateY(-1px); } }
+@keyframes meetup-pin-idle-shadow { 0%, 55%, 100% { transform: translateX(-50%) scale(1); } 25% { transform: translateX(-50%) scale(0.8); opacity: 0.6; } }
 @media (hover: hover) {
   .mwrap:not(.is-selected) .mpin:hover .mpin__body { transform: translateY(-3px) scale(1.06); }
 }
@@ -347,6 +369,6 @@ onBeforeUnmount(() => {
 @media (prefers-reduced-motion: reduce) {
   .mcard-enter-active, .mcard-leave-active { transition: none; }
   .mpin__body, .mpin__shape path { transition: none; }
-  .is-selected .mpin .mpin__bob, .is-selected .mpin .mpin__shadow { animation: none; }
+  .is-selected .mpin .mpin__bob, .is-selected .mpin .mpin__shadow, .pins.is-hello .mwrap:not(.is-selected) .mpin__bob, .pins.is-idle .mwrap :is(.mpin__bob, .mpin__shadow) { animation: none; }
 }
 </style>

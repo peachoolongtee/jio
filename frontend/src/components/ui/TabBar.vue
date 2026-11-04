@@ -15,6 +15,8 @@ import { ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 import JioLogo from './JioLogo.vue'
+import RainbowButton from './RainbowButton.vue'
+import AddFriends from '../home/AddFriends.vue'
 import { enterGame } from '@/lib/enterGame.js'
 
 defineProps({
@@ -77,6 +79,12 @@ async function go(to) {
       <span v-if="tab.name" class="tabbar__label tabbar__label--long" aria-hidden="true"><span>{{ tab.name }}</span></span>
     </RouterLink>
     </template>
+    <!-- From 1024px: Add friends and Find places from a post, just before Create, so they are on screen on every page (Darius, 4 November
+         2026; narrower, they are pinned on Home instead). -->
+    <div class="tabbar__tools">
+      <AddFriends />
+      <RainbowButton label="Find places from a post" to="/places/from-post" icon="sparkles" data-testid="topbar-post-places" />
+    </div>
   </nav>
 </template>
 
@@ -144,8 +152,8 @@ async function go(to) {
   .tabbar__tab { min-width: 40px; padding: 0 var(--spacing-sm); }
 }
 
-/* Only the wide bar shows the wordmark and Create's longer name. */
-.tabbar__brand, .tabbar__label--long { display: none; }
+/* Only the wide bar shows the wordmark, Create's longer name, and the two tools. */
+.tabbar__brand, .tabbar__label--long, .tabbar__tools { display: none; }
 
 /* Tablet and up: a full-width bar along the top. The wordmark on the left, the tabs beside it with their names,
    and Create as a Rausch button pushed to the right. */
@@ -175,8 +183,10 @@ async function go(to) {
   .tabbar__tab:not(.is-active):not(.is-create) { color: var(--body); }
   .tabbar__label, .tabbar__tab.is-active .tabbar__label { grid-template-columns: 1fr; max-width: none; margin-left: var(--spacing-sm); opacity: 1; transition: none; }
   .tabbar__label > span { font: var(--text-nav-link); font-size: 15px; }
-  /* Create: last, on the right, as a Rausch button with its full name. */
-  .tabbar__tab.is-create { order: 1; margin-left: auto; padding: 0 var(--spacing-lg) 0 var(--spacing-base); }
+  /* Create: last, on the right after the tools, as a Rausch button with its full name. */
+  .tabbar__tab.is-create { order: 2; margin-left: var(--spacing-sm); padding: 0 var(--spacing-lg) 0 var(--spacing-base); }
+  /* Create comes after the tools when they are there, so it is pushed right on its own until then. */
+  .tabbar__tab.is-create { margin-left: auto; }
   .tabbar__tab.is-create .tabbar__label:not(.tabbar__label--long) { display: none; }
   .tabbar__tab.is-create .tabbar__label--long { display: grid; }
 }
@@ -188,6 +198,15 @@ async function go(to) {
   .tabbar__tab.is-create { padding: 0 var(--spacing-base) 0 var(--spacing-md); }
   .tabbar__tab.is-create .tabbar__label:not(.tabbar__label--long) { display: grid; }
   .tabbar__tab.is-create .tabbar__label--long { display: none; }
+}
+
+/* From 1024px, where the bar has room for them: the tools, two round buttons pushed to the right, just before Create. Narrower bars
+   have them pinned on Home instead (LandingView). */
+@media (min-width: 1024px) {
+  .tabbar__tools { order: 1; display: flex; align-items: center; gap: var(--spacing-sm); margin-left: auto; }
+  .tabbar__tab.is-create { margin-left: var(--spacing-sm); }
+  .tabbar__tools :deep(.rb) { --rb-size: 40px; }
+  .tabbar__tools :deep(.add-friends) { width: 40px; height: 40px; box-shadow: none; }
 }
 
 /* Create is a button, not a link: it plays the move before it goes. */

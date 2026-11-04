@@ -3,7 +3,7 @@
 // All of it takes plain session summaries (lib/api.js), so it is tested without a browser.
 import { addDays, differenceInCalendarDays, format, isValid, parseISO, startOfWeek } from 'date-fns'
 import { proposalsOf } from './roam.js'
-import { isPaused, overdueOuting, sessionPath, singaporeDate } from './session.js'
+import { isPaused, overdueOuting, sessionPath, singaporeDate, startsIn } from './session.js'
 
 // How far apart, in px, pins that share a meeting area are drawn, so each one can still be tapped (a pin is 48px
 // wide). They fan out sideways around the area, centred on it.
@@ -47,14 +47,24 @@ export function selectMeetup(meetups, id) {
   return meetups.find((m) => m.id === wanted) || meetups[0] || null
 }
 
-// The short word on a pin: "Today", a weekday inside the coming week ("Sat"), otherwise the date ("24 Oct").
+// The meetup Home opens on its map (the lead's flow of 4 November 2026): the one the URL names, if it is listed; otherwise the first one
+// happening right now, which opens by itself, unless the person has closed it; otherwise none, and Home is the map alone.
+// How to call: homeSelection(meetups, route.query.meetup, new Date(), { liveDismissed: false }) -> a meetup, or null
+export function homeSelection(meetups, id, now = new Date(), { liveDismissed = false } = {}) {
+  const wanted = Array.isArray(id) ? id[0] : id
+  const named = wanted ? meetups.find((m) => m.id === wanted) : null
+  if (named) return named
+  if (liveDismissed) return null
+  return meetups.find((m) => startsIn(m, now)?.tone === 'live') || null
+}
+
+// The short word on a pin and on a list row: "Today", otherwise the weekday and the day of the month ("Thu 12"), the same for every
+// other day so the pins read alike (Darius, 4 November 2026; days inside the coming week were the weekday alone, "Sat").
 // How to call: dayLabel({ date: '2026-10-10' }, new Date()) -> 'Today'
 export function dayLabel(session, now = new Date()) {
   const day = parseISO(dayOf(session, now))
   if (!isValid(day)) return ''
-  const away = differenceInCalendarDays(day, parseISO(singaporeDate(now)))
-  if (away === 0) return 'Today'
-  return away > 0 && away < 7 ? format(day, 'EEE') : format(day, 'd MMM')
+  return differenceInCalendarDays(day, parseISO(singaporeDate(now))) === 0 ? 'Today' : format(day, 'EEE d')
 }
 
 // "Sat 10 Oct · 15:00", with whatever part is missing left out.
@@ -187,13 +197,18 @@ export function pinsFor(meetups) {
 // back inside. A row that overlaps another group's pin joins that group, until nothing overlaps. Returns each pin's move from its real
 // spot, in px; a pin with no neighbours stays where it is.
 // How to call: layoutPins([{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 10, y: 0 }]) -> Map { 'a' => { x: -24, y: 0 }, 'b' => { x: 24, y: 0 } }
-export function layoutPins(points, { width = 52, height = 66, fan = FAN_PX, maxX = Infinity } = {}) {
+// scatter (Darius, 4 November 2026): a group is not a straight row but a loose cluster, each pin a little up or down and a little off its
+// even spacing, by fixed amounts in list order (SCATTER), so it looks natural and never changes between draws. The sideways jitter is
+// never more than `fan - width` between neighbours, so pins still do not cover each other.
+const SCATTER = [{ x: 0, y: 0 }, { x: 6, y: 30 }, { x: -4, y: -20 }, { x: 5, y: 22 }, { x: -6, y: -32 }, { x: 4, y: 12 }, { x: -3, y: 36 }, { x: 6, y: -10 }]
+export function layoutPins(points, { width = 52, height = 66, fan = FAN_PX, maxX = Infinity, scatter = false } = {}) {
   let groups = points.map((p) => [p])
   const place = (group) => {
     if (group.length === 1) return [{ id: group[0].id, x: group[0].x, y: group[0].y }]
     const x = group.reduce((t, p) => t + p.x, 0) / group.length
     const y = group.reduce((t, p) => t + p.y, 0) / group.length
-    const spots = group.map((p, i) => ({ id: p.id, x: x + (i - (group.length - 1) / 2) * fan, y }))
+    const nudge = (i) => (scatter ? SCATTER[i % SCATTER.length] : { x: 0, y: 0 })
+    const spots = group.map((p, i) => ({ id: p.id, x: x + (i - (group.length - 1) / 2) * fan + nudge(i).x, y: y + nudge(i).y }))
     const low = Math.min(...spots.map((p) => p.x))
     const high = Math.max(...spots.map((p) => p.x))
     const shift = high > maxX ? maxX - high : low < -maxX ? -maxX - low : 0

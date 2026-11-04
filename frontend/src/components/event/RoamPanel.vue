@@ -12,13 +12,13 @@
 //   - A card's name, photo or review line opens the place's detail (the Vote page's), with no planner request.
 //   - Chips narrow the list to one kind of place (All, Eat, Drink, Shop, Activity).
 //   - Each place is the voting page's card (SuggestionCard) with how far it is, why it was chosen and a rain mark. Its foot
-//     is a tick to propose it, for anyone in the meetup; a place that is proposed says by whom ("Proposed by you" with a
-//     cross to take it back, or "Proposed by Faith"), a place already in the plan says "In the plan". The tick and the cross
-//     carry their words for screen readers only. The host adds a proposal to the plan on the itinerary. Just after a tick, one
+//     is a + to propose it, for anyone in the meetup; a place that is proposed says by whom ("Proposed by you" with a
+//     cross to take it back, or "Proposed by Faith"), a place already in the plan says "In the plan". The + and the cross
+//     carry their words for screen readers only. The host adds a proposal to the plan on the itinerary. Just after a +, one
 //     visible line under the card says what happens next ("Proposed. Add it to the plan above", with a button that moves focus to
 //     the proposal for the host; "Proposed. Faith decides" for a guest).
 //   - The map beside the list (List / Map on a phone, as on the Vote page) shows the places as category dots around the centre.
-//     Pressing a dot opens a small card of the place with the same tick or cross, so a place can be proposed from the map.
+//     Pressing a dot opens a small card of the place with the same + or cross, so a place can be proposed from the map.
 //   - Loading, empty ("Nothing nearby fits"), the planner being unreachable (with Retry) and "not open yet" each have their
 //     own state.
 //   - Weather: the rain mark on a card follows the planner's weather state ("Outdoor, showers"), one muted line under the list
@@ -27,7 +27,7 @@
 //     fit, with no names; when fewer than 3 food places fit, a line offers "Show places we couldn't confirm", each then
 //     labelled on its card. That choice is this person's own, for this panel only.
 //   - Places from Google are never shown here, in the list or on the map: Google's terms do not allow them beside a OneMap map.
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import CategoryIcon from '@/components/ui/CategoryIcon.vue'
@@ -175,6 +175,19 @@ function begin() {
   if (open.value) load()
   else loading.value = false
 }
+// What the floating cards cover of the full-screen map from 1128px (app.css "Map-first pages"): the header's card at the top, the column of
+// cards on the right (460 px wide) and the button at the foot, so the map frames the places in the rest. Nothing below 1128px.
+const mapCover = ref({})
+// Sets mapCover for the window's width. How to call: syncCover()
+function syncCover() {
+  const wide = (globalThis.innerWidth || 0) >= 1128
+  mapCover.value = wide ? { top: 170, right: 460 + 48, bottom: 72 } : {}
+}
+onMounted(() => {
+  syncCover()
+  globalThis.addEventListener?.('resize', syncCover)
+})
+onBeforeUnmount(() => globalThis.removeEventListener?.('resize', syncCover))
 onMounted(begin)
 watch(() => session.value?.id, (now, was) => {
   if (now === was) return
@@ -309,8 +322,9 @@ async function act(place, action) {
 // How to call: actionFor(place) -> { kind: 'free', tag: '', button: 'Propose', ... }
 const actionFor = (place) => placeAction(place, { myId: myId.value, blocked: blocked.value })
 // The symbol on a place's button: a tick to propose it, a cross to take it back.
-// How to call: symbolOf({ kind: 'free' }) -> 'check'
-const symbolOf = (action) => (action.kind === 'free' ? 'check' : 'close')
+// Proposing a place is a + (Darius, 4 November 2026; it was a tick); taking a proposal back is a cross.
+// How to call: symbolOf({ kind: 'free' }) -> 'plus'
+const symbolOf = (action) => (action.kind === 'free' ? 'plus' : 'close')
 // The line under a place's card after a press on it, or null when there is none (or it is no longer true of the place).
 // How to call: resultFor(place) -> { text: 'Proposed. Add it to the plan above.', go: 'above' }
 const resultFor = (place) => (result.value && result.value.placeId === place.id && result.value.expects === place.state ? result.value : null)
@@ -369,7 +383,7 @@ async function goToProposal(place) {
       <p v-if="actionError" class="body-sm text-error" role="alert" data-testid="roam-error">{{ actionError }}</p>
       <p v-if="blocked && !loading && !loadError" id="roam-blocked" class="body-sm text-muted" data-testid="roam-blocked">{{ blocked }}</p>
 
-      <SplitView v-model:view="view" label="Places nearby" even>
+      <SplitView v-model:view="view" class="roam-split" label="Places nearby" even map-first>
         <template #list>
           <div v-if="loading" class="stack gap-md" aria-hidden="true" data-testid="roam-loading">
             <SkeletonRow v-for="n in 3" :key="n" avatar :lines="3" />
@@ -410,7 +424,7 @@ async function goToProposal(place) {
         </template>
 
         <template #map>
-          <PlannerMap :area="mapCentre" :places="mapPlaces" :selected="selected" label="Places nearby map" @select="selected = $event" />
+          <PlannerMap :cover="mapCover" :area="mapCentre" :places="mapPlaces" :selected="selected" label="Places nearby map" @select="selected = $event" />
           <CategoryKey :categories="mapPlaces.map((p) => p.category)" />
           <div v-if="selectedPlace" class="pin-card" role="dialog" :aria-label="selectedPlace.venue.name" data-testid="roam-pin-card">
             <div class="pin-card__row">

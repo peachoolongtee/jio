@@ -78,6 +78,8 @@ test.describe('Home, "Already out?" and finishing an outing', () => {
     test.setTimeout(120_000)
     await signInDemo(page, { showcase: true })
     await expect(page.getByRole('radio', { name: 'All, 9 meetups' })).toBeVisible()
+    // Home opens on the map alone; List shows the rows.
+    await page.getByTestId('home-list-toggle').click()
     await expect(page.getByRole('button', { name: /^Chinatown makan crawl Wed 4 Nov/ })).toBeVisible()
 
     // 1. Open today's outing and finish it. The pointer can be left resting on a map pin, whose popover carries a second

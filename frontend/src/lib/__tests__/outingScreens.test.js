@@ -7,7 +7,7 @@ import { loadApi, stubPlanner } from './planFixture.js'
 import { mountScreen, until } from './domless.js'
 import { NO_COINS } from '../session.js'
 
-const planner = vi.hoisted(() => ({ api: { defaults: {} }, meetingArea: vi.fn(), rankSlot: vi.fn(), searchSlot: vi.fn(), roamNearby: vi.fn(), forecast: vi.fn() }))
+const planner = vi.hoisted(() => ({ api: { defaults: {} }, meetingArea: vi.fn(), rankSlot: vi.fn(), searchSlot: vi.fn(), roamNearby: vi.fn(), forecast: vi.fn(), searchOwnVenues: vi.fn(async () => []), searchAddresses: vi.fn(async () => []) }))
 vi.mock('../plannerApi.js', () => planner)
 vi.mock('@/components/map/PlannerMap.vue', () => ({ default: { render: () => null } }))
 vi.setConfig({ testTimeout: 60000, hookTimeout: 60000 })
@@ -152,13 +152,17 @@ describe('the radius slider', () => {
     expect(slider(view).attrs['aria-valuetext']).toBe('Within 1 km')
     const calls = () => planner.rankSlot.mock.calls.filter(([args]) => args.radiusMeters).map(([args]) => args.radiusMeters)
     const before = calls().length
-    // Dragged through 250 m to 2 km: the words follow at once, and only 2 km is asked for.
+    // Dragged through 250 m to 2 km, with a pause on the way: the words follow at once, nothing is asked for until it is let go, and
+    // then only 2 km.
     view.type('input[type=range]', '1')
     await view.tick()
     expect(slider(view).attrs['aria-valuetext']).toBe('Within 250 m')
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    expect(calls()).not.toContain(250)
     view.type('input[type=range]', '4')
     await view.tick()
     expect(slider(view).attrs['aria-valuetext']).toBe('Within 2 km')
+    slider(view).dispatch('change')
     await until(() => calls().slice(before).includes(2000))
     expect(calls().slice(before)).not.toContain(250)
     await new Promise((resolve) => setTimeout(resolve, 50))
@@ -167,6 +171,23 @@ describe('the radius slider', () => {
     await view.click(auto())
     await until(async () => (await api.getSession(id)).radius == null)
     expect(slider(view).attrs['aria-valuetext']).toBe('Auto')
+  })
+
+  // Faith's recording, 4 November 2026: the save ended before the plan was read again, so the slider showed the old value for half a second.
+  it('never snaps back to the old distance after it is let go, while the plan is read again', async () => {
+    const { view, api, id } = await votingPage()
+    await view.click(view.one('[role=switch]'))
+    await until(async () => (await api.getSession(id)).radius === 1000)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    view.type('input[type=range]', '4')
+    slider(view).dispatch('change')
+    const seen = new Set()
+    const watching = setInterval(() => seen.add(slider(view).attrs['aria-valuetext']), 5)
+    await until(async () => (await api.getSession(id)).radius === 2000)
+    await new Promise((resolve) => setTimeout(resolve, 900))
+    clearInterval(watching)
+    expect([...seen]).toEqual(['Within 2 km'])
+    expect(view.errors).toEqual([])
   })
 })
 
@@ -184,6 +205,129 @@ describe('the search panel, the CDC filters and the one widen line (Faith, 31 Oc
     return { ...t, id, view }
   }
   const names = (view) => view.all('article[data-option]').map((a) => a.attrs['aria-label'])
+
+  // Saved places in the search's panel (Faith, 4 November 2026): only what the post said, and any of them can be added: as Jio's own place when Jio knows it, otherwise as a copy.
+  describe('from your saved list', () => {
+    const open = async (view) => {
+      view.one('[data-testid=place-search]').querySelector('input').dispatch('focusin')
+      await until(() => view.has('[data-testid=saved-row]'))
+    }
+    const SAVED = { name: 'Next Door Cafe', nameEnglish: null, categories: ['eat'], tip: 'Try the paella', locationHint: 'Katong', googlePlaceId: 'g_one', postKey: 'tiktok:1', postUrl: 'https://www.tiktok.com/@a/video/1' }
+
+    it('keeps them in this browser, once each, until removed', async () => {
+      const { api } = await votingPage()
+      expect(await api.listSavedPlaces()).toEqual([])
+      const [row] = await api.savePlaces([SAVED])
+      expect(row.id).toBeTruthy()
+      expect(await api.savePlaces([{ ...SAVED, name: 'Same id, other name' }])).toEqual([])
+      expect(await api.listSavedPlaces()).toHaveLength(1)
+      await api.removeSavedPlace(row.id)
+      expect(await api.listSavedPlaces()).toEqual([])
+    })
+
+    it('lists them above the suggestions with the post\'s words, narrowed by what is typed and the category chosen', async () => {
+      const { view, api } = await votingPage()
+      await api.savePlaces([SAVED, { ...SAVED, name: 'Bugis Bar', categories: ['drink'], googlePlaceId: 'g_two', locationHint: 'Bugis' }])
+      planner.searchSlot.mockImplementation(async () => [])
+      await open(view)
+      const rows = () => view.all('[data-testid=saved-row]').map((r) => view.text(r))
+      expect(rows().some((r) => r.includes('Next Door Cafe') && r.includes('Eat · Katong'))).toBe(true)
+      expect(rows().some((r) => r.includes('Bugis Bar'))).toBe(true)
+      view.type('input[type=search]', 'katong')
+      await until(() => rows().length === 1)
+      expect(rows()[0]).toContain('Next Door Cafe')
+      expect(view.errors).toEqual([])
+    })
+
+    it('adds one Jio knows, by its own place', async () => {
+      const { view, api, id } = await votingPage()
+      const { VENUES } = await import('../mock/venues.js')
+      const venue = VENUES.filter((v) => v.category === 'eat')[5]
+      await api.savePlaces([{ ...SAVED, name: venue.name.toUpperCase() }])
+      planner.searchSlot.mockImplementation(async () => [])
+      planner.searchOwnVenues.mockImplementation(async () => [{ id: venue.id, name: venue.name, category: 'eat' }])
+      await open(view)
+      await view.click(view.one('[data-testid=saved-add]'))
+      await until(() => view.text('[data-testid=saved-row]').includes('Added'))
+      const session = await api.getSession(id)
+      expect(Object.values(session.options).flat()).toContain(venue.id)
+      // "Added" takes it back, and it can be added again.
+      await until(() => view.one('[data-testid=saved-added]').attrs.disabled == null)
+      await view.click(view.one('[data-testid=saved-added]'))
+      await until(() => view.has('[data-testid=saved-add]'))
+      expect(Object.values((await api.getSession(id)).options).flat()).not.toContain(venue.id)
+      expect(view.errors).toEqual([])
+    })
+
+    it('adds one Jio does not know as a copy, with a pin from OneMap, and takes it back; "Not on Jio yet" is gone', async () => {
+      const { view, api, id } = await votingPage()
+      await api.savePlaces([{ ...SAVED, locationHint: '76 Telok Ayer St, Singapore 048458' }])
+      const [place] = await api.listSavedPlaces()
+      planner.searchAddresses.mockImplementation(async (q) => (q === '048458' ? [{ name: 'AMOY HOTEL', postal: '048458', lat: 1.2813, lng: 103.8483 }] : []))
+      planner.searchSlot.mockImplementation(async () => [])
+      await open(view)
+      await view.click(view.one('[data-testid=saved-add]'))
+      await until(() => view.text('[data-testid=saved-row]').includes('Added'))
+      expect(view.text()).not.toContain('Not on Jio')
+      const venueId = `saved_${place.id}`
+      expect(Object.values((await api.getSession(id)).options).flat()).toContain(venueId)
+      // The card says where it is and who saved it, and claims no sample reviews.
+      await until(() => view.has('[data-testid=saved-option]'))
+      expect(view.text('[data-testid=saved-option]')).toContain('76 Telok Ayer St')
+      expect(view.text('[data-testid=saved-option]')).toContain('Saved by')
+      expect(view.has('[data-testid=saved-option-maps]')).toBe(false)
+      // It stays "Added" with the place from the options, and takes back.
+      await until(() => view.one('[data-testid=saved-added]').attrs.disabled == null)
+      await view.click(view.one('[data-testid=saved-added]'))
+      await until(() => view.has('[data-testid=saved-add]'))
+      expect(Object.values((await api.getSession(id)).options).flat()).not.toContain(venueId)
+      expect(view.errors).toEqual([])
+    })
+
+    it('adds one with no address all the same, with no pin and a link instead', async () => {
+      const { view, api } = await votingPage()
+      await api.savePlaces([{ ...SAVED, locationHint: null }])
+      planner.searchAddresses.mockImplementation(async () => [])
+      planner.searchSlot.mockImplementation(async () => [])
+      await open(view)
+      await view.click(view.one('[data-testid=saved-add]'))
+      await until(() => view.has('[data-testid=saved-option-maps]'))
+      expect(view.one('[data-testid=saved-option-maps]').attrs.href).toContain('query_place_id=g_one')
+      expect(view.text()).toContain('No map pin')
+      expect(view.errors).toEqual([])
+    })
+
+    it('never adds a place from Google that has the same name', async () => {
+      const { view, api, id } = await votingPage()
+      await api.savePlaces([SAVED])
+      planner.searchOwnVenues.mockImplementation(async () => [{ id: 'google_x', name: SAVED.name, category: 'eat' }])
+      planner.searchSlot.mockImplementation(async () => [])
+      await open(view)
+      await view.click(view.one('[data-testid=saved-add]'))
+      await until(() => view.text('[data-testid=saved-row]').includes('Added'))
+      expect(Object.values((await api.getSession(id)).options).flat()).not.toContain('google_x')
+    })
+
+    it('hides them while only CDC places are asked for', async () => {
+      const { view, api } = await votingPage()
+      await api.savePlaces([SAVED])
+      planner.searchSlot.mockImplementation(async () => [])
+      await open(view)
+      await view.click(view.one('[data-testid=search-cdc]'))
+      await until(() => !view.has('[data-testid=saved-row]'))
+    })
+  })
+
+  it('says nothing is near only when there are no suggestions', async () => {
+    const { view } = await votingPage()
+    planner.searchSlot.mockImplementation(async ({ slot }) => [{ id: `${slot.category}-near`, name: `Near ${slot.category}`, area: 'Bishan', category: slot.category, walk: 5 }])
+    view.one('[data-testid=place-search]').querySelector('input').dispatch('focusin')
+    await until(() => view.has('[data-testid=search-panel]') && view.text('[data-testid=search-panel]').includes('Near eat'))
+    expect(view.has('[data-testid=suggest-none]')).toBe(false)
+    planner.searchSlot.mockImplementation(async () => [])
+    await view.click(view.one('[data-testid=search-cdc]'))
+    await until(() => view.has('[data-testid=suggest-none]'))
+  })
 
   it('opens suggestions with the CDC toggle on top when the box is clicked, and the toggle asks for CDC places in both', async () => {
     const { view } = await votingPage()
@@ -283,27 +427,6 @@ describe('the search panel, the CDC filters and the one widen line (Faith, 31 Oc
     await view.tick()
     expect(names(view)).toEqual(before)
   })
-
-  it('says once which categories are short of places, with one "Widen to" far enough for all of them', async () => {
-    const t = await setUp()
-    planner.rankSlot.mockImplementation(async ({ slot }) => {
-      const { VENUES } = await import('../mock/venues.js')
-      const one = VENUES.filter((v) => v.category === slot.category).slice(0, slot.category === 'eat' ? 3 : 1)
-      const few = { drink: { found: 1, widenToKm: 1.5 }, activity: { found: 1, widenToKm: 2.6 }, shop: { found: 1, widenToKm: 0.8 } }[slot.category] || null
-      return { options: one.map((venue, i) => ({ venue, rank: i + 1, score: i, walk: 5, crowd: 'quiet', reasons: [], warnings: [], swap: null, explanation: '', dietUnknown: [], verify: [], approximate: false })), current: [], widened: false, few, empty: null }
-    })
-    const { id } = await t.api.createSession({ title: 'Saturday', date: '2026-10-17', start: '16:00', end: '20:00' })
-    await t.api.inviteFriends(id, ['jonathan'])
-    await t.api.startSession(id)
-    await t.api.setLocation(id, 'ian', 'start', { areaId: 'tampines' })
-    await t.api.setLocation(id, 'jonathan', 'start', { areaId: 'jurong-east' })
-    await t.api.useMeetingArea(id)
-    await t.api.setRadius(id, 250)
-    const view = await draw(t, `/sessions/${id}/plan`, 'PlannerView', { id })
-    await until(() => view.has('[data-testid=radius-short]'))
-    expect(view.text('[data-testid=radius-short]')).toContain('Few places within 250 m for Drink, Shop and Activity.')
-    expect(view.all('button').filter((b) => view.text(b).startsWith('Widen to')).map((b) => view.text(b))).toEqual(['Widen to 3 km'])
-  })
 })
 
 describe('a radius change that clears votes', () => {
@@ -329,6 +452,7 @@ describe('a radius change that clears votes', () => {
     await until(() => view.has('input[type=range]'))
     expect(view.text()).not.toContain('were cleared')
     view.type('input[type=range]', '2')
+    view.one('input[type=range]').dispatch('change')
     await until(() => view.text().includes('Votes for places outside the new ring were cleared.'))
     expect(view.errors).toEqual([])
     await view.click(view.one('button[aria-label="Dismiss"]'))

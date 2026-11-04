@@ -332,7 +332,7 @@ export function createPlanRouter({
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
     if (!isSingaporePoint({ lat, lng })) return null
     const address = typeof p.formattedAddress === 'string' ? p.formattedAddress : ''
-    return { name, address, postal: address.match(/Singapore (\d{6})/)?.[1] ?? null, lat, lng, source: 'google' }
+    return { name, address, postal: address.match(/Singapore (\d{6})/)?.[1] ?? null, lat, lng, source: 'google', ...(typeof p.id === 'string' ? { placeId: p.id } : {}) }
   }
 
   // Addresses, postal codes and buildings for GET /api/places/search: OneMap first (free, and it knows every address
@@ -388,7 +388,7 @@ export function createPlanRouter({
   //
   // How to call (the route does this):
   //   const { results, google } = await searchEverywhere(input, data)
-  async function searchEverywhere(input, planData) {
+  async function searchEverywhere(input, planData, { ownOnly = false } = {}) {
     const query = input.query.trim()
     const postal = /^\d{6}$/.test(query)
     const alsoMatch = []
@@ -407,7 +407,10 @@ export function createPlanRouter({
     // Google: places matching whatever was typed, near the meeting point. Every kind is kept: a place of another kind
     // than the slot comes back marked 'category', so the screen can say "Eat, not Activity" instead of hiding it.
     let google = { source: 'off', added: 0 }
-    if (places?.enabled && query.length < MIN_SEARCH_QUERY) {
+    if (ownOnly) {
+      // Only Jio's own places, for a search that runs as a person types: no Google call.
+      google = { source: 'not_needed', added: 0 }
+    } else if (places?.enabled && query.length < MIN_SEARCH_QUERY) {
       google = { source: 'not_needed', added: 0 }
     } else if (places?.enabled) {
       try {
@@ -545,7 +548,7 @@ export function createPlanRouter({
         ...(query.durationMinutes !== undefined ? { durationMinutes: query.durationMinutes } : {}),
         ...(query.limit !== undefined ? { limit: query.limit } : {}),
       })
-      answer(res, await searchEverywhere(input, data))
+      answer(res, await searchEverywhere(input, data, { ownOnly: query.ownOnly === '1' }))
     } catch (err) {
       if (err instanceof ZodError) invalid(res, err.issues.map((i) => ({ path: queryParameterOf(i.path.join('.')), message: i.message })))
       else next(err)

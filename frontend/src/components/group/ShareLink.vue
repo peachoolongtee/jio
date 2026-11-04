@@ -152,7 +152,6 @@ async function share() {
 
     <!-- No link yet, or it was turned off. -->
     <template v-else>
-      <p class="body-sm text-muted">Make a link and send it to anyone. They sign up or log in, then join.</p>
       <div class="share__actions">
         <AppButton small :disabled="!!busy" @click="make">{{ busy === 'make' ? 'Making the link' : 'Make a link' }}</AppButton>
       </div>

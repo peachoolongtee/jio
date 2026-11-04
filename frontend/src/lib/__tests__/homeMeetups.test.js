@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FAN_PX, HOME_MEETUPS_SHOWN, MEETUP_RANGES, activeMeetups, allMeetupsLabel, dayLabel, defaultRange, homeList, inRange, isOverdue, pinnedMeetups, layoutPins, meetupsIn, rangeCounts, nextStepFor, homeStatus, needsMe, stageOf, pinName, pinsFor, placeCard, routesFor, selectMeetup, whenLine, whereStands } from '../homeMeetups.js'
+import { FAN_PX, HOME_MEETUPS_SHOWN, MEETUP_RANGES, activeMeetups, allMeetupsLabel, dayLabel, defaultRange, homeList, inRange, isOverdue, pinnedMeetups, layoutPins, meetupsIn, rangeCounts, nextStepFor, homeStatus, needsMe, stageOf, pinName, pinsFor, placeCard, routesFor, selectMeetup, homeSelection, whenLine, whereStands } from '../homeMeetups.js'
 
 const NOW = new Date('2026-10-10T09:00:00+08:00')
 const BUGIS = { id: 'bugis', name: 'Bugis', lat: 1.30065, lng: 103.85585 }
@@ -478,5 +478,25 @@ describe('outings past their end time', () => {
     expect(defaultRange(list, NOW)).toBe('all')
     expect(defaultRange(activeMeetups([late('o', '2026-10-01')], NOW), NOW)).toBe('week')
     expect(defaultRange(activeMeetups([late('o', '2026-10-01'), coming('n', '2026-10-11')], NOW), NOW)).toBe('week')
+  })
+})
+
+describe('homeSelection', () => {
+  // Saturday 31 October 2026, 13:00 in Singapore.
+  const now = new Date('2026-10-31T13:00:00+08:00')
+  const later = { id: 'later', status: 'voting', date: '2026-11-03', start: '12:00', end: '15:00' }
+  const live = { id: 'live', status: 'confirmed', date: '2026-10-31', start: '12:00', end: '15:00' }
+  it('is the meetup the address names, if it is listed', () => {
+    expect(homeSelection([later, live], 'later', now).id).toBe('later')
+    expect(homeSelection([later, live], ['later', 'live'], now).id).toBe('later')
+  })
+  it('is otherwise the one happening now, unless it was closed', () => {
+    expect(homeSelection([later, live], undefined, now).id).toBe('live')
+    expect(homeSelection([later, live], 'gone', now).id).toBe('live')
+    expect(homeSelection([later, live], undefined, now, { liveDismissed: true })).toBeNull()
+  })
+  it('is none when nothing is happening now', () => {
+    expect(homeSelection([later], undefined, now)).toBeNull()
+    expect(homeSelection([], 'later', now)).toBeNull()
   })
 })

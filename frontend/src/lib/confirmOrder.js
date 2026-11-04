@@ -4,7 +4,8 @@
 //
 // The rule behind it: the app proposes and the host decides. The voted order is selected whenever the dialog opens
 // or a suggestion arrives, so the rows never change order unless the host taps "Suggested order".
-import { timeAndDuration } from './planner/format.js'
+import { timeAndDuration, toMinutes } from './planner/format.js'
+import { isOpenDuring } from './planner/itinerary.js'
 
 export const VOTED = 'voted'
 export const SUGGESTED = 'suggested'
@@ -24,6 +25,9 @@ export function votedRows(winners) {
     venueId: w.option?.venue?.id ?? null,
     when: timeAndDuration(w.stop.time, w.stop.duration),
     name: w.option?.venue?.name || 'No place',
+    // The start in minutes after midnight and the length, for the dialog's "Closed at this time" and "Ends after" warnings.
+    start: w.stop.start ?? w.stop.time,
+    duration: w.stop.duration,
   }))
 }
 
@@ -36,6 +40,8 @@ export function suggestedRows(suggestion) {
     venueId: s.venueId ?? null,
     when: timeAndDuration(s.start, s.duration),
     name: s.name,
+    start: s.start,
+    duration: s.duration,
   }))
 }
 
@@ -95,4 +101,18 @@ export function sourceText(note) {
 // How to call: sourceIcon({ source: 'rules' }) -> 'route'
 export function sourceIcon(note) {
   return note?.source === 'ai' ? 'sparkle' : 'route'
+}
+
+// What is wrong with a stop in the confirm dialog, if anything: the place is closed for its time (by its listed hours), or the stop ends
+// after the session does. A warning, not a block (Darius, 4 November 2026). row: { start (minutes or "HH:MM"), duration }. venue: the place, or
+// null. sessionEnd: "HH:MM", or empty.
+// How to call: rowProblem({ start: 1200, duration: 120 }, null, '21:00') -> 'Ends after 21:00'
+export function rowProblem(row, venue, sessionEnd) {
+  const start = typeof row?.start === 'number' ? row.start : row?.start ? toMinutes(row.start) : NaN
+  if (!Number.isFinite(start) || !row.duration) return ''
+  const end = start + row.duration
+  if (venue && !isOpenDuring(venue, start, end)) return 'Closed at this time'
+  const close = sessionEnd ? toMinutes(sessionEnd) : NaN
+  if (Number.isFinite(close) && end > close) return `Ends after ${sessionEnd}`
+  return ''
 }

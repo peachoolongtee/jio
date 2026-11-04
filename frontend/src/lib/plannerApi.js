@@ -479,6 +479,13 @@ export async function addSessionOption(sessionId, slotId, venueId) {
   return data
 }
 
+// A member adds a saved place Jio does not know to a slot, as a copy (lib/savedPlaces.js). Answers { planVersion, added }.
+// How to call: await addSessionSavedOption('3b1f...', '9a2c...', { id: '7f3c', name: 'Nylon', category: 'drink', address: null, lat: null, lng: null })
+export async function addSessionSavedOption(sessionId, slotId, saved) {
+  const { data } = await api.post(sessionPath(sessionId, `/slots/${encodeURIComponent(slotId)}/options`), { saved }, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
 // A member takes back a place they added (no one else has voted for it). Answers { planVersion, removed }.
 // How to call: await removeSessionOption('3b1f...', '9a2c...', 'v25')
 export async function removeSessionOption(sessionId, slotId, venueId) {
@@ -990,6 +997,19 @@ export async function postReaderCapabilities() {
 // `notes`). A link the server will not read rejects with `code` 'not_a_link' or 'unsupported_site', too many reads with
 // 'rate_limited', and a server whose AI key is missing with 'link_reader_unavailable'. `centre` leans the Google search towards
 // a point in Singapore and may be left out.
+// Jio's own places by name, with no call to Google, for a search that runs as a person types.
+// How to call: await searchOwnVenues('nylon', { signal }) -> [{ venueId, name, area, category }]
+export async function searchOwnVenues(query, { signal } = {}) {
+  try {
+    const { data } = await api.get('/api/venues/search', { params: { q: query, limit: 5, ownOnly: '1' }, timeout: PLACE_SEARCH_TIMEOUT_MS, signal })
+    if (!Array.isArray(data.results)) throw new Error(notJsonMessage())
+    return data.results
+  } catch (err) {
+    if (signal?.aborted) throw Object.assign(new Error('The search was cancelled.'), { name: 'AbortError' })
+    throw err
+  }
+}
+
 // How to call: await readPost('https://www.youtube.com/watch?v=stubVideo01') -> { status: 'ok', source: {...}, places: [...], notes: [] }
 export async function readPost(url, { centre, signal } = {}) {
   try {

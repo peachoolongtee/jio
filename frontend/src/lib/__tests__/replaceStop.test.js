@@ -39,6 +39,26 @@ const notSuggested = eatVenues[3]
 // How to call: stopOf(itinerary, 'eat') -> { slotId, venue, start, ... }
 const stopOf = (itinerary, category) => itinerary.stops.find((s) => s.category === category)
 
+// The buttons that choose a place, by their labels ("Use ... instead").
+// How to call: useButtons(view) -> [button, ...]
+const useButtons = (view) => view.all('button').filter((b) => (b.attrs['aria-label'] || '').endsWith(' instead'))
+
+// The planner's answer when no place fits.
+// How to call: planner.rankSlot.mockImplementation(nothingFits)
+const nothingFits = async () => ({ options: [], current: [], widened: false, few: null, empty: null })
+
+// Makes the planner say showers are likely at every place it answers with.
+// How to call: rainOnEveryPlace()
+function rainOnEveryPlace() {
+  const answer = planner.rankSlot.getMockImplementation()
+  const weather = { state: 'showers', rainLikely: true, source: 'live' }
+  const wet = (o) => ({ ...o, warnings: ['rain'], weather })
+  planner.rankSlot.mockImplementation(async (args) => {
+    const ranked = await answer(args)
+    return { ...ranked, options: ranked.options.map(wet), current: ranked.current.map(wet) }
+  })
+}
+
 describe('the places that could replace a stop (data layer)', () => {
   it('lists the other places that fit the stop, voted ones first with their votes, never the stop itself', async () => {
     // Ian alone voted for the third Eat place; the other two voted for the stop's own place, so the stop itself is not offered.
@@ -48,7 +68,6 @@ describe('the places that could replace a stop (data layer)', () => {
     expect(stop).toMatchObject({ slotId: eat.slotId, category: 'eat', duration: eat.duration })
     expect(stop.venue.id).toBe(eat.venue.id)
     expect(options.map((o) => o.id)).not.toContain(eat.venue.id)
-    expect(options.length).toBeGreaterThan(0)
     expect(options.every((o) => o.venue.category === 'eat')).toBe(true)
     // The place Ian voted for has its vote and its voter, and comes first although the planner ranks it behind the other.
     expect(options.length).toBeGreaterThan(1)
@@ -226,7 +245,7 @@ describe('the voting page, replacing a stop', () => {
     await until(() => view.has('[data-testid="replace-options"]'))
     expect(view.text('[data-testid="replace-view"]')).toContain(eat.venue.name)
     expect(view.text('[data-testid="replace-view"]')).toMatch(/Eat at \d{2}:\d{2} · \d+ min/)
-    const uses = view.all('button').filter((b) => (b.attrs['aria-label'] || '').endsWith(' instead'))
+    const uses = useButtons(view)
     expect(uses.length).toBeGreaterThan(0)
     expect(view.text(uses[0])).toBe('Use this place')
     // The stop's own place is not offered, and there is nothing to vote on or confirm.
@@ -280,8 +299,8 @@ describe('the voting page, replacing a stop', () => {
     const view = await draw(t, `/sessions/${t.id}/plan?replace=${eat.slotId}`, 'PlannerView')
     await until(() => view.has('[data-testid="replace-options"]'))
     // From now on the planner says nothing fits.
-    planner.rankSlot.mockImplementation(async () => ({ options: [], current: [], widened: false, few: null, empty: null }))
-    const use = view.all('button').find((b) => (b.attrs['aria-label'] || '').endsWith(' instead'))
+    planner.rankSlot.mockImplementation(nothingFits)
+    const [use] = useButtons(view)
     await view.click(use)
     await until(() => view.has('[data-testid="replace-error"]'))
     expect(view.text('[data-testid="replace-error"]')).toContain('does not fit this stop')
@@ -391,7 +410,7 @@ describe('the voting page, replacing with another category', () => {
     const activity = stopOf(await t.api.getItinerary(t.id), 'activity')
     const view = await draw(t, `/sessions/${t.id}/plan?replace=${activity.slotId}`, 'PlannerView')
     await until(() => view.has('[data-testid="replace-options"]'))
-    planner.rankSlot.mockImplementation(async () => ({ options: [], current: [], widened: false, few: null, empty: null }))
+    planner.rankSlot.mockImplementation(nothingFits)
     await view.click('[data-testid="replace-cat-shop"]')
     await until(() => view.text().includes('No Shop places fit'))
     expect(view.text()).toContain('Try another category')
@@ -402,7 +421,6 @@ describe('the voting page, replacing with another category', () => {
 // pressing twice, the planner failing, a stop that is not there, and a plan changed again after a stop was replaced.
 describe('replacing a stop, under stress', () => {
   const eventsStore = async () => (await import('@/stores/events.js')).useEventsStore()
-  const useButtons = (view) => view.all('button').filter((b) => (b.attrs['aria-label'] || '').endsWith(' instead'))
   // The planner's answer for a slot, `ms` later for the categories in `slow`.
   const slowFor = (slow, ms) => {
     const answer = planner.rankSlot.getMockImplementation()
@@ -580,7 +598,8 @@ describe('a plan changed again after a stop was replaced (data layer)', () => {
     expect(await again.api.getItinerary(again.id)).toBeNull()
   })
 })
-// ── What the review of the pull request found ──
+
+// ── Who may replace, and what a replace keeps in step ──
 
 // The ordered save, with someone else as its host: the signed-in account (Ian) is a member.
 // How to call: const t = await setUp(guestOrdered)
@@ -751,12 +770,7 @@ describe('the weather of the places that could replace a stop (data layer)', () 
   it('ranks for the day the itinerary uses for the stop, and hands on the weather the planner gave', async () => {
     const { api, id } = await loadOrdered(planner)
     const eat = stopOf(await api.getItinerary(id), 'eat')
-    const answer = planner.rankSlot.getMockImplementation()
-    planner.rankSlot.mockImplementation(async (args) => {
-      const ranked = await answer(args)
-      const weather = { state: 'showers', rainLikely: true, source: 'live' }
-      return { ...ranked, options: ranked.options.map((o) => ({ ...o, warnings: ['rain'], weather })), current: ranked.current.map((o) => ({ ...o, warnings: ['rain'], weather })) }
-    })
+    rainOnEveryPlace()
     planner.rankSlot.mockClear()
     const { options } = await api.replaceChoices(id, eat.slotId)
     expect(planner.rankSlot.mock.calls[0][0].date).toBe('2026-10-10')
@@ -792,7 +806,7 @@ describe('the itinerary and the plan page, for the host and for a member', () =>
     const view = await draw(t, `/sessions/${t.id}/plan?replace=${eat.slotId}`, 'PlannerView')
     await until(() => view.has('[data-testid="replace-host-only"]'))
     expect(view.text('[data-testid="replace-host-only"]')).toContain('Only the host can replace a stop')
-    expect(useButtonsOf(view)).toEqual([])
+    expect(useButtons(view)).toEqual([])
     expect(view.has('[data-testid="replace-options"]')).toBe(false)
     expect(planner.rankSlot).not.toHaveBeenCalled()
     expect(view.text('[data-testid="keep-stop"]')).toBe('Back to the itinerary')
@@ -802,10 +816,6 @@ describe('the itinerary and the plan page, for the host and for a member', () =>
   })
 })
 
-// The buttons that choose a place, by their labels.
-// How to call: useButtonsOf(view) -> [button, ...]
-const useButtonsOf = (view) => view.all('button').filter((b) => (b.attrs['aria-label'] || '').endsWith(' instead'))
-
 describe('the replace page', () => {
   it('names the people who voted for a place, with "You" for the signed-in person, and offers Use this place as a quiet button', async () => {
     const t = await setUp(() => loadOrdered(planner))
@@ -813,7 +823,7 @@ describe('the replace page', () => {
     const view = await draw(t, `/sessions/${t.id}/plan?replace=${eat.slotId}`, 'PlannerView')
     await until(() => view.has('[data-testid="replace-options"]'))
     expect(view.text('[data-testid="replace-options"]')).toContain('You voted')
-    const uses = useButtonsOf(view)
+    const uses = useButtons(view)
     expect(uses.length).toBeGreaterThan(1)
     for (const button of uses) expect((button.attrs.class || '').split(/\s+/)).toContain('btn--secondary')
     expect(errorsOf(view)).toEqual([])
@@ -838,7 +848,7 @@ describe('the replace page', () => {
     expect(view.text('[data-testid="replace-view"]')).not.toContain('It keeps its time')
   })
 
-  it('lights Itinerary and goes back to it, as the photos and the map do', async () => {
+  it('goes back to the Itinerary, as the photos and the map do', async () => {
     const t = await setUp()
     const eat = stopOf(await t.api.getItinerary(t.id), 'eat')
     const view = await draw(t, `/sessions/${t.id}/plan?replace=${eat.slotId}`, 'PlannerView')
@@ -885,7 +895,7 @@ describe('the replace page', () => {
   it('offers to delete the stop when the plan has another stop', async () => {
     const t = await setUp()
     const eat = stopOf(await t.api.getItinerary(t.id), 'eat')
-    planner.rankSlot.mockImplementation(async () => ({ options: [], current: [], widened: false, few: null, empty: null }))
+    planner.rankSlot.mockImplementation(nothingFits)
     const two = await draw(t, `/sessions/${t.id}/plan?replace=${eat.slotId}`, 'PlannerView')
     await until(() => two.text().includes('Nothing else fits'))
     expect(two.text()).toContain('delete it from the itinerary')
@@ -893,7 +903,7 @@ describe('the replace page', () => {
 
   it('does not offer to delete the only stop', async () => {
     const t = await setUp()
-    planner.rankSlot.mockImplementation(async () => ({ options: [], current: [], widened: false, few: null, empty: null }))
+    planner.rankSlot.mockImplementation(nothingFits)
     await t.api.deleteStop(t.id, 1)
     const only = (await t.api.getItinerary(t.id)).stops[0]
     const one = await draw(t, `/sessions/${t.id}/plan?replace=${only.slotId}`, 'PlannerView')
@@ -905,12 +915,7 @@ describe('the replace page', () => {
   it('marks an indoor place by the weather the planner gave, not as outdoor in rain by default', async () => {
     const t = await setUp()
     const eat = stopOf(await t.api.getItinerary(t.id), 'eat')
-    const answer = planner.rankSlot.getMockImplementation()
-    planner.rankSlot.mockImplementation(async (args) => {
-      const ranked = await answer(args)
-      const weather = { state: 'showers', rainLikely: true, source: 'live' }
-      return { ...ranked, options: ranked.options.map((o) => ({ ...o, warnings: ['rain'], weather })), current: ranked.current.map((o) => ({ ...o, warnings: ['rain'], weather })) }
-    })
+    rainOnEveryPlace()
     const view = await draw(t, `/sessions/${t.id}/plan?replace=${eat.slotId}`, 'PlannerView')
     await until(() => view.has('[data-testid="replace-options"]'))
     expect(view.text('[data-testid="replace-options"]')).toContain('Outdoor, showers')

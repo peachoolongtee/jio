@@ -50,7 +50,7 @@ const emit = defineEmits(['select'])
   transition: background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out);
 }
 /* Selected: a 2px ink outline, the padding giving back the extra pixel so nothing moves. */
-.mrow.is-selected { padding: 11px calc(var(--spacing-base) - 1px); border: 2px solid var(--ink); background: var(--surface-soft); }
+.mrow.is-selected { padding: 11px calc(var(--spacing-base) - 1px); border: 2px solid var(--ink); background: var(--canvas); } /* White, the bold border marks it (Darius, 4 November 2026). */
 @media (hover: hover) { .mrow:not(.is-selected):hover { background: var(--surface-soft); } }
 .mrow__day { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid transparent; border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--ink); font: var(--text-badge); font-weight: 700; white-space: nowrap; }
 .mrow__day.is-nopin { border: 1px dashed var(--border-strong); background: var(--canvas); }

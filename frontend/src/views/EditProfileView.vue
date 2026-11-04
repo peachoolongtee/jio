@@ -299,7 +299,6 @@ async function savePassword() {
         <h1 id="password-head" class="display-lg">Password</h1>
         <BannerNote v-if="noPassword" data-testid="no-password-note">This account lives only in this browser and has no password to change.</BannerNote>
         <form v-else-if="hasPassword" id="password-form" class="edit__form" novalidate @submit.prevent="savePassword">
-          <p class="body-md text-muted">Type your current password, then the new one twice.</p>
           <!-- Not seen or reached by Tab: it tells a password manager which login the password belongs to. -->
           <input class="sr-only" type="text" name="username" autocomplete="username" readonly tabindex="-1" aria-hidden="true" :value="auth.user?.email ?? ''" data-testid="password-username" />
           <TextField
@@ -392,7 +391,8 @@ async function savePassword() {
 .edit__group .field-label { margin: 0; color: var(--muted); }
 /* The photo card: the avatar, @username and name, and Change photo on the right. On a narrow phone the button wraps
    under the name. */
-.edit__card { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-md) var(--spacing-base); padding: var(--spacing-base); border-radius: var(--rounded-md); background: var(--surface-soft); }
+/* White with a thin grey border, not a grey fill; the bold ink outline is for things that are selected (Darius, 4 November 2026). */
+.edit__card { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-md) var(--spacing-base); padding: var(--spacing-base); border: 1px solid var(--border-strong); border-radius: var(--rounded-md); background: var(--canvas); }
 .edit__who { display: flex; flex: 1 1 120px; flex-direction: column; min-width: 0; }
 .edit__card-actions { display: flex; align-items: center; gap: var(--spacing-base); }
 /* Outlined, as the upload label at sign-up is, so "Save details" is the one red action on the page. */

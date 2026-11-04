@@ -799,7 +799,7 @@ watch(active, async () => {
 
       <div class="sky__foot">
         <span class="sky__notes">
-          <span :id="hintId" class="sky__hint">{{ hint }}</span>
+          <span :id="hintId" class="sky__hint sr-only">{{ hint }}</span>
           <button v-if="scene3d" type="button" class="sky__reset" @click="resetView">Reset view</button>
         </span>
         <span :id="keysId" class="sr-only">Use the left and right arrow keys to move a week, the up and down arrow keys to move a day, Home and End for the first and last day, Enter to show only that day below, and Escape to clear.</span>

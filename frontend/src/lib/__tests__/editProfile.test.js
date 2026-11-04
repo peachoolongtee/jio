@@ -100,6 +100,10 @@ function choose(view, selector, value) {
 // How to call: passwordValues(view) -> ['', '', '']
 const passwordValues = (view) => ['#edit-current', '#edit-new', '#edit-confirm'].map((s) => view.one(s).value)
 
+// The button whose words are `text`.
+// How to call: buttonLabelled(view, 'Vegan')
+const buttonLabelled = (view, text) => view.all('button').find((b) => view.text(b) === text)
+
 describe('checking and changing the password (data layer)', () => {
   it('says whether a password is the signed-in person’s, by asking Supabase', async () => {
     const { auth } = await setUp()
@@ -156,8 +160,7 @@ describe('checking and changing the password (data layer)', () => {
 
 describe('the Profile page', () => {
   // Draw the Profile page for `id` (the signed-in person's own when empty) and wait until it has settled, with the person's
-  // numbers or with nothing to show for them. Errors only are checked: the Profile page had one warning from Vue on the
-  // stand-in page before this button, mine or not.
+  // numbers or with nothing to show for them. Each test checks the page's errors itself.
   // How to call: const view = await profileOf(t, 'darius')
   async function profileOf(t, id) {
     const { default: ProfileView } = await import('@/views/ProfileView.vue')
@@ -273,7 +276,7 @@ describe('editing the details', () => {
     expect(view.one('[data-testid="save-details"]').disabled).toBe(true)
     view.type('#edit-name', '  Samantha ')
     choose(view, '#edit-area', 'bishan')
-    await view.click(view.all('button').find((b) => view.text(b) === 'Vegan'))
+    await view.click(buttonLabelled(view, 'Vegan'))
     await view.click('[data-testid="save-details"]')
     await until(() => view.has('[data-testid="details-saved"]'))
     expect(t.fake.state.profiles['uid-1'].display_name).toBe('Samantha')
@@ -426,10 +429,11 @@ describe('changing the password', () => {
     expect(view.one('[data-testid="save-password"]').disabled).toBe(true)
   })
 
-  it('has a Show button on each field that shows that field only', async () => {
+  it('has a Show button on each field that shows that field only, changes its words, and does not claim to be pressed', async () => {
     const t = await setUp()
     const view = await draw(t, '/profile/edit/password', 'EditProfileView')
     const types = () => ['#edit-current', '#edit-new', '#edit-confirm'].map((s) => view.one(s).attrs.type)
+    const pressed = () => ['current', 'next', 'confirm'].map((id) => view.one(`[data-testid="peek-${id}"]`).attrs['aria-pressed'])
     expect(types()).toEqual(['password', 'password', 'password'])
     await view.click('[data-testid="peek-next"]')
     expect(types()).toEqual(['password', 'text', 'password'])
@@ -440,6 +444,8 @@ describe('changing the password', () => {
     expect(types()).toEqual(['text', 'password', 'password'])
     await view.click('[data-testid="peek-confirm"]')
     expect(types()).toEqual(['text', 'password', 'text'])
+    expect(view.one('[data-testid="peek-confirm"]').attrs['aria-label']).toMatch(/^Hide /)
+    expect(pressed()).toEqual([undefined, undefined, undefined])
   })
 
   it('refuses two new passwords that do not match, without asking Supabase, and keeps what was typed', async () => {
@@ -502,18 +508,6 @@ describe('changing the password', () => {
     expect(t.store.signedIn).toBe(true)
   })
 
-  it('has a Show button on each field that changes its words and does not also claim to be pressed', async () => {
-    const t = await setUp()
-    const view = await draw(t, '/profile/edit/password', 'EditProfileView')
-    for (const id of ['current', 'next', 'confirm']) {
-      expect(view.one(`[data-testid="peek-${id}"]`).attrs['aria-pressed']).toBeUndefined()
-      await view.click(`[data-testid="peek-${id}"]`)
-      expect(view.text(`[data-testid="peek-${id}"]`)).toBe('Hide')
-      expect(view.one(`[data-testid="peek-${id}"]`).attrs['aria-label']).toMatch(/^Hide /)
-      expect(view.one(`[data-testid="peek-${id}"]`).attrs['aria-pressed']).toBeUndefined()
-    }
-  })
-
   it('puts the focus in the current-password field after a failed attempt, since the button has just become disabled', async () => {
     const t = await setUp()
     const view = await draw(t, '/profile/edit/password', 'EditProfileView')
@@ -564,7 +558,7 @@ describe('changing the password', () => {
     expect(view.has('[data-testid="password-changed"]')).toBe(false)
   })
 
-  it('ends the account other sessions once the password is changed', async () => {
+  it('ends the account’s other sessions once the password is changed', async () => {
     const t = await setUp()
     const view = await draw(t, '/profile/edit/password', 'EditProfileView')
     expect(t.fake.state.otherSessionsEnded).toBe(0)
@@ -604,8 +598,6 @@ describe('a local account', () => {
 // Things a person could do that the tests above do not: pressing twice, a lost connection, a login that ends, a page
 // reload, the profile changing under the page, and the edges of the name rule.
 describe('under stress', () => {
-  const buttonLabelled = (view, text) => view.all('button').find((b) => view.text(b) === text)
-
   it('checks and changes the password once when the form is sent three times at once', async () => {
     const t = await setUp()
     const view = await draw(t, '/profile/edit/password', 'EditProfileView')
@@ -833,7 +825,7 @@ describe('the profile photo', () => {
   })
 
   it('removes a photo, and changes it for another one', async () => {
-    photoLib.shrinkPhoto.mockReset().mockResolvedValue(PHOTO)
+    photoLib.shrinkPhoto.mockReset().mockResolvedValue(OTHER)
     const t = await setUp()
     await t.store.update({ photo: PHOTO })
     const view = await draw(t, '/profile/edit', 'EditProfileView')
@@ -845,7 +837,6 @@ describe('the profile photo', () => {
     await view.click('[data-testid="save-details"]')
     await until(() => view.has('[data-testid="details-saved"]'))
     expect(t.store.user.photo).toBe('')
-    photoLib.shrinkPhoto.mockResolvedValue(OTHER)
     await choosePhoto(view, { type: 'image/jpeg' })
     await until(() => avatarSrc(view) === OTHER)
     await view.click('[data-testid="save-details"]')

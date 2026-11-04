@@ -18,10 +18,12 @@
 //             Confirming a spot, or naming a known place, leaves the person here; it does not jump to Vote. The host can change
 //             the meeting spot from its card ("Change meeting spot", the Start choice again), and is asked whether to after
 //             changing their own start or end, since the fairest spot may have moved (Faith's walkthrough, 30 October 2026). That
-//             question offers "Keep", "Vote on new spots" (the new spots with the old one still listed) and "Use the fairest spot"
-//             (confirmed at once, no vote; Faith, 31 October 2026).
+//             question offers "Vote on new spots" (the new spots with the old one still listed) and "Use the fairest spot"
+//             (confirmed at once, no vote; Faith, 31 October 2026); keeping the spot is the dialog's ×. From the swap button it
+//             offers "Vote on new spots" and "Pick the place yourself" only (Darius, 4 November 2026).
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import IconButton from '@/components/ui/IconButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
 import ProgressDonut from '@/components/ui/ProgressDonut.vue'
@@ -152,6 +154,10 @@ const shown = computed(() => (session.value ? shownFor(session.value, picked.val
 const shownSpot = computed(() => spotList.value.find((s) => s.areaId === shown.value) || null)
 // The map keeps every spot in view.
 const keepPoints = computed(() => spotList.value.map((s) => ({ lat: s.area.lat, lng: s.area.lng })))
+// On a phone the map frames the meeting spots alone: framed with everyone's starts across the island, spots a few streets apart
+// sat on top of each other and could not be tapped. A wider screen frames everything, as before.
+const phone = typeof matchMedia === 'function' && matchMedia('(max-width: 743px)').matches
+const mapFit = computed(() => (phone && keepPoints.value.length > 1 ? 'keep' : 'all'))
 // Where a point is on the map, for the pins laid over it.
 // How to call: projectPoint(1.35, 103.82) -> { x, y }
 const projectPoint = (lat, lng) => mapRef.value?.project(lat, lng) ?? null
@@ -169,6 +175,18 @@ const spotDirections = computed(() => (settled.value ? directionsUrl({ name: set
 const next = computed(() => (session.value ? locateNext(session.value) : null))
 
 // Map pins: each person's start AREA, with their travel time to the spot shown (the confirmed one once settled).
+// What the floating cards cover of the full-screen map from 1128px (app.css "Map-first pages"): the header's card at the top, the column of
+// cards on the right (420 px wide) and the button at the foot, so the map frames everyone in the rest. Nothing below 1128px.
+const mapCover = ref({})
+function syncCover() {
+  const wide = (globalThis.innerWidth || 0) >= 1128
+  mapCover.value = wide ? { top: 170, right: 420 + 48, bottom: 72 } : {}
+}
+onMounted(() => {
+  syncCover()
+  globalThis.addEventListener?.('resize', syncCover)
+})
+onBeforeUnmount(() => globalThis.removeEventListener?.('resize', syncCover))
 const mapPeople = computed(() =>
   settled.value ? settled.value.people : active.value
     .filter((id) => session.value.locations?.[id]?.start)
@@ -410,42 +428,12 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
       </section>
 
       <template v-else>
-        <!-- Ian's own start and end, like a ride's pickup and drop-off: two rows joined by a dotted line. Each whole
-             row is the button for its own place, so it is clear which one you are changing. Only he sees the exact place. -->
-        <div class="route" role="group" aria-label="Your locations">
-          <component
-            :is="locked ? 'div' : 'button'"
-            :type="locked ? undefined : 'button'"
-            class="route__row"
-            :class="{ 'is-empty': !myLoc.start }"
-            @click="!locked && openSheet('start')"
-          >
-            <span class="route__mark route__mark--from" aria-hidden="true" />
-            <span class="route__text">
-              <span class="caption-sm text-muted">Starting from</span>
-              <span class="route__value truncate">{{ myLoc.start?.label || 'Add where you are starting' }}</span>
-            </span>
-            <AppIcon v-if="!locked" class="route__go" :name="myLoc.start ? 'chevron-right' : 'plus'" :size="18" />
-          </component>
-          <component
-            :is="locked ? 'div' : 'button'"
-            :type="locked ? undefined : 'button'"
-            class="route__row"
-            @click="!locked && openSheet('end')"
-          >
-            <span class="route__mark route__mark--to" aria-hidden="true" />
-            <span class="route__text">
-              <span class="caption-sm text-muted">Heading to after</span>
-              <span class="route__value truncate">{{ myLoc.end ? myLoc.end.label : 'Back to where you started' }}</span>
-            </span>
-            <AppIcon v-if="!locked" class="route__go" name="chevron-right" :size="18" />
-          </component>
-        </div>
-
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
         <BannerNote v-if="note" icon="info" dismissible @dismiss="note = ''">{{ note }}</BannerNote>
 
-        <SplitView v-model:view="view" label="Meeting area">
+        <!-- Map first (Darius, 4 November 2026, as Home): from 1128px the map on the left and this list docked on the right, full height,
+             with the page's footer at the panel's foot. -->
+        <SplitView v-model:view="view" label="Meeting area" map-first>
           <template #list>
             <!-- While the planner works out the meeting point a segmented bar fills up. -->
             <section v-if="loading" class="area is-finding" aria-labelledby="area-head" role="status">
@@ -461,7 +449,12 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
                 <span class="area__pin" aria-hidden="true"><AppIcon name="pin" :size="20" /></span>
                 <div class="area__text">
                   <span class="caption-sm text-muted">Meeting spot</span>
-                  <h2 id="area-head" class="display-lg truncate">{{ settled.area.name }}</h2>
+                  <!-- The name, and beside it the swap button that changes the meeting spot (Darius, 4 November 2026: it was a "Change meeting
+                       spot" link under the card). -->
+                  <div class="area__name">
+                    <h2 id="area-head" class="display-lg truncate">{{ settled.area.name }}</h2>
+                    <IconButton v-if="canChangeSpot" label="Change meeting spot" class="area__swap" data-testid="change-spot" @click="openAgain('change')"><AppIcon name="swap" :size="18" /></IconButton>
+                  </div>
                   <span v-if="myTrip" class="caption-sm text-muted">{{ myTrip }}</span>
                 </div>
               </div>
@@ -469,7 +462,6 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
                 <AppButton variant="secondary" small class="area__go" :href="spotDirections" target="_blank" :aria-label="`Directions to ${settled.area.name}, opens Google Maps in a new tab`">
                   <AppIcon name="route" :size="16" />Directions
                 </AppButton>
-                <AppButton v-if="canChangeSpot" variant="tertiary" underline small data-testid="change-spot" @click="openAgain('change')">Change meeting spot</AppButton>
               </div>
             </section>
 
@@ -492,6 +484,39 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
             </BannerNote>
 
             <section class="section card people-card" aria-label="People">
+            <!-- Ian's own start and end, like a ride's pickup and drop-off: two rows joined by a dotted line. Each whole
+                 row is the button for its own place, so it is clear which one you are changing. Only he sees the exact place.
+                 At the top of the People card, over everyone's progress, so the column is one card beside the map (Darius,
+                 4 November 2026). -->
+            <div class="route" role="group" aria-label="Your locations">
+              <component
+                :is="locked ? 'div' : 'button'"
+                :type="locked ? undefined : 'button'"
+                class="route__row"
+                :class="{ 'is-empty': !myLoc.start }"
+                @click="!locked && openSheet('start')"
+              >
+                <span class="route__mark route__mark--from" aria-hidden="true" />
+                <span class="route__text">
+                  <span class="caption-sm text-muted">Starting from</span>
+                  <span class="route__value truncate">{{ myLoc.start?.label || 'Add where you are starting' }}</span>
+                </span>
+                <AppIcon v-if="!locked" class="route__go" :name="myLoc.start ? 'chevron-right' : 'plus'" :size="18" />
+              </component>
+              <component
+                :is="locked ? 'div' : 'button'"
+                :type="locked ? undefined : 'button'"
+                class="route__row"
+                @click="!locked && openSheet('end')"
+              >
+                <span class="route__mark route__mark--to" aria-hidden="true" />
+                <span class="route__text">
+                  <span class="caption-sm text-muted">Heading to after</span>
+                  <span class="route__value truncate">{{ myLoc.end ? myLoc.end.label : 'Back to where you started' }}</span>
+                </span>
+                <AppIcon v-if="!locked" class="route__go" name="chevron-right" :size="18" />
+              </component>
+            </div>
               <!-- Once the spot is confirmed this card is about the trips: no votes ring, no status icons. -->
               <ProgressDonut v-if="progress && !settled" compact :title="progress.title" :people="progress.people" :done-label="progress.label" />
               <MemberList :session="peopleSession" :names="nameOf" :my-id="myId" :voters="voterIds" :statuses="!settled">
@@ -506,7 +531,7 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
             <div v-if="session.remote && choosing && !isHost" class="leave"><LeaveSession :session-id="session.id" /></div>
           </template>
           <template #map>
-            <PlannerMap ref="mapRef" :people="mapPeople" :area="settled && !loading ? settled.area : null" :finding="loading" spokes :keep="settled ? [] : keepPoints" label="Meeting area map" @view="refreshPins" />
+            <PlannerMap ref="mapRef" :cover="mapCover" :people="mapPeople" :area="settled && !loading ? settled.area : null" :finding="loading" spokes :keep="settled ? [] : keepPoints" :fit-to="settled ? 'all' : mapFit" label="Meeting area map" @view="refreshPins" />
             <SpotPins v-if="!settled && spotList.length" ref="pinsRef" :spots="spotList" :session="session" :selected-id="shown || ''" :confirmed-id="confirmedId" :project="projectPoint" :names="nameOf" :my-id="myId" :is-host="isHost" @select="picked = $event" />
             <div v-if="loading" class="map-wait map-wait--finding title-sm" role="status">Finding the meeting point… {{ Math.round(loadPct) }}%</div>
             <!-- Confirming the meeting spot, once it has taken 600 ms: a spinner over the map only (the list view says it on the buttons). -->
@@ -541,23 +566,24 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
 
     <InviteDialog v-model:open="inviteOpen" :session="session" />
     <ClashDialog v-model:open="showRejoinClash" :clash="rejoinClash" mode="join" />
-    <!-- Choosing the meeting spot again: after the host's own trip changed, or from "Change meeting spot". Keep it, have the group vote on
-         new spots (the one they had stays on the list), take the new fairest spot at once, or (from the card) pick the place yourself. -->
+    <!-- Choosing the meeting spot again: after the host's own trip changed, or from "Change meeting spot". Have the group vote on new spots
+         (the one they had stays on the list), or (from the swap button) pick the place yourself; after the host's trip changed, also take
+         the new fairest spot at once. Keeping the spot is the dialog's ×, so there is no "Keep" button; and "Use the fairest spot" is not
+         offered from the swap button, where nobody's trip changed and it only found the same spot again (Darius, 4 November 2026). -->
     <ModalDialog
       v-model:open="againOpen"
+      closable
       :title="againWhy === 'trip' ? 'Choose the meeting spot again?' : 'Change the meeting spot?'"
       :text="againWhy === 'trip' ? `Your trip changed, so a fairer spot than ${settled?.area.name || 'this one'} may now be suggested. Choosing again clears the votes for places.` : `Changing it clears the votes for places. Everyone keeps where they start.`"
     >
-      <AppButton block variant="secondary" :disabled="busy" data-testid="choose-again-keep" @click="againOpen = false">Keep {{ settled?.area.name || 'this spot' }}</AppButton>
       <template v-if="canWorkOut">
         <AppButton block variant="secondary" :disabled="busy" :aria-busy="busy ? 'true' : undefined" data-testid="choose-again-vote" @click="chooseAgain('vote')">Vote on new spots</AppButton>
-        <p class="caption-sm text-muted again__note">The 3 fairest spots and {{ settled?.area.name || 'this one' }}, for everyone to vote on.</p>
-        <AppButton block :variant="againWhy === 'trip' ? 'primary' : 'secondary'" :disabled="busy" :aria-busy="busy ? 'true' : undefined" data-testid="choose-again-fairest" @click="chooseAgain('fairest')">Use the fairest spot</AppButton>
-        <p class="caption-sm text-muted again__note">Picks the new fairest spot now, with no vote.</p>
+        <template v-if="againWhy === 'trip'">
+          <AppButton block :disabled="busy" :aria-busy="busy ? 'true' : undefined" data-testid="choose-again-fairest" @click="chooseAgain('fairest')">Use the fairest spot</AppButton>
+        </template>
       </template>
       <template v-if="againWhy === 'change'">
         <AppButton block :disabled="busy" :to="pickYourselfPath" data-testid="choose-again-pick" @click="againOpen = false">Pick the place yourself</AppButton>
-        <p class="caption-sm text-muted again__note">{{ canWorkOut ? 'Choose an area by name.' : 'Choose an area by name. New spots need at least two people to share where they start.' }}</p>
       </template>
       <p v-if="error" class="body-sm text-error again__note" role="alert">{{ error }}</p>
     </ModalDialog>
@@ -587,7 +613,14 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
 
 <style scoped>
 /* The people under the spots: the same light grey card as the spots, so the two read as one set (walkthrough, 1 November 2026). */
-.people-card { background: var(--surface-strong); }
+/* White with a thin grey border, not a grey fill; the bold ink outline is for things that are selected (Darius, 4 November 2026). */
+.people-card { border: 1px solid var(--border-strong); background: var(--canvas); }
+/* Map first (from 1128px): the page floats over the full-screen map; its rules are in app.css ("Map-first pages"). */
+
+/* Inside the People card the route is not a card of its own: no border, a hairline under it, then the progress and the people. */
+.people-card .route { max-width: none; padding: 0 0 var(--spacing-sm); border: 0; border-bottom: 1px solid var(--hairline); border-radius: 0; background: none; }
+.people-card .route::before { left: calc(var(--spacing-base) + 5px); margin-top: calc(-15px - var(--spacing-sm) / 2); }
+/* (The taller card for a column with no spots is gone: from 1128px the map fills the page and this list floats on it.) */
 /* Inviting: a card like the invite page's. A header with a ring of who has joined out of everyone invited, and
    Invite; then who is in, each with a Host, Joined or Invited tag. */
 .lobby { gap: var(--spacing-lg); }
@@ -641,6 +674,10 @@ button.route__row:focus-visible { outline: 2px solid var(--ink); outline-offset:
 .area__pin { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); }
 .area__text { display: flex; flex-direction: column; min-width: 0; }
 .area__text h2 { margin: 0; }
+/* The spot's name with the swap button beside it. The arrows are mirrored to read left on top, right below. */
+.area__name { display: flex; align-items: center; gap: var(--spacing-sm); min-width: 0; }
+.area__swap { flex-shrink: 0; }
+.area__swap :deep(svg) { transform: scaleX(-1); }
 /* Settled: the name gets the card's full width, and Directions sits under it. Beside it, the button squeezed the name
    to a few letters in the list column and on a phone. */
 .area:not(.is-finding) { flex-direction: column; align-items: stretch; }

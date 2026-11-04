@@ -37,6 +37,7 @@ import { cardLine, reviewLabel } from '@/lib/reviewPick.js'
 import { cardTags, hoursNote, votersText } from '@/lib/cardText.js'
 import { optionMark } from '@/lib/weatherText.js'
 import { dietTags } from '@/lib/dietText.js'
+import { savedMapsUrl } from '@/lib/savedPlaces.js'
 
 const props = defineProps({
   option: { type: Object, required: true },
@@ -55,8 +56,11 @@ const props = defineProps({
   // ("You and Darius voted"); without a group size, or with more people, the card shows the count.
   groupSize: { type: Number, default: 0 },
   me: { type: String, default: '' },
+  // The signed-in person added this place and nobody else has voted for it: "Remove" takes it back (it was "Take back" in the search;
+  // Darius, 4 November 2026). Emits remove.
+  removable: { type: Boolean, default: false },
 })
-defineEmits(['vote', 'swap', 'open'])
+defineEmits(['vote', 'swap', 'open', 'remove'])
 
 // The tags: the planner's reasons (not "Short walk", which the line above says, and not "Quiet at 15:00", which nothing
 // measures) and, when the place lists hours, whether it is open at the stop.
@@ -91,6 +95,7 @@ const reviewName = computed(() => reviewLabel(props.option.venue.name, line.valu
         </div>
         <p class="sugg__meta caption-sm text-muted">
           <span v-if="meta">{{ meta }}</span>
+          <span v-else-if="option.venue.noPin">No map pin</span>
           <span v-else>about {{ option.walk }} min walk<template v-if="option.distanceM != null"> · {{ distanceText(option.distanceM) }}</template></span>
           <PriceTier :price="option.venue.price" />
         </p>
@@ -103,7 +108,13 @@ const reviewName = computed(() => reviewLabel(props.option.venue.name, line.valu
       <InfoTag v-for="tag in diet" :key="tag.key" :tone="tag.tone" :icon="tag.icon" :title="tag.title" data-testid="diet-tag">{{ tag.text }}</InfoTag>
       <WeatherMark v-if="rainMark" :mark="rainMark" />
     </div>
-    <button type="button" class="sugg__review" :data-review-for="option.id" :aria-label="reviewName" @click="$emit('open', option, 'review')">
+    <!-- A saved place Jio does not know: where it is and who put it here, never a sample review. -->
+    <div v-if="option.venue.saved" class="sugg__saved caption-sm text-muted" data-testid="saved-option">
+      <span v-if="option.venue.address" class="sugg__address">{{ option.venue.address }}<template v-if="option.venue.rough"> (rough pin)</template></span>
+      <span v-if="option.savedBy">Saved by {{ option.savedBy }}</span>
+      <a v-if="option.venue.noPin" :href="savedMapsUrl(option.venue)" target="_blank" rel="noopener noreferrer" data-testid="saved-option-maps">Open in Google Maps<span class="sr-only">, opens in a new tab</span></a>
+    </div>
+    <button v-else type="button" class="sugg__review" :data-review-for="option.id" :aria-label="reviewName" @click="$emit('open', option, 'review')">
       <template v-if="line.review">
         <UserAvatar :name="line.review.name" :person="line.review.personId" :size="24" />
         <span class="sugg__who caption-sm">{{ line.review.name }}</span>
@@ -126,15 +137,19 @@ const reviewName = computed(() => reviewLabel(props.option.venue.name, line.valu
           <AvatarStack v-if="option.voters.length" :people="option.voters" :size="20" :max="4" />
           <span class="caption" :class="{ 'sugg__lead': leading }">{{ votedText }}</span>
         </span>
-        <ChipButton v-if="!closed" check :selected="mine" :aria-label="`Vote for ${option.venue.name}`" @click="$emit('vote', option)">
-          {{ mine ? 'Voted' : 'Vote' }}
-        </ChipButton>
+        <span class="sugg__acts">
+          <AppButton v-if="removable && !closed" variant="tertiary" underline small :aria-label="`Remove ${option.venue.name}`" data-testid="option-remove" @click="$emit('remove', option)">Remove</AppButton>
+          <ChipButton v-if="!closed" check :selected="mine" :aria-label="`Vote for ${option.venue.name}`" @click="$emit('vote', option)">
+            {{ mine ? 'Voted' : 'Vote' }}
+          </ChipButton>
+        </span>
       </slot>
     </div>
   </article>
 </template>
 
 <style scoped>
+.sugg__acts { display: inline-flex; align-items: center; gap: var(--spacing-sm); }
 .sugg { display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); transition: box-shadow var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out); }
 /* A stripe on the left in the category colour, matching the place's pin on the map. */
 .sugg--eat { --sugg-cat: var(--cat-eat-fg); }
@@ -169,6 +184,8 @@ const reviewName = computed(() => reviewLabel(props.option.venue.name, line.valu
 .sugg .sugg__swap.btn { align-self: flex-start; max-width: 100%; height: auto; min-height: var(--tap-min); padding-block: var(--spacing-xs); white-space: normal; text-align: left; }
 .sugg__vote { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); margin: 0 calc(var(--spacing-xs) * -1) -6px 0; }
 /* The review line is 44px to press but takes about a line of room: its padding is pulled into the gaps around it, so the row adds 32px. */
+.sugg__saved { display: flex; flex-direction: column; gap: var(--spacing-xxs); }
+.sugg__address { overflow-wrap: anywhere; }
 .sugg__review { display: flex; align-items: center; gap: var(--spacing-sm); min-height: var(--tap-min); margin: -12px calc(var(--spacing-sm) * -1); padding: 0 var(--spacing-sm); border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--ink); text-align: left; cursor: pointer; transition: background-color var(--motion-fast) var(--ease-out); }
 @media (hover: hover) { .sugg__review:hover { background: var(--surface-soft); } }
 .sugg__review:active { background: var(--surface-strong); }

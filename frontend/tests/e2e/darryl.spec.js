@@ -9,9 +9,12 @@
 // Ian hosts both.
 import { test, expect, signInDemo } from './fixtures.js'
 
-// Open a meetup from Home: pick its row in "Your meetups", then use the "Open meetup" link of the card that shows.
+// Open a meetup from Home: show the list (Home opens on the map alone), pick its row in "Your meetups", then use the "Open meetup"
+// link of the panel that opens.
 // How to call: await openMeetup(page, 'Saturday movie and makan')
 async function openMeetup(page, title) {
+  const list = page.getByTestId('home-list-toggle')
+  if ((await list.getAttribute('aria-pressed')) !== 'true') await list.click()
   await page.getByRole('region', { name: 'Your meetups' }).getByRole('button', { name: new RegExp(`^${title}`) }).click()
   await page.getByRole('link', { name: `Open meetup ${title}` }).click()
 }
@@ -21,17 +24,15 @@ async function openMeetup(page, title) {
 const minutesOf = (time) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5))
 
 test.describe('Dietary needs and replacing a stop', () => {
-  // What it proves: a dietary need set on the profile reaches the Vote page of an outing: the person is asked to confirm it, the
-  // need shows as a chip for the group, and the places offered under Eat all fit it.
+  // What it proves: a dietary need set on the profile reaches the Vote page of an outing with no question asked: the need shows
+  // as a selected chip for the group, and the places offered under Eat all fit it.
   // Starting state: the demo account with the showcase, no dietary need saved.
-  // Steps: Profile, Edit profile, choose Halal, Save details; back to Home; open "Saturday movie and makan" (voting); the "Confirm
-  // dietary needs" question opens, so check Halal is selected in it and press Confirm.
-  // Checked at the end: the page's "Dietary needs" chips have Halal selected; the Eat section says it shows places that fit halal;
-  // every Eat card carries "Halal likely" and none says "not confirmed", which the app uses for a place it cannot vouch for.
-  // Good to know: the showcase has other people in this outing with a need of their own (vegetarian), so the question also lists
-  // vegetarian, locked and unnamed. That is why the Eat line reads "halal and vegetarian"; the test only requires halal to be in it.
-  // The question is asked once per outing and only when it reaches voting. Sign-up's "Any dietary needs?" popup is not used: the
-  // demo account is not signed up through it.
+  // Steps: Profile, Edit profile, choose Halal, Save details; back to Home; open "Saturday movie and makan" (voting).
+  // Checked at the end: no "Confirm dietary needs" dialog opened; the page's "Dietary needs" chips have Halal selected; the Eat
+  // section says it shows places that fit halal; every Eat card carries "Halal likely" and none says "not confirmed", which the
+  // app uses for a place it cannot vouch for.
+  // Good to know: the showcase has other people in this outing with a need of their own (vegetarian), so the Eat line reads
+  // "halal and vegetarian"; the test only requires halal to be in it.
   test('A halal need reaches Vote and only fitting places are offered', async ({ page }) => {
     test.setTimeout(120_000)
     await signInDemo(page, { showcase: true })
@@ -43,8 +44,7 @@ test.describe('Dietary needs and replacing a stop', () => {
     await page.getByRole('button', { name: 'Save details' }).click()
     await expect(page.getByRole('status').filter({ hasText: 'Saved' })).toBeVisible()
 
-    // 2. The outing in voting. No question opens first: the profile's need is already selected on the page (Faith's walkthrough,
-    // 30 October 2026).
+    // 2. The outing in voting. No question opens first: the profile's need is already selected on the page.
     await page.getByRole('link', { name: 'Back', exact: true }).click()
     await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Home', exact: true }).click()
     await openMeetup(page, 'Saturday movie and makan')
@@ -111,8 +111,8 @@ test.describe('Dietary needs and replacing a stop', () => {
     await expect(stops.nth(1).getByRole('heading', { level: 3 })).toHaveText(secondName)
 
     const travel = page.getByRole('radiogroup', { name: `Travel from ${newName} to ${secondName}` })
-    // The selected mode's words, such as "Walk about 5 min", are the radio's label; read them from the element Playwright found by role.
-    const mode = await travel.getByRole('radio', { checked: true }).evaluate((el) => el.getAttribute('aria-label') ?? el.labels?.[0]?.innerText ?? el.closest('label')?.innerText ?? el.parentElement.innerText)
+    // The selected mode's words, such as "Walk about 5 min", are in the label around its radio.
+    const mode = await travel.getByRole('radio', { checked: true }).evaluate((el) => el.closest('label').innerText)
     const minutes = Number(mode.match(/(\d+) min/)[1])
     const nextStart = (await stops.nth(1).innerText()).match(/(\d\d:\d\d) · /)[1]
     expect(minutesOf(nextStart)).toBe(minutesOf('19:00') + Number(firstStart[2]) * 60 + minutes)
