@@ -58,14 +58,17 @@ export function homeSelection(meetups, id, now = new Date(), { liveDismissed = f
   return meetups.find((m) => startsIn(m, now)?.tone === 'live') || null
 }
 
-// The short word on a pin: "Today", a weekday inside the coming week ("Sat"), otherwise the date ("24 Oct").
+// The short word on a pin and on a list row: "Today", a weekday inside the coming week ("Sat"), otherwise the weekday and the day of
+// the month ("Thu 12").
 // How to call: dayLabel({ date: '2026-10-10' }, new Date()) -> 'Today'
 export function dayLabel(session, now = new Date()) {
   const day = parseISO(dayOf(session, now))
   if (!isValid(day)) return ''
   const away = differenceInCalendarDays(day, parseISO(singaporeDate(now)))
   if (away === 0) return 'Today'
-  return away > 0 && away < 7 ? format(day, 'EEE') : format(day, 'd MMM')
+  // Always the weekday first (Darius, 4 November 2026: "12 Nov" read differently from the other pins). Within the coming week the
+  // weekday alone; after that the weekday and the day of the month, "Thu 12", so this Thursday and next Thursday never look the same.
+  return away > 0 && away < 7 ? format(day, 'EEE') : format(day, 'EEE d')
 }
 
 // "Sat 10 Oct · 15:00", with whatever part is missing left out.
