@@ -552,6 +552,15 @@ describe('/api/links', () => {
     return { status: res.status, body: await res.json() }
   }
 
+  it('searches only Jio\'s own places when asked to, with no call to Google', async () => {
+    const res = await fetch(`${base}/venues/search?q=Chicken%20Rice&ownOnly=1`)
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body.google).toMatchObject({ source: 'not_needed', added: 0 })
+    expect(body.results.length).toBeGreaterThan(0)
+    expect(body.results.every((r) => !String(r.venueId).startsWith('google_'))).toBe(true)
+  })
+
   it('reads a YouTube link from the stub answers, with its comments and matches', async () => {
     const { status, body } = await post('/links/read', { url: 'https://www.youtube.com/watch?v=stubVideo01', centre: { lat: 1.3, lng: 103.84 } })
     expect(status).toBe(200)

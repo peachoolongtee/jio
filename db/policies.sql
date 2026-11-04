@@ -22,6 +22,7 @@ alter table public.session_members enable row level security;
 alter table public.session_member_places enable row level security;
 alter table public.session_member_dietary enable row level security;
 alter table public.session_dietary_dropped enable row level security;
+alter table public.saved_places enable row level security;
 alter table public.invites enable row level security;
 alter table public.slots enable row level security;
 alter table public.slot_options enable row level security;
@@ -288,6 +289,27 @@ create policy spot_approvals_delete_own on public.spot_approvals for delete to a
 -- needs for one outing and the host's dropped needs are read and written by the server only, with the service key.
 revoke all on public.session_member_dietary, public.session_dietary_dropped from anon, authenticated;
 grant all on public.session_member_dietary, public.session_dietary_dropped to service_role;
+
+-- saved_places (20261104000000): each person reads and changes only their own.
+drop policy if exists saved_places_select_own on public.saved_places;
+create policy saved_places_select_own on public.saved_places for select to authenticated
+  using (user_id = (select auth.uid()));
+drop policy if exists saved_places_insert_own on public.saved_places;
+create policy saved_places_insert_own on public.saved_places for insert to authenticated
+  with check (user_id = (select auth.uid()));
+drop policy if exists saved_places_update_own on public.saved_places;
+create policy saved_places_update_own on public.saved_places for update to authenticated
+  using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+drop policy if exists saved_places_delete_own on public.saved_places;
+create policy saved_places_delete_own on public.saved_places for delete to authenticated
+  using (user_id = (select auth.uid()));
+
+-- A person sends what the post said and picks its categories, and later may change only those. A logged-out visitor has nothing.
+revoke all on public.saved_places from anon, authenticated;
+grant select, delete on public.saved_places to authenticated;
+grant insert (name, name_english, categories, tip, location_hint, google_place_id, post_key, post_url) on public.saved_places to authenticated;
+grant update (categories) on public.saved_places to authenticated;
+grant all on public.saved_places to service_role;
 
 -- route_cache has no policy on purpose: with row-level security on and no policy, only the
 -- server's service key can read or write it.

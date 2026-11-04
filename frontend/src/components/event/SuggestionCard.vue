@@ -37,6 +37,7 @@ import { cardLine, reviewLabel } from '@/lib/reviewPick.js'
 import { cardTags, hoursNote, votersText } from '@/lib/cardText.js'
 import { optionMark } from '@/lib/weatherText.js'
 import { dietTags } from '@/lib/dietText.js'
+import { savedMapsUrl } from '@/lib/savedPlaces.js'
 
 const props = defineProps({
   option: { type: Object, required: true },
@@ -94,6 +95,7 @@ const reviewName = computed(() => reviewLabel(props.option.venue.name, line.valu
         </div>
         <p class="sugg__meta caption-sm text-muted">
           <span v-if="meta">{{ meta }}</span>
+          <span v-else-if="option.venue.noPin">No map pin</span>
           <span v-else>about {{ option.walk }} min walk<template v-if="option.distanceM != null"> · {{ distanceText(option.distanceM) }}</template></span>
           <PriceTier :price="option.venue.price" />
         </p>
@@ -106,7 +108,13 @@ const reviewName = computed(() => reviewLabel(props.option.venue.name, line.valu
       <InfoTag v-for="tag in diet" :key="tag.key" :tone="tag.tone" :icon="tag.icon" :title="tag.title" data-testid="diet-tag">{{ tag.text }}</InfoTag>
       <WeatherMark v-if="rainMark" :mark="rainMark" />
     </div>
-    <button type="button" class="sugg__review" :data-review-for="option.id" :aria-label="reviewName" @click="$emit('open', option, 'review')">
+    <!-- A saved place Jio does not know: where it is and who put it here, never a sample review. -->
+    <div v-if="option.venue.saved" class="sugg__saved caption-sm text-muted" data-testid="saved-option">
+      <span v-if="option.venue.address" class="sugg__address">{{ option.venue.address }}<template v-if="option.venue.rough"> (rough pin)</template></span>
+      <span v-if="option.savedBy">Saved by {{ option.savedBy }}</span>
+      <a v-if="option.venue.noPin" :href="savedMapsUrl(option.venue)" target="_blank" rel="noopener noreferrer" data-testid="saved-option-maps">Open in Google Maps<span class="sr-only">, opens in a new tab</span></a>
+    </div>
+    <button v-else type="button" class="sugg__review" :data-review-for="option.id" :aria-label="reviewName" @click="$emit('open', option, 'review')">
       <template v-if="line.review">
         <UserAvatar :name="line.review.name" :person="line.review.personId" :size="24" />
         <span class="sugg__who caption-sm">{{ line.review.name }}</span>
@@ -176,6 +184,8 @@ const reviewName = computed(() => reviewLabel(props.option.venue.name, line.valu
 .sugg .sugg__swap.btn { align-self: flex-start; max-width: 100%; height: auto; min-height: var(--tap-min); padding-block: var(--spacing-xs); white-space: normal; text-align: left; }
 .sugg__vote { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); margin: 0 calc(var(--spacing-xs) * -1) -6px 0; }
 /* The review line is 44px to press but takes about a line of room: its padding is pulled into the gaps around it, so the row adds 32px. */
+.sugg__saved { display: flex; flex-direction: column; gap: var(--spacing-xxs); }
+.sugg__address { overflow-wrap: anywhere; }
 .sugg__review { display: flex; align-items: center; gap: var(--spacing-sm); min-height: var(--tap-min); margin: -12px calc(var(--spacing-sm) * -1); padding: 0 var(--spacing-sm); border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--ink); text-align: left; cursor: pointer; transition: background-color var(--motion-fast) var(--ease-out); }
 @media (hover: hover) { .sugg__review:hover { background: var(--surface-soft); } }
 .sugg__review:active { background: var(--surface-strong); }

@@ -26,6 +26,7 @@ import { sessionSchemas } from './session-schemas.js'
 //   DELETE /api/sessions/:id/slots/:slotId                            the host removes a slot
 //   POST   /api/sessions/:id/slots/restore    { slotId? }             the host brings back a slot, or every removed slot
 //   POST   /api/sessions/:id/slots/:slotId/options            { venueId }      a member adds a place
+//   POST   /api/sessions/:id/slots/:slotId/options            { saved }        a member adds a saved place Jio does not know, as a copy
 //   POST   /api/sessions/:id/slots/:slotId/options/more       { have }         more suggestions
 //   POST   /api/sessions/:id/slots/:slotId/options/:venueId/swap { toVenueId } swap one place for another
 //   DELETE /api/sessions/:id/slots/:slotId/options/:venueId          take back a place you added (no one else's vote on it)
@@ -262,8 +263,10 @@ export function createSessionsRouter({ supabase, sessions, limiter = null, readL
 
   // Adding a place answers 201 when it was added and 200 when it was already there.
   router.post('/sessions/:id/slots/:slotId/options', ...guard, handle((who, req) => {
+    const slotId = sessionSchemas.slotId.parse(req.params.slotId)
+    if (req.body?.saved) return sessions.addSavedOption({ ...who, slotId, saved: sessionSchemas.addSavedOption.parse(req.body).saved })
     const { venueId } = sessionSchemas.addOption.parse(req.body ?? {})
-    return sessions.addOption({ ...who, slotId: sessionSchemas.slotId.parse(req.params.slotId), venueId })
+    return sessions.addOption({ ...who, slotId, venueId })
   }, (body) => (body.added ? 201 : 200)))
 
   router.delete('/sessions/:id/slots/:slotId/options/:venueId', ...guard, handle((who, req) => {

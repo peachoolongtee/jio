@@ -61,6 +61,24 @@ export const sessionSchemas = {
   restoreSlots: z.object({ slotId: uuid.optional() }).strict(),
   // POST /api/sessions/:id/slots/:slotId/options
   addOption: z.object({ venueId }).strict(),
+  // The same route for a saved place Jio does not know, kept as a copy with the option. The same limits as saved_places has, and a point only in Singapore.
+  addSavedOption: z
+    .object({
+      saved: z
+        .object({
+          id: uuid,
+          name: z.string().trim().min(1).max(120),
+          category: z.enum(CATEGORIES),
+          address: z.string().trim().max(120).nullable(),
+          lat: z.number().min(1.1).max(1.5).nullable(),
+          lng: z.number().min(103.5).max(104.1).nullable(),
+          rough: z.boolean(),
+          googlePlaceId: z.string().min(1).max(300).nullable(),
+        })
+        .strict()
+        .refine((p) => (p.lat === null) === (p.lng === null), { message: 'A point has both a latitude and a longitude.' }),
+    })
+    .strict(),
   // POST /api/sessions/:id/slots/:slotId/options/more. `have` is how many places the caller sees in the slot.
   moreOptions: z.object({ have: z.number().int().min(0).max(OPTIONS_MAX) }).strict(),
   // POST /api/sessions/:id/slots/:slotId/options/:venueId/swap

@@ -20,6 +20,7 @@ import {
   engineMembers,
   groupConstraints,
   groupSafeResult,
+  isSavedPlaceId,
   layoutFor,
   meetingDiffers,
   optionRow,
@@ -28,6 +29,7 @@ import {
   rankingInput,
   RANKED_PER_SLOT,
   readRanking,
+  refreshedSavedRow,
   slotDetails,
   slotItems,
   survivingVotes,
@@ -129,6 +131,12 @@ export function createVoting({ data, areasById, runs }) {
   // The saved places that can be options (the planner's own, every one of them).
   const venues = new Map(data.venues.map((v) => [v.id, v]))
 
+  // A place by id as the itinerary and the order rules read it: one of the planner's, or a saved place's copy kept with an option of this draft
+  // (a real pin, or the meeting area when it has none), or undefined.
+  //
+  // How to call: placeOf(draft, 'saved_7f3c') // { id, name, category, lat, lng, ... }
+  const placeOf = (draft, venueId) => venues.get(venueId) ?? draft.options.find((o) => o.venue_id === venueId)?.details?.place
+
   // Asks the engine to rank one slot's kind of place around the meeting area, with the group's needs and the weather at the slot's time,
   // spending from the request's allowance of OneMap trips. `currentIds` are the options the group has: they are always scored.
   //
@@ -140,7 +148,10 @@ export function createVoting({ data, areasById, runs }) {
   // How to call:
   //   const ranking = await rankSlot(draft, { category: 'eat', start_minute: 720, duration_minutes: 90 }, ['a', 'b'], ctx)
   //   // { ok, rows: Map(venueId -> result), rankedIds, current: Set, widened, few, empty, weather }
-  async function rankSlot(draft, slot, currentIds, ctx, { last = false, exclude = [] } = {}) {
+  async function rankSlot(draft, slot, allCurrentIds, ctx, { last = false, exclude: allExcluded = [] } = {}) {
+    // A saved place's copy is not the planner's to rank.
+    const currentIds = allCurrentIds.filter((id) => !isSavedPlaceId(id))
+    const exclude = allExcluded.filter((id) => !isSavedPlaceId(id))
     const centre = areasById.get(draft.session.meeting_area_id)
     const needs = await ctx.needs(draft)
     const [debts, visits] = await Promise.all([ctx.debts?.(), ctx.visits?.()])
@@ -287,11 +298,19 @@ export function createVoting({ data, areasById, runs }) {
       const slot = { category, start_minute: spec.start, duration_minutes: spec.duration }
       // On a change of needs the engine is told only of the voted places, so the rest are its best for the new needs, not the ones listed.
       const voted = new Set(draft.votes.filter((v) => v.category === category).map((v) => v.venue_id))
-      const keep = votedOnly ? currentIds.filter((id) => voted.has(id)) : currentIds
+      const keep = votedOnly ? currentIds.filter((id) => voted.has(id) || isSavedPlaceId(id)) : currentIds
       const ranking = await rankSlot(draft, slot, keep, ctx)
-      const ids = reconcileOptions(keep, ranking.rankedIds)
+      // A saved place's copy stays for as long as the group has it, whatever the planner ranks.
+      const copies = keep.filter(isSavedPlaceId)
+      const ids = reconcileOptions(keep, [...ranking.rankedIds, ...copies])
       const had = new Map(stored.map((o) => [o.venue_id, o]))
-      const next = ids.map((id) => optionRow(category, ranking.rows.get(id), { source: had.get(id)?.source ?? 'planner', addedBy: had.get(id)?.added_by ?? null }))
+      const centre = areasById.get(draft.session.meeting_area_id)
+      const needs = copies.length > 0 ? await ctx.needs(draft) : []
+      const next = ids.map((id) =>
+        isSavedPlaceId(id)
+          ? refreshedSavedRow(had.get(id), { centre, needs })
+          : optionRow(category, ranking.rows.get(id), { source: had.get(id)?.source ?? 'planner', addedBy: had.get(id)?.added_by ?? null }),
+      )
       draft.options = [...draft.options.filter((o) => o.category !== category), ...next]
       const fields = {
         category,
@@ -422,5 +441,5 @@ export function createVoting({ data, areasById, runs }) {
     return found.map((r) => ({ ...groupSafeResult(r), added: have.has(r.venueId) }))
   }
 
-  return { rankSlot, roamAround, repriceMeeting, syncSlots, planPhase, searchSlot, venues, MAX_QUERY: MAX.searchQuery }
+  return { placeOf, rankSlot, roamAround, repriceMeeting, syncSlots, planPhase, searchSlot, venues, MAX_QUERY: MAX.searchQuery }
 }

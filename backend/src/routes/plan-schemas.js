@@ -295,6 +295,8 @@ export function makePlanSchemas(data) {
     category: category.optional(),
     durationMinutes: z.coerce.number().int().min(0).max(720).optional(),
     limit: z.coerce.number().int().min(1).max(50).optional(),
+    // '1': only Jio's own places, with no call to Google.
+    ownOnly: z.enum(['0', '1']).optional(),
   }).refine((query) => (query.lat === undefined) === (query.lng === undefined), {
     message: 'lat and lng must be sent together',
     path: ['lat'],

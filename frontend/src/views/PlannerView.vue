@@ -71,7 +71,8 @@ import WeatherSource from '@/components/weather/WeatherSource.vue'
 import CategoryKey from '@/components/map/CategoryKey.vue'
 import PlannerMap from '@/components/map/PlannerMap.vue'
 import NotFoundView from './NotFoundView.vue'
-import { watchSessions } from '@/lib/api.js'
+import { listSavedPlaces, watchSessions } from '@/lib/api.js'
+import { knownVenue, matchesQuery, savedArea, savedVenueId } from '@/lib/savedPlaces.js'
 import { CATEGORIES, CATEGORY_LABELS } from '@/lib/planner/slots.js'
 import { distanceText } from '@/lib/planner/format.js'
 import { ORDER_TABS, VOTED, confirmKey, confirmView, sourceIcon, sourceText, suggestedRows, votedRows, rowProblem as problemOf } from '@/lib/confirmOrder.js'
@@ -120,9 +121,13 @@ const ticked = ref([])
 const addingPicked = ref(false)
 // The toggle at the top of the search's panel: only places that take CDC vouchers, in the suggestions and in what is found.
 const cdcOnly = ref(false)
-// The panel under the box (the toggle, then the suggestions or what was found) is open while the box or the panel has focus, or while
-// something is typed. A press anywhere else closes it.
+// The panel under the box (the toggle, then the suggestions or what was found) is open while the box, the panel or the category chips above
+// it have focus, or while something is typed: moving between Eat and Shop keeps the suggestions open (Faith, 4 November 2026). A press
+// anywhere else closes it.
 const findEl = ref(null)
+const filterEl = ref(null)
+// Is this element part of the search? How to call: inFind(event.target) -> true
+const inFind = (el) => !!(findEl.value?.contains(el) || filterEl.value?.contains(el))
 const findFocused = ref(false)
 // Escape shuts the panel while the box keeps focus; typing or moving focus into the box again opens it.
 const findShut = ref(false)
@@ -162,10 +167,10 @@ const findStatus = computed(() => {
 })
 // How to call: <div @focusout="onFindFocusOut">
 function onFindFocusOut(event) {
-  if (event.relatedTarget && !findEl.value?.contains(event.relatedTarget)) findFocused.value = false
+  if (event.relatedTarget && !inFind(event.relatedTarget)) findFocused.value = false
 }
 function onPagePointerDown(event) {
-  if (findFocused.value && !findEl.value?.contains(event.target)) findFocused.value = false
+  if (findFocused.value && !inFind(event.target)) findFocused.value = false
 }
 // What the floating cards cover of the full-screen map from 1128px (app.css "Map-first pages"): the header's card at the top, the column of
 // cards on the right (560 px wide) and the button at the foot, so the map frames the places in the rest. Nothing below 1128px.
@@ -438,6 +443,67 @@ async function takeBack(result) {
     rowBusy.value = ''
   }
 }
+// The person's saved places in the search's panel, read when it first opens. A saved place shows only what the post said, never Google's
+// details, because this panel sits beside the OneMap map. "Add" looks for it among Jio's own places, by name, and adds that one, and "Added"
+// can be pressed to take it back, as in the suggestions; one Jio does not know says so, with its link to Google Maps (Faith, 4 November 2026).
+const savedPlaces = ref(null)
+const savedNote = ref({})
+watch(findOpen, async (open) => {
+  if (!open || savedPlaces.value) return
+  try {
+    savedPlaces.value = await listSavedPlaces()
+  } catch {
+    // Not reachable: the panel simply has no saved list.
+    savedPlaces.value = []
+  }
+})
+// The saved places to show: of the category chosen, matching what was typed, at most 6. CDC vouchers are not known for them.
+const savedRows = computed(() => {
+  if (cdcOnly.value) return []
+  return (savedPlaces.value || []).filter((p) => (!filter.value || p.categories[0] === filter.value) && matchesQuery(p, finding.value.query)).slice(0, 6)
+})
+// What a saved place already is in this vote, by place: { id, slot } with its copy's id or the place of Jio's it matched. Read from the
+// options, so a reload and the other members' changes keep it right.
+// How to call: savedAdded.value[place.id] -> { id: 'saved_7f3c', slot } | undefined
+const savedAdded = computed(() => {
+  const added = {}
+  for (const place of savedPlaces.value || []) {
+    const slot = slots.value.find((s) => s.category === place.categories[0])
+    const option = slot?.options.find((o) => o.id === savedVenueId(place)) || (slot && knownVenue(place, slot.options.map((o) => o.venue)))
+    if (option) added[place.id] = { id: option.id, slot }
+  }
+  return added
+})
+// Adds a saved place to the stop of its category. How to call: await addSaved(place)
+async function addSaved(place) {
+  if (rowBusy.value) return
+  const category = place.categories[0]
+  const slot = slots.value.find((s) => s.category === category)
+  rowBusy.value = `saved:${place.id}`
+  savedNote.value = { ...savedNote.value, [place.id]: '' }
+  try {
+    if (!slot) throw new Error(`This outing has no ${CATEGORY_LABELS[category]} stop.`)
+    await planner.addSavedOption(props.id, slot.id, place)
+  } catch (e) {
+    savedNote.value = { ...savedNote.value, [place.id]: e.message }
+  } finally {
+    rowBusy.value = ''
+  }
+}
+// Takes back a saved place this person added. How to call: await takeBackSaved(place)
+async function takeBackSaved(place) {
+  const added = savedAdded.value[place.id]
+  if (rowBusy.value || !added) return
+  rowBusy.value = `saved:${place.id}`
+  savedNote.value = { ...savedNote.value, [place.id]: '' }
+  try {
+    await planner.removeOption(props.id, added.slot.id, added.id)
+  } catch (e) {
+    savedNote.value = { ...savedNote.value, [place.id]: e.message }
+  } finally {
+    rowBusy.value = ''
+  }
+}
 // Nothing to suggest within the radius: how far that is, and (for whoever may change it) a way to look as far as 3 km.
 const suggestReach = computed(() => radiusLabel(radius.value ?? 3000))
 const canReachFurther = computed(() => canSetRadius.value && radius.value != null && radius.value < 3000)
@@ -484,8 +550,6 @@ async function setRadius(metres) {
   queuedRadius = null
   if (next) await setRadius(next.metres)
 }
-// The smallest choice that reaches `km`, for "Widen to ...". How to call: radiusFor(1.4) -> 2000
-const radiusFor = (km) => RADII.find((m) => m != null && m >= km * 1000) ?? null
 // How far the places may be, in words: the chosen radius, or the planner's own limit of 3 km under Auto.
 const reachText = computed(() => radiusLabel(radius.value ?? 3000))
 // The chip just tapped, shown as chosen (and the map's ring drawn at it) until the plan comes back with it saved.
@@ -500,6 +564,8 @@ function pickRadius(metres) {
   draftRadius.value = metres
   setRadius(metres)
 }
+// The smallest choice that reaches `km`, for "Widen to ...". How to call: radiusFor(1.4) -> 2000
+const radiusFor = (km) => RADII.find((m) => m != null && m >= km * 1000) ?? null
 // One line for every category that is short of places within the radius, with one way to widen it: far enough for all of them (it was
 // a "Widen to" under each category). How to call: shortOfPlaces.value -> { labels: ['Drink', 'Shop'], to: 3000 }
 const shortOfPlaces = computed(() => {
@@ -596,7 +662,7 @@ function emptyText(slot) {
 // The same places as the list: every category, or the one the filter shows.
 const mapOptions = computed(() => shown.value.flatMap((slot) => slot.options.map((option) => ({ slot, option }))))
 const mapPlaces = computed(() =>
-  mapOptions.value.map(({ slot, option: o }) => ({ id: o.id, name: o.venue.name, lat: o.venue.lat, lng: o.venue.lng, category: o.venue.category, highlight: slot.leader === o.id, muted: !!slot.leader && slot.leader !== o.id })),
+  mapOptions.value.filter(({ option: o }) => !o.venue.noPin).map(({ slot, option: o }) => ({ id: o.id, name: o.venue.name, lat: o.venue.lat, lng: o.venue.lng, category: o.venue.category, highlight: slot.leader === o.id, muted: !!slot.leader && slot.leader !== o.id })),
 )
 const selectedEntry = computed(() => mapOptions.value.find(({ option }) => option.id === selected.value) || null)
 const selectedOption = computed(() => selectedEntry.value?.option || null)
@@ -951,7 +1017,7 @@ async function keepDialog(e) {
           <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
 
           <!-- One filter for the list and the map, and the CDC toggle for Eat and Drink. -->
-          <div class="filter scroll-x">
+          <div ref="filterEl" class="filter scroll-x" @focusout="onFindFocusOut">
             <div class="filter__set" role="radiogroup" v-radio-group aria-label="Show">
               <ChipButton radio :selected="!filter" @click="filter = ''">All</ChipButton>
               <ChipButton v-for="c in CATEGORIES" :key="c" radio :selected="filter === c" :aria-label="`${CATEGORY_LABELS[c]}, ${countOf(c)} places`" @click="filter = c">
@@ -974,6 +1040,21 @@ async function keepDialog(e) {
               <div class="find__filters">
                 <ChipButton check :selected="cdcOnly" data-testid="search-cdc" @click="cdcOnly = !cdcOnly">Search CDC vouchers only</ChipButton>
               </div>
+              <template v-if="savedRows.length">
+                <p class="caption text-muted find__caption">From your saved list</p>
+                <ul class="add-results" aria-label="Your saved places" data-testid="saved-rows">
+                  <li v-for="p in savedRows" :key="p.id" class="add-row" :class="{ 'has-note': savedNote[p.id] }" data-testid="saved-row">
+                    <CategoryIcon :category="p.categories[0]" :size="32" />
+                    <span class="add-row__text">
+                      <span class="title-sm truncate">{{ p.nameEnglish || p.name }}</span>
+                      <span class="caption-sm text-muted">{{ CATEGORY_LABELS[p.categories[0]] }}<template v-if="savedArea(p)"> · {{ savedArea(p) }}</template></span>
+                      <span v-if="savedNote[p.id]" class="add-row__note body-sm text-error" role="alert"><AppIcon name="warning" :size="16" />{{ savedNote[p.id] }}</span>
+                    </span>
+                    <AppButton v-if="savedAdded[p.id]" class="add-btn is-added" variant="secondary" small :disabled="!canTakeBack(savedAdded[p.id])" :aria-busy="rowBusy === `saved:${p.id}` ? 'true' : undefined" :aria-label="canTakeBack(savedAdded[p.id]) ? `Take back ${p.nameEnglish || p.name}` : `${p.nameEnglish || p.name} is already a choice`" data-testid="saved-added" @click="takeBackSaved(p)"><AppIcon name="check" :size="16" />Added</AppButton>
+                    <AppButton v-else class="add-btn" variant="secondary" small :aria-busy="rowBusy === `saved:${p.id}` ? 'true' : undefined" :aria-label="`Add ${p.nameEnglish || p.name}`" data-testid="saved-add" @click="addSaved(p)">Add</AppButton>
+                  </li>
+                </ul>
+              </template>
               <p v-if="!finding.query.trim() && finding.results.length" class="caption text-muted find__caption">Suggested near {{ session.area.name }}</p>
             <!-- Pick, then add (Darius, 4 November 2026, in the style of "Invite friends"): each place has a circle to tick, the ticks are kept
                  across searches, and one "Add" at the foot adds them all and closes the search. Until something is typed, a few suggestions.
@@ -1004,7 +1085,7 @@ async function keepDialog(e) {
             </ul>
             <p v-else-if="finding.query.trim() && !finding.busy" class="body-sm text-muted">No new places{{ cdcOnly ? ' that take CDC vouchers' : '' }} match "{{ finding.query.trim() }}".</p>
             <p v-if="finding.query.trim() && finding.googleDown && !finding.busy" class="caption-sm text-muted find__note" role="status" data-testid="google-down"><AppIcon name="info" :size="14" /><span>Google isn't answering right now, so only Jio's saved places were searched. <AppButton variant="tertiary" underline small data-testid="search-again" @click="findPlaces(finding.query)">Search again</AppButton></span></p>
-            <p v-else-if="!finding.busy" class="few-line" data-testid="suggest-none">
+            <p v-else-if="!finding.query.trim() && !finding.results.length && !finding.busy" class="few-line" data-testid="suggest-none">
               <span class="body-sm text-muted">No places{{ cdcOnly ? ' that take CDC vouchers' : '' }} to suggest within {{ suggestReach }} of {{ session.area.name }}. Type a name to search.</span>
               <AppButton v-if="canReachFurther" variant="tertiary" underline small :disabled="settingRadius" @click="setRadius(3000)">Look within 3 km</AppButton>
             </p>
