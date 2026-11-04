@@ -567,7 +567,7 @@ Corners are soft everywhere. Controls that hold one word or one icon are fully r
 | `--rounded-sm` | 8px | Primary, secondary and danger buttons; text inputs; tooltips. |
 | `--rounded-md` | 14px | Cards, photo plates, banners, the podium blocks' top corners. |
 | `--rounded-lg` | 20px | Sheets, dialogs, popovers, the Leaderboard panel. |
-| `--rounded-full` | 9999px | Chips, pills, avatars, icon buttons, the next button, the pill button, the phone tab bar and its tabs. |
+| `--rounded-full` | 9999px | Chips, pills, avatars, icon buttons, the next button, the pill button, the phone tab bar and its tabs, and the floating footer buttons of the map-first pages from 1128px (Locate, Vote, the itinerary, "What next?"), which match the pills around them. |
 | `--rounded-none`, `--rounded-xl` | 0px, 32px | Defined, not used. |
 
 Radii written as plain pixels: 5px (`SegmentedProgress` blocks), 6px (`MeetupGraph` view switch), 10px (the photo strip in `EventView`), 3px and 2px (small swatches and pegs).
