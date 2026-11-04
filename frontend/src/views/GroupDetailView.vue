@@ -18,8 +18,9 @@
 //             Confirming a spot, or naming a known place, leaves the person here; it does not jump to Vote. The host can change
 //             the meeting spot from its card ("Change meeting spot", the Start choice again), and is asked whether to after
 //             changing their own start or end, since the fairest spot may have moved (Faith's walkthrough, 30 October 2026). That
-//             question offers "Keep", "Vote on new spots" (the new spots with the old one still listed) and "Use the fairest spot"
-//             (confirmed at once, no vote; Faith, 31 October 2026).
+//             question offers "Vote on new spots" (the new spots with the old one still listed) and "Use the fairest spot"
+//             (confirmed at once, no vote; Faith, 31 October 2026); keeping the spot is the dialog's ×. From the swap button it
+//             offers "Vote on new spots" and "Pick the place yourself" only (Darius, 4 November 2026).
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import IconButton from '@/components/ui/IconButton.vue'
@@ -551,19 +552,23 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
 
     <InviteDialog v-model:open="inviteOpen" :session="session" />
     <ClashDialog v-model:open="showRejoinClash" :clash="rejoinClash" mode="join" />
-    <!-- Choosing the meeting spot again: after the host's own trip changed, or from "Change meeting spot". Keep it, have the group vote on
-         new spots (the one they had stays on the list), take the new fairest spot at once, or (from the card) pick the place yourself. -->
+    <!-- Choosing the meeting spot again: after the host's own trip changed, or from "Change meeting spot". Have the group vote on new spots
+         (the one they had stays on the list), or (from the swap button) pick the place yourself; after the host's trip changed, also take
+         the new fairest spot at once. Keeping the spot is the dialog's ×, so there is no "Keep" button; and "Use the fairest spot" is not
+         offered from the swap button, where nobody's trip changed and it only found the same spot again (Darius, 4 November 2026). -->
     <ModalDialog
       v-model:open="againOpen"
+      closable
       :title="againWhy === 'trip' ? 'Choose the meeting spot again?' : 'Change the meeting spot?'"
       :text="againWhy === 'trip' ? `Your trip changed, so a fairer spot than ${settled?.area.name || 'this one'} may now be suggested. Choosing again clears the votes for places.` : `Changing it clears the votes for places. Everyone keeps where they start.`"
     >
-      <AppButton block variant="secondary" :disabled="busy" data-testid="choose-again-keep" @click="againOpen = false">Keep {{ settled?.area.name || 'this spot' }}</AppButton>
       <template v-if="canWorkOut">
         <AppButton block variant="secondary" :disabled="busy" :aria-busy="busy ? 'true' : undefined" data-testid="choose-again-vote" @click="chooseAgain('vote')">Vote on new spots</AppButton>
         <p class="caption-sm text-muted again__note">The 3 fairest spots and {{ settled?.area.name || 'this one' }}, for everyone to vote on.</p>
-        <AppButton block :variant="againWhy === 'trip' ? 'primary' : 'secondary'" :disabled="busy" :aria-busy="busy ? 'true' : undefined" data-testid="choose-again-fairest" @click="chooseAgain('fairest')">Use the fairest spot</AppButton>
-        <p class="caption-sm text-muted again__note">Picks the new fairest spot now, with no vote.</p>
+        <template v-if="againWhy === 'trip'">
+          <AppButton block :disabled="busy" :aria-busy="busy ? 'true' : undefined" data-testid="choose-again-fairest" @click="chooseAgain('fairest')">Use the fairest spot</AppButton>
+          <p class="caption-sm text-muted again__note">Picks the new fairest spot now, with no vote.</p>
+        </template>
       </template>
       <template v-if="againWhy === 'change'">
         <AppButton block :disabled="busy" :to="pickYourselfPath" data-testid="choose-again-pick" @click="againOpen = false">Pick the place yourself</AppButton>
