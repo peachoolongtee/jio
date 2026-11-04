@@ -56,7 +56,6 @@ import { visibleSessions } from '@/lib/sessionFilter.js'
 import { EMPTY_TEXT, SESSION_FILTERS, narrowSessions, narrowedEmptyText, profileSessions } from '@/lib/profileSessions.js'
 import { useNow } from '@/lib/useNow.js'
 import { vRadioGroup } from '@/lib/radioGroup.js'
-import SpotlightCard from '@/components/ui/SpotlightCard.vue'
 
 const props = defineProps({ id: { type: String, default: '' } })
 
@@ -207,9 +206,9 @@ async function signOut() {
         </div>
         <div class="hero__body">
           <UserAvatar class="hero__avatar" :name="person.name" :src="person.photo" :person="person.id" :size="104" labelled />
-          <!-- Who they are, the four numbers and the one action, in one card whose border lights up under the pointer (Darius,
-               4 November 2026). -->
-          <SpotlightCard class="hero__card spot-card" glow-color="red" custom-size>
+          <!-- Who they are, the four numbers and the one action, in one white card with a bold ink border (Darius, 4 November 2026; it
+               had a spotlight border for a while that day). -->
+          <div class="hero__card ink-card">
           <div class="hero__grid">
             <div class="hero__who">
               <h1 class="hero__name" data-grid-avoid>{{ person.name }}<span v-if="isMe" class="hero__you caption">You</span></h1>
@@ -248,18 +247,18 @@ async function signOut() {
               </AppButton>
             </div>
           </div>
-          </SpotlightCard>
+          </div>
         </div>
       </section>
 
       <div class="screen__body">
-        <!-- The activity graph, in the same lit card as the header above, the same width (Darius, 4 November 2026). -->
-        <SpotlightCard class="graph-card spot-card rise" style="--i: 1" glow-color="red" custom-size>
+        <!-- The activity graph, in the same white card with a bold ink border as the header above, the same width (Darius, 4 November 2026). -->
+        <div class="graph-card ink-card rise" style="--i: 1">
           <section class="graph-card__inner" aria-labelledby="graph-head">
             <h2 id="graph-head" class="sr-only">Meetup frequency</h2>
             <MeetupGraph :history="person.history" :planned="person.planned" :selected="day" :pickable="seesSessions" @select="pickDay" />
           </section>
-        </SpotlightCard>
+        </div>
 
         <!-- The signed-in person or a friend: their sessions, once they have some. A stranger's are not listed. -->
         <section v-if="seesSessions && (!events.loaded || listed.length)" class="section" aria-labelledby="my-sessions" data-testid="profile-sessions">
@@ -369,8 +368,8 @@ async function signOut() {
 .hero__you { padding: 2px var(--spacing-sm); border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--muted); font-weight: 600; }
 .hero__side { display: flex; flex-direction: column; gap: var(--spacing-md); }
 /* The two lit cards (the header and the graph): white, with a hairline border at rest that lights up under the pointer. */
-/* A white card has nothing behind it to blur, so no backdrop blur. */
-.spot-card { --glow-backdrop: var(--canvas); --glow-border: var(--hairline); -webkit-backdrop-filter: none; backdrop-filter: none; }
+/* The two cards (the header and the graph): white with a bold ink border, no glow (Darius, 4 November 2026). */
+.ink-card { border: 2px solid var(--ink); border-radius: var(--rounded-lg); background: var(--canvas); }
 /* The header's card: roomy inside, a little more on wide screens. From 744px the header's column is indented further than the page
    body, so the card reaches back out by that much and lines up with the graph's card under it. */
 .hero__card { padding: var(--spacing-lg); }
@@ -404,7 +403,7 @@ async function signOut() {
 .friend-list__go { flex-shrink: 0; color: var(--muted); }
 
 .graph-card { padding: var(--spacing-base); }
-/* The graph is clipped by its own box, not the card's, so the card's lit border and glow are not cut off. */
+/* The graph is clipped by its own box, inside the card's padding. */
 .graph-card__inner { min-width: 0; overflow: hidden; border-radius: var(--rounded-md); }
 .profile__loading { padding-top: var(--spacing-xl); }
 </style>
