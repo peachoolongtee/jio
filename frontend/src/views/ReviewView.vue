@@ -205,8 +205,14 @@ async function save() {
         </section>
 
         <section class="review__card card" aria-labelledby="review-photos">
-          <div class="review__head">
-            <h2 id="review-photos" class="title-md">Add your photos</h2>
+          <!-- Photos from the day, as the row that was on the itinerary (Darius, 4 November 2026): the camera in a Rausch circle, the title and
+               one line, and Add photos. -->
+          <div class="review__head review__photos-head">
+            <span class="review__photos-icon" aria-hidden="true"><AppIcon name="camera" :size="20" /></span>
+            <span class="review__photos-text">
+              <h2 id="review-photos" class="title-sm">Photos from the day</h2>
+              <span class="caption-sm text-muted">{{ photos.length ? `${photos.length} ${photos.length === 1 ? 'photo' : 'photos'} so far. Add yours.` : 'Add your photos for everyone in the group to see.' }}</span>
+            </span>
             <AppButton variant="secondary" small :disabled="full" @click="input?.click()">
               <AppIcon name="camera" :size="16" />
               Add photos
@@ -217,7 +223,6 @@ async function save() {
             <li v-for="n in uploading" :key="`up-${n}`"><span class="review__thumb review__thumb--loading" aria-hidden="true" /></li>
             <li v-for="p in photos.slice(0, 8)" :key="p.id"><img class="review__thumb" :src="p.src" :alt="`Photo by ${p.name}`" loading="lazy" /></li>
           </ul>
-          <p v-else class="caption-sm text-muted">Pictures from the day, for everyone who went.</p>
           <AppButton v-if="photos.length" variant="tertiary" underline small :to="`/sessions/${id}/photos`">See and share all {{ photos.length }} {{ photos.length === 1 ? 'photo' : 'photos' }}</AppButton>
           <input ref="input" class="sr-only" type="file" accept="image/*" multiple tabindex="-1" aria-hidden="true" @change="onFiles" />
         </section>
@@ -242,6 +247,16 @@ async function save() {
 </template>
 
 <style scoped>
+/* Photos from the day: the camera in a Rausch circle, the title and line beside it, Add photos on the right. */
+.review__head.review__photos-head { flex-wrap: nowrap; align-items: center; gap: var(--spacing-md); }
+.review__photos-icon { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); }
+.review__photos-text { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
+/* Phones: Add photos drops under the title, so the title keeps its line. */
+@media (max-width: 743.98px) {
+  .review__head.review__photos-head { flex-wrap: wrap; }
+  .review__photos-text { flex-basis: calc(100% - 48px - var(--spacing-md)); }
+}
+.review__photos-text h2 { margin: 0; }
 /* One column at a comfortable reading width, as the invite page. */
 .review { max-width: 640px; }
 .review__card { display: flex; flex-direction: column; align-items: flex-start; gap: var(--spacing-md); padding: var(--spacing-base); }

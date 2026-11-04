@@ -24,6 +24,9 @@ const props = defineProps({
   action: { type: String, default: '' },
   icon: { type: String, default: 'close' },
   duration: { type: Number, default: 1200 },
+  // A shorter word shown on the narrowest phones (under 360px), where the full label does not fit beside other buttons. The full label
+  // stays in the accessible name. For example "Hold to cancel" with short "Cancel".
+  short: { type: String, default: '' },
 })
 const emit = defineEmits(['done'])
 
@@ -108,12 +111,18 @@ onBeforeUnmount(() => cancelAnimationFrame(frame))
     <span class="hold__fill" aria-hidden="true" />
     <span class="hold__label" aria-hidden="true">
       <AppIcon :name="icon" :size="14" />
-      {{ holding ? 'Keep holding' : label }}
+      <template v-if="holding">Keep holding</template>
+      <template v-else><span class="hold__long">{{ label }}</span><span v-if="short" class="hold__short">{{ short }}</span></template>
     </span>
   </button>
 </template>
 
 <style scoped>
+.hold__short { display: none; }
+@media (max-width: 359.98px) {
+  .hold__short { display: inline; }
+  .hold__short + * , .hold__long:has(+ .hold__short) { display: none; }
+}
 .hold { position: relative; overflow: hidden; display: inline-flex; align-items: center; height: var(--tap-min); padding: 0 var(--spacing-base); border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--canvas)); border-radius: var(--rounded-full); background: var(--canvas); color: var(--primary); font: var(--text-button-sm); white-space: nowrap; cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
 /* The fill: grows from the left as you hold. No transition while holding (it follows the clock); letting go
    runs it back quickly. */

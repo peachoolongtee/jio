@@ -56,7 +56,6 @@ import { visibleSessions } from '@/lib/sessionFilter.js'
 import { EMPTY_TEXT, SESSION_FILTERS, narrowSessions, narrowedEmptyText, profileSessions } from '@/lib/profileSessions.js'
 import { useNow } from '@/lib/useNow.js'
 import { vRadioGroup } from '@/lib/radioGroup.js'
-import SpotlightCard from '@/components/ui/SpotlightCard.vue'
 
 const props = defineProps({ id: { type: String, default: '' } })
 
@@ -207,9 +206,9 @@ async function signOut() {
         </div>
         <div class="hero__body">
           <UserAvatar class="hero__avatar" :name="person.name" :src="person.photo" :person="person.id" :size="104" labelled />
-          <!-- Who they are, the four numbers and the one action, in one card whose border lights up under the pointer (Darius,
-               4 November 2026). -->
-          <SpotlightCard class="hero__card" glow-color="red" custom-size>
+          <!-- Who they are, the four numbers and the one action, in one white card with a thin grey border (Darius, 4 November 2026; it
+               had a spotlight border, then a bold ink one, that day). -->
+          <div class="hero__card ink-card">
           <div class="hero__grid">
             <div class="hero__who">
               <h1 class="hero__name" data-grid-avoid>{{ person.name }}<span v-if="isMe" class="hero__you caption">You</span></h1>
@@ -248,18 +247,23 @@ async function signOut() {
               </AppButton>
             </div>
           </div>
-          </SpotlightCard>
+          </div>
         </div>
       </section>
 
       <div class="screen__body">
-        <section class="card graph-card rise" style="--i: 1" aria-labelledby="graph-head">
-          <h2 id="graph-head" class="sr-only">Meetup frequency</h2>
-          <MeetupGraph :history="person.history" :planned="person.planned" :selected="day" :pickable="seesSessions" @select="pickDay" />
-        </section>
+        <!-- The activity graph, in the same white card as the header above, the same width (Darius, 4 November 2026). -->
+        <div class="graph-card ink-card rise" style="--i: 1">
+          <section class="graph-card__inner" aria-labelledby="graph-head">
+            <h2 id="graph-head" class="sr-only">Meetup frequency</h2>
+            <MeetupGraph :history="person.history" :planned="person.planned" :selected="day" :pickable="seesSessions" @select="pickDay" />
+          </section>
+        </div>
 
         <!-- The signed-in person or a friend: their sessions, once they have some. A stranger's are not listed. -->
-        <section v-if="seesSessions && (!events.loaded || listed.length)" class="section" aria-labelledby="my-sessions" data-testid="profile-sessions">
+        <!-- In one white card, title, chips, search and all, as the graph above it and as Rewards' card (Darius,
+             4 November 2026). -->
+        <section v-if="seesSessions && (!events.loaded || listed.length)" class="section ink-card sessions-card" aria-labelledby="my-sessions" data-testid="profile-sessions">
           <div class="section__head">
             <h2 id="my-sessions" class="display-sm">{{ sessionsTitle }}</h2>
           </div>
@@ -365,10 +369,17 @@ async function signOut() {
 .hero__name { display: flex; align-items: center; gap: var(--spacing-sm); margin: 0; font: var(--text-display-xl); overflow-wrap: anywhere; }
 .hero__you { padding: 2px var(--spacing-sm); border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--muted); font-weight: 600; }
 .hero__side { display: flex; flex-direction: column; gap: var(--spacing-md); }
-/* The card round them: roomy inside, a little more on wide screens. The numbers' strip sits in it with no fill of its own. */
+/* The two lit cards (the header and the graph): white, with a hairline border at rest that lights up under the pointer. */
+/* The profile's cards (the header, the graph and the sessions): white with a thin grey border, no glow. The bold ink outline is kept for
+   things that are selected (Darius, 4 November 2026). */
+.ink-card { border: 1px solid var(--border-strong); border-radius: var(--rounded-lg); background: var(--canvas); }
+/* The sessions' card: roomy inside, a little less on phones. */
+.sessions-card { padding: var(--spacing-lg); }
+@media (max-width: 743.98px) { .sessions-card { padding: var(--spacing-base) var(--spacing-md); } }
+/* The header's card: roomy inside, a little more on wide screens. From 744px the header's column is indented further than the page
+   body, so the card reaches back out by that much and lines up with the graph's card under it. */
 .hero__card { padding: var(--spacing-lg); }
-@media (min-width: 744px) { .hero__card { padding: var(--spacing-lg) var(--spacing-xl); } }
-.hero__card .stats { background: transparent; }
+@media (min-width: 744px) { .hero__card { margin-right: calc(var(--spacing-lg) * -1); margin-left: calc(var(--spacing-lg) * -1); padding: var(--spacing-lg) var(--spacing-xl); } }
 
 /* Three numbers in a bordered strip, split by thin lines. */
 .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; padding: var(--spacing-md) 0; border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
@@ -397,6 +408,8 @@ async function signOut() {
 .friend-list__name { display: flex; align-items: center; gap: var(--spacing-xs); min-width: 0; }
 .friend-list__go { flex-shrink: 0; color: var(--muted); }
 
-.graph-card { overflow: hidden; padding: var(--spacing-base); }
+.graph-card { padding: var(--spacing-base); }
+/* The graph is clipped by its own box, inside the card's padding. */
+.graph-card__inner { min-width: 0; overflow: hidden; border-radius: var(--rounded-md); }
 .profile__loading { padding-top: var(--spacing-xl); }
 </style>

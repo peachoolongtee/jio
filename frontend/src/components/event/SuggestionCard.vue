@@ -55,8 +55,11 @@ const props = defineProps({
   // ("You and Darius voted"); without a group size, or with more people, the card shows the count.
   groupSize: { type: Number, default: 0 },
   me: { type: String, default: '' },
+  // The signed-in person added this place and nobody else has voted for it: "Remove" takes it back (it was "Take back" in the search;
+  // Darius, 4 November 2026). Emits remove.
+  removable: { type: Boolean, default: false },
 })
-defineEmits(['vote', 'swap', 'open'])
+defineEmits(['vote', 'swap', 'open', 'remove'])
 
 // The tags: the planner's reasons (not "Short walk", which the line above says, and not "Quiet at 15:00", which nothing
 // measures) and, when the place lists hours, whether it is open at the stop.
@@ -126,15 +129,19 @@ const reviewName = computed(() => reviewLabel(props.option.venue.name, line.valu
           <AvatarStack v-if="option.voters.length" :people="option.voters" :size="20" :max="4" />
           <span class="caption" :class="{ 'sugg__lead': leading }">{{ votedText }}</span>
         </span>
-        <ChipButton v-if="!closed" check :selected="mine" :aria-label="`Vote for ${option.venue.name}`" @click="$emit('vote', option)">
-          {{ mine ? 'Voted' : 'Vote' }}
-        </ChipButton>
+        <span class="sugg__acts">
+          <AppButton v-if="removable && !closed" variant="tertiary" underline small :aria-label="`Remove ${option.venue.name}`" data-testid="option-remove" @click="$emit('remove', option)">Remove</AppButton>
+          <ChipButton v-if="!closed" check :selected="mine" :aria-label="`Vote for ${option.venue.name}`" @click="$emit('vote', option)">
+            {{ mine ? 'Voted' : 'Vote' }}
+          </ChipButton>
+        </span>
       </slot>
     </div>
   </article>
 </template>
 
 <style scoped>
+.sugg__acts { display: inline-flex; align-items: center; gap: var(--spacing-sm); }
 .sugg { display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); transition: box-shadow var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out); }
 /* A stripe on the left in the category colour, matching the place's pin on the map. */
 .sugg--eat { --sugg-cat: var(--cat-eat-fg); }

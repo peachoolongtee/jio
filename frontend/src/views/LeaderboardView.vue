@@ -35,6 +35,7 @@ import { useGroupsStore } from '@/stores/groups.js'
 import * as api from '@/lib/api.js'
 import { endsInText, lastDay } from '@/lib/season.js'
 import { useNow } from '@/lib/useNow.js'
+import BorderTrail from '@/components/ui/BorderTrail.vue'
 
 const groups = useGroupsStore()
 
@@ -143,6 +144,8 @@ const nobody = computed(() => !isPast.value && !entries.value.some((e) => e.valu
           <SkeletonRow v-for="n in 6" :key="n" avatar />
         </div>
         <section v-else class="board" aria-label="Ranking">
+          <!-- A red streak running round the board's border, as on the Rewards card (Darius, 4 November 2026). -->
+          <BorderTrail :size="120" :width="2" :duration="7" background="linear-gradient(to left, var(--primary-disabled), var(--primary), var(--primary-disabled))" />
           <EmptyState v-if="nobody" title="No one ranked yet" text="Finish a meetup to earn JioCoins this season. Everyone who does is ranked here." />
           <LeaderboardCard
             v-model:selected-run-id="run"
@@ -178,7 +181,7 @@ const nobody = computed(() => !isPast.value && !entries.value.some((e) => e.valu
 .board-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--spacing-lg); }
 /* Frosted glass: mostly white, blurred, so the grid's colours glow through it softly and the text stays sharp. */
 .board { border: 1px solid color-mix(in srgb, var(--hairline) 70%, transparent); background: color-mix(in srgb, var(--canvas) 72%, transparent); -webkit-backdrop-filter: blur(14px) saturate(1.3); backdrop-filter: blur(14px) saturate(1.3); box-shadow: var(--shadow-float); }
-.board { display: flex; flex-direction: column; gap: var(--spacing-base); min-width: 0; padding: var(--spacing-base); border-radius: var(--rounded-lg); }
+.board { position: relative; display: flex; flex-direction: column; gap: var(--spacing-base); min-width: 0; padding: var(--spacing-base); border-radius: var(--rounded-lg); }
 /* On a phone the frosted panel and the card inside it share their padding, so names have room. */
 @media (max-width: 480px) { .board { padding: var(--spacing-xs); } }
 /* The title, with the days the season has left in a Rausch pill beside it. */

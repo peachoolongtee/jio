@@ -7,14 +7,14 @@
 //     Two stops in the same building just say so.
 //   - On desktop the timeline is as tall as the map beside it, with the stops spread out.
 //   - Each stop of a confirmed plan has a delete button (two stops or more), with a confirm dialog, at any time (Faith, 31 October
-//     2026; it was edit mode's alone). Focus lands on the next stop after a delete. In edit mode (the pencil toggle in the header) each
-//     stop also has a Replace button. Replace is the host's, like the rain swap: it opens the plan page for that one stop
+//     2026; it was edit mode's alone). Focus lands on the next stop after a delete. Each stop also has a swap button for the host, Replace
+//     (Darius, 4 November 2026: the pencil's edit mode and its search button are gone). Replace is the host's, like the rain swap: it opens the plan page for that one stop
 //     (/sessions/:id/plan?replace=<slot>), with the other places that fit it; choosing one puts it in and comes back here.
 //   - The end point, and each person's trip home (folded away; anyone over 60 minutes is flagged above).
 //   - Drag a stop by the whole card (press and hold on a phone) or its handle, or focus the handle and use the arrow keys, to rearrange
 //     the day, with no edit mode first (Faith's walkthrough, 30 October 2026: the confirm dialog promised it and it was hidden; the whole
 //     card since 31 October). Times follow; a stop that would be closed at its new time, or an end far from the MRT, is flagged.
-//   - Edit mode also shows "Re-plan".
+//   - "Re-plan" is not here: Change plan's "Choose places again" does the same.
 //   - The footer has "Back to Home" (the plan was saved when it was confirmed), and from the outing's day on "Finish and review" too
 //     (itineraryAction in lib/session.js), which asks first, completes the outing, pays out the coins and goes on to "How was it?" (stars
 //     and photos). An outing is never completed by the clock (Faith's walkthrough, 30 October 2026): this button finishes it. A completed
@@ -24,7 +24,7 @@
 //   - The photo strip shows the latest pictures (loaded with the events store) and links to Photos. (A session on the server has no photos
 //     yet, so it has no strip.)
 //   - A session on the server (session.remote): the plan is read from the database and every person sees the same one live. Only the host
-//     edits it (the pencil, the travel modes, Replace, delete, drag, Re-plan) and finishes the outing; everyone else sees the plan, and the
+//     edits it (the travel modes, Replace, delete, drag, Change plan) and finishes the outing; everyone else sees the plan, and the
 //     footer says the host finishes it. Finishing pays no JioCoins there; a finished outing shows the person's own row of the travel ledger
 //     ("Your travel"), with a Try again when it could not be read. A move, delete or change that the server refuses is one line of words
 //     above the stops, and the page then shows the plan as it is stored. Changes made on another device (a move, a delete, a travel mode, a
@@ -50,7 +50,7 @@
 //     the page is left, paused while hidden, one at a time, a failure keeps the last answer), and shows a rain banner for
 //     everyone, with "Swap to <indoor place>?" for the host (RainBanners). A simulated forecast adds a banner at the top.
 import { coins } from '@/lib/currency.js'
-import { NO_COINS, earnsCoins, itineraryAction, photosOpen, roamOpen, singaporeDate } from '@/lib/session.js'
+import { NO_COINS, earnsCoins, itineraryAction, roamOpen, singaporeDate } from '@/lib/session.js'
 import { dayOf } from '@/lib/homeMeetups.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -72,7 +72,6 @@ import SplitView from '@/components/ui/SplitView.vue'
 import ToastMessage from '@/components/ui/ToastMessage.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
-import ChangePlan from '@/components/event/ChangePlan.vue'
 import ProposedStops from '@/components/event/ProposedStops.vue'
 import RoamPanel from '@/components/event/RoamPanel.vue'
 import StopCard from '@/components/event/StopCard.vue'
@@ -105,9 +104,7 @@ const planner = usePlannerStore()
 // all (no connection, the planner slow or down) with a Retry. The two are different pages: only the first is "not found".
 const missing = ref(false)
 const loadError = ref('')
-const editing = ref(false)
 const endOpen = ref(false)
-const replanOpen = ref(false)
 // The stop the Delete dialog is about: its key (the server's stop id, else the slot's) and its name, taken when the dialog opens. The key, not the
 // stop's position: a stop moved or deleted on another device meanwhile must not make Delete take a different stop.
 const removing = ref(null)
@@ -224,12 +221,13 @@ const lastStop = computed(() => itinerary.value?.stops[itinerary.value.stops.len
 // "Ends after the session's end, 21:30" when the plan runs past the end time the host set (stops added from Roam, or a long
 // outing with many categories, can), else ''. Said under the plan's end; nothing is refused.
 const lateText = computed(() => (lastStop.value ? lateLine(lastStop.value.end, session.value?.end) : ''))
-// A confirmed plan with two or more stops can be rearranged at any time by dragging; a stop is deleted while editing.
+// A confirmed plan with two or more stops can be rearranged at any time by dragging, and a stop deleted.
 const canMove = computed(() => confirmed.value && mayEdit.value && (itinerary.value?.stops.length || 0) > 1)
 // A stop can be deleted at any time, by whoever may move it, while two or more are left.
 const canDelete = computed(() => canMove.value)
-// Any stop of a confirmed plan can be replaced by the host while editing, even when it is the only one. Anyone else proposes a stop instead.
-const canReplace = computed(() => confirmed.value && editing.value && session.value?.hostId === auth.myId)
+// Any stop of a confirmed plan can be replaced by the host at any time, even when it is the only one: a swap button on each stop, beside
+// delete (Darius, 4 November 2026; it was a search button that showed only in an edit mode). Anyone else proposes a stop instead.
+const canReplace = computed(() => confirmed.value && session.value?.hostId === auth.myId)
 
 // Open the plan page for one stop, to choose another place for it.
 // How to call: replaceStop(stop)
@@ -241,9 +239,19 @@ const replaceStop = (stop) => router.push({ path: `/sessions/${props.id}/plan`, 
 const showWeather = computed(() => confirmed.value && !!itinerary.value)
 const check = computed(() => events.weatherChecks[props.id])
 // The shared clock: rain is drawn only while its forecast is current.
+// What the floating cards cover of the full-screen map from 1128px (app.css "Map-first pages"): the header's card at the top, the column of
+// cards on the right (520 px wide) and the buttons at the foot, so the map frames every stop in the rest. Nothing below 1128px.
+const mapCover = ref({})
+function syncCover() {
+  const wide = (globalThis.innerWidth || 0) >= 1128
+  mapCover.value = wide ? { top: 170, right: 520 + 48, bottom: 72 } : {}
+}
+onMounted(() => {
+  syncCover()
+  globalThis.addEventListener?.('resize', syncCover)
+})
+onBeforeUnmount(() => globalThis.removeEventListener?.('resize', syncCover))
 const now = useNow()
-// Have photos opened? From the outing's Singapore day on (the demo's session-day switch counts today as the day).
-const photosDay = computed(() => photosOpen(session.value, now.value))
 // Are the stops on Singapore's today? A stop that day with no forecast was not held back by the forecast window, so its mark does not say so.
 const stopsToday = computed(() => !!session.value && dayOf(session.value, now.value) === singaporeDate(now.value))
 // A stop's weather: the check's if there is one, else the plan's. How to call: weatherOf(itinerary.stops[0]) -> { state: 'dry', ... } or null
@@ -377,20 +385,6 @@ async function removeStop() {
   next?.focus()
 }
 
-async function replan() {
-  busy.value = true
-  error.value = ''
-  try {
-    await events.replan(props.id)
-    replanOpen.value = false
-    router.push(`/sessions/${props.id}/plan`)
-  } catch (e) {
-    error.value = e.message
-  } finally {
-    busy.value = false
-  }
-}
-
 async function endPlan() {
   busy.value = true
   error.value = ''
@@ -399,7 +393,6 @@ async function endPlan() {
   try {
     await events.endPlan(props.id)
     endOpen.value = false
-    editing.value = false
     // A local outing goes on to "How was it?" (stars and photos), which says what was paid; a shared one stays here with its ledger.
     if (remote.value) toast.value = true
     else await router.push({ path: `/sessions/${props.id}/review`, state: { justFinished: true } })
@@ -423,16 +416,10 @@ async function endPlan() {
   </main>
   <main v-else-if="session" class="screen" data-testid="event-view">
     <SessionHeader :session="session" :title="today ? 'Today\'s plan' : ''">
-      <template v-if="session.plan" #actions>
-        <IconButton v-if="confirmed && mayEdit" label="Edit itinerary" :tone="editing ? 'brand' : ''" :aria-pressed="String(editing)" @click="editing = !editing">
-          <AppIcon :name="editing ? 'check' : 'edit'" />
-        </IconButton>
-      </template>
     </SessionHeader>
 
     <div class="screen__body">
       <SessionNotices :session="session" />
-      <ChangePlan :session="session" />
       <WeatherSource v-if="showWeather" :block="weatherBlock" banner />
       <RainBanners v-if="today && itinerary" :session="session" :itinerary="itinerary" :my-id="myId" />
 
@@ -474,18 +461,7 @@ async function endPlan() {
           <span class="photos-cta__go" aria-hidden="true"><span class="photos-cta__word">Review</span> <AppIcon name="arrow-right" :size="16" /></span>
         </RouterLink>
 
-        <!-- Photos from the day: here from the outing's day on, for every member, so it is clear where to add them (not before the day, and not while "What next?" is the page: nothing has happened yet). A session on the server has none: photos would need storage of their own. -->
-        <RouterLink v-if="!remote && !nearbyHere && photosDay" :to="`/sessions/${id}/photos`" class="photos-cta">
-          <span class="photos-cta__icon" aria-hidden="true"><AppIcon name="camera" :size="20" /></span>
-          <span class="photos-cta__text">
-            <span class="title-sm">Photos from the day</span>
-            <span class="caption-sm text-muted">{{ photoCount ? `${photoCount} ${photoCount === 1 ? 'photo' : 'photos'} so far. Add yours.` : 'Add your photos for everyone in the group to see.' }}</span>
-          </span>
-          <span v-if="photoCount" class="photos-cta__strip" aria-hidden="true">
-            <img v-for="p in photos.slice(-3)" :key="p.id" :src="p.src" alt="" />
-          </span>
-          <span class="photos-cta__go" aria-hidden="true"><span class="photos-cta__word">Add photos</span> <AppIcon name="arrow-right" :size="16" /></span>
-        </RouterLink>
+        <!-- "Photos from the day" is on the finish and review page ("How was it?"), not here (Darius, 4 November 2026). -->
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
 
         <!-- Where the suggested order came from, when the host confirmed it. Moving or deleting a stop by hand clears it. -->
@@ -501,7 +477,9 @@ async function endPlan() {
           <RoamPanel :session="session" proposals-above />
         </template>
 
-        <SplitView v-else v-model:view="view" label="Itinerary" even>
+        <!-- Map first (Darius, 4 November 2026, as Home and Locate): from 1128px the map on the left and the timeline docked on the right,
+             full height and 520px wide (the stops need more room than Locate's cards), with the footer at its foot. -->
+        <SplitView v-else v-model:view="view" class="itin-split" label="Itinerary" even map-first>
           <template #list>
             <div v-if="!itinerary" class="stack gap-md">
               <SkeletonRow v-for="n in 3" :key="n" avatar />
@@ -545,7 +523,7 @@ async function endPlan() {
                       :lifted="lifted || selected === stop.venue.id"
                     >
                       <template v-if="canReplace || canDelete" #actions>
-                        <IconButton v-if="canReplace" outline :label="`Replace stop: ${stop.venue.name}`" :data-testid="`replace-${stop.slotId}`" @click="replaceStop(stop)"><AppIcon name="search" /></IconButton>
+                        <IconButton v-if="canReplace" outline class="swap-stop" :label="`Replace stop: ${stop.venue.name}`" :data-testid="`replace-${stop.slotId}`" @click="replaceStop(stop)"><AppIcon name="swap" /></IconButton>
                         <IconButton v-if="canDelete" outline :label="`Delete stop: ${stop.venue.name}`" @click="askRemove(stop)"><AppIcon name="trash" /></IconButton>
                       </template>
                       <template v-if="canMove" #handle>
@@ -589,12 +567,11 @@ async function endPlan() {
                 </ul>
               </details>
 
-              <AppButton v-if="editing && confirmed" variant="tertiary" underline class="replan" @click="replanOpen = true">Re-plan</AppButton>
             </template>
           </template>
 
           <template #map>
-            <PlannerMap :places="mapPlaces" :area="itinerary?.area" :rain="mapRain.places" :rain-label="mapRain.text" route fit-to="places" label="Itinerary map" :selected="selected" @select="selected = $event" />
+            <PlannerMap :cover="mapCover" :places="mapPlaces" :area="itinerary?.area" :rain="mapRain.places" :rain-label="mapRain.text" route fit-to="places" label="Itinerary map" :selected="selected" @select="selected = $event" />
             <CategoryKey :categories="mapPlaces.map((p) => p.category)" />
             <AppButton variant="secondary" small class="map-open" :to="`/sessions/${id}/map`">
               <AppIcon name="expand" />
@@ -634,15 +611,6 @@ async function endPlan() {
     <ModalDialog :open="removing !== null" :title="removing ? `Delete ${removing.name}?` : 'Delete stop?'" @update:open="(v) => !v && (removing = null)">
       <AppButton block variant="secondary" @click="removing = null">Keep</AppButton>
       <AppButton block variant="danger" @click="removeStop">Delete</AppButton>
-    </ModalDialog>
-
-    <ModalDialog v-model:open="replanOpen" title="Re-plan?">
-      <template #content>
-        <p class="body-md">Back to voting. Votes are kept unless the meeting area moves.</p>
-        <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
-      </template>
-      <AppButton block variant="secondary" @click="replanOpen = false">Keep plan</AppButton>
-      <AppButton block :disabled="busy" @click="replan">Re-plan</AppButton>
     </ModalDialog>
 
     <ToastMessage v-model:show="toast" :text="toastText" :offset="120" />
@@ -698,7 +666,7 @@ async function endPlan() {
 .home__list { display: flex; flex-direction: column; padding-bottom: var(--spacing-sm); }
 .home__row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; gap: var(--spacing-md); min-height: 36px; }
 .home__row.is-long .home__min { color: var(--primary-error-text); }
-.replan { align-self: flex-start; }
+.swap-stop :deep(svg) { transform: scaleX(-1); }
 .footer-note { margin: 0 0 var(--spacing-sm); text-align: center; }
 .whatnext { align-self: flex-start; }
 
@@ -724,4 +692,6 @@ async function endPlan() {
   .timeline :deep(.stop .title-md) { font: var(--text-display-sm); }
   .timeline :deep(.stop) { padding: var(--spacing-sm) 0; }
 }
+/* Map first (from 1128px): the page floats over the full-screen map; its rules are in app.css ("Map-first pages"). */
+
 </style>

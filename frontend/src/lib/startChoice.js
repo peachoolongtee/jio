@@ -73,7 +73,7 @@ export const START_NOTE = ''
 // How to call: changeLabel('fairest') -> 'Work out the spots again'
 export const changeLabel = (choice) => (choice === 'known' ? 'Choose the area' : 'Work out the spots again')
 export const CHANGE_NOTE = 'This clears the votes and the plan. Everyone keeps where they start.'
-export const CHANGE_HEAD = { title: 'How do you want to pick the new meeting point?', text: 'Nothing changes until you press the button below.' }
+export const CHANGE_HEAD = { title: 'How do you want to pick the new meeting point?', text: '' }
 
 // The follow-up's button: named for the area, or for using where the person is.
 // How to call: whereLabel({ name: 'Bishan' }) -> 'Meet at Bishan'; whereLabel(null, true) -> 'Use my location'

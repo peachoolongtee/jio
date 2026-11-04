@@ -247,7 +247,7 @@ function handleProps(index) {
 </script>
 
 <template>
-  <p v-if="hintText && !disabled && items.length > 1" class="sortable__hint caption-sm text-muted">{{ hintText }}</p>
+  <p v-if="hintText && !disabled && items.length > 1" class="sortable__hint sr-only">{{ hintText }}</p>
   <ol ref="list" class="sortable" :class="{ 'is-sorting': dragging >= 0, 'sortable--whole': wholeItem && !disabled && items.length > 1 }" :aria-label="label">
     <li v-for="(item, i) in items" :key="itemKey(item)" :ref="(el) => setEl(el, i)" class="sortable__item" @pointerdown="onItemPointerDown($event, i)" @click.capture="onItemClick">
       <slot name="item" :item="item" :index="i" :dragging="dragging >= 0" :lifted="dragging === i" :handle="handleProps(i)" />

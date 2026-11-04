@@ -143,17 +143,18 @@ function useCurrent() {
       <template #trailing><AppIcon class="loc__search" name="search" /></template>
     </TextField>
     <div class="loc__quick">
-      <AppButton v-if="which === 'end'" variant="secondary" small @click="pick(null)">
+      <!-- One line of short choices (Darius, 4 November 2026); each keeps its full name for screen readers and as a tooltip. -->
+      <AppButton v-if="which === 'end'" variant="secondary" small aria-label="Same as start" title="Same as start" @click="pick(null)">
         <AppIcon name="swap" />
-        Same as start
+        Start
       </AppButton>
-      <AppButton variant="secondary" small :disabled="locating" @click="useCurrent">
+      <AppButton variant="secondary" small :disabled="locating" :aria-label="locating ? 'Finding you' : 'Use current location'" title="Use current location" @click="useCurrent">
         <AppIcon name="locate" />
-        {{ locating ? 'Finding you' : 'Use current location' }}
+        {{ locating ? 'Finding…' : 'Here' }}
       </AppButton>
-      <AppButton v-if="home" variant="secondary" small @click="pick({ id: `home-${home.id}`, label: `Home · ${home.name}`, areaId: home.id })">
+      <AppButton v-if="home" variant="secondary" small :aria-label="`Home, ${home.name}`" :title="`Home · ${home.name}`" @click="pick({ id: `home-${home.id}`, label: `Home · ${home.name}`, areaId: home.id })">
         <AppIcon name="home" />
-        Home · {{ home.name }}
+        Home
       </AppButton>
     </div>
     <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
@@ -170,18 +171,17 @@ function useCurrent() {
     </ul>
     <p v-if="status" class="body-sm text-muted">{{ status }}</p>
     <p class="sr-only" role="status">{{ announcement }}</p>
-    <p class="caption-sm text-muted loc__privacy"><AppIcon name="lock" :size="12" /> Friends see the area name only</p>
   </PopoverPanel>
 </template>
 
 <style scoped>
 .loc__search { position: absolute; top: 20px; right: 14px; color: var(--muted); pointer-events: none; }
-.loc__quick { display: flex; flex-wrap: wrap; gap: var(--spacing-sm); }
+.loc__quick { display: flex; flex-wrap: nowrap; gap: var(--spacing-sm); }
+.loc__quick > * { flex-shrink: 0; }
 .loc__results { display: flex; flex-direction: column; transition: opacity var(--motion-fast) var(--ease-out); }
 .loc__results.is-waiting { opacity: 0.6; }
 .loc__result { display: flex; align-items: center; gap: var(--spacing-md); width: 100%; min-height: 56px; padding: var(--spacing-sm); border: 0; border-bottom: 1px solid var(--hairline-soft); background: transparent; color: var(--ink); text-align: left; }
 .loc__text { display: flex; flex-direction: column; min-width: 0; }
 @media (prefers-reduced-motion: reduce) { .loc__results { transition: none; } }
 @media (hover: hover) { .loc__result:hover { background: var(--surface-soft); } }
-.loc__privacy { display: flex; align-items: center; gap: var(--spacing-xs); }
 </style>

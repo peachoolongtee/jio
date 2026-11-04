@@ -7,7 +7,8 @@
 import AppIcon from './AppIcon.vue'
 
 defineProps({
-  symbol: { type: String, required: true, validator: (v) => ['check', 'close'].includes(v) },
+  // 'plus' draws a + in the same filled Rausch circle as 'check' (Darius, 4 November 2026: a + reads as "add" better than a tick).
+  symbol: { type: String, required: true, validator: (v) => ['check', 'plus', 'close'].includes(v) },
   label: { type: String, required: true },
   busy: { type: Boolean, default: false },
   disabled: { type: Boolean, default: false },
@@ -23,10 +24,10 @@ defineProps({
 
 <style scoped>
 .mark { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: var(--tap-min); height: var(--tap-min); padding: 0; border-radius: var(--rounded-full); font: inherit; cursor: pointer; transition: background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out); }
-.mark--check { border: 0; background: var(--primary); color: var(--on-primary); }
+.mark--check, .mark--plus { border: 0; background: var(--primary); color: var(--on-primary); }
 .mark--close { border: 1px solid var(--border-strong); background: var(--canvas); color: var(--ink); }
 @media (hover: hover) {
-  .mark--check:not(:disabled):hover { background: var(--primary-active); }
+  .mark--check:not(:disabled):hover, .mark--plus:not(:disabled):hover { background: var(--primary-active); }
   .mark--close:not(:disabled):hover { border-color: var(--ink); background: var(--surface-soft); }
 }
 .mark:not(:disabled):active { transform: scale(0.94); }

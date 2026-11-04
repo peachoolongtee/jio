@@ -48,6 +48,9 @@ const props = defineProps({
   // What the view fits to: 'all' (default), 'places' to frame the stops and the meeting area only, or 'keep' to frame the `keep`
   // points only (Locate on a phone: the meeting spots, so pins a few streets apart do not sit on top of each other).
   fitTo: { type: String, default: 'all' },
+  // Pixels at each edge that something covers (cards floating over a full-screen map, SplitView mapFirst): the view is framed in the
+  // rest. { top, right, bottom, left }, any of them; none by default.
+  cover: { type: Object, default: () => ({}) },
   zoomPosition: { type: String, default: 'topleft' },
   finding: { type: Boolean, default: false },
   radius: { type: Number, default: 0 },
@@ -61,6 +64,8 @@ const TILES = 'https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png'
 const ATTRIBUTION = '<a href="https://www.onemap.gov.sg/" target="_blank" rel="noopener noreferrer">OneMap</a> &copy; contributors &#124; <a href="https://www.sla.gov.sg/" target="_blank" rel="noopener noreferrer">Singapore Land Authority</a>'
 const BOUNDS = [[1.13, 103.55], [1.5, 104.13]]
 const SINGAPORE = [1.3521, 103.8198]
+// The main island, framed when there is nothing on the map yet.
+const ISLAND = [[1.24, 103.61], [1.47, 104.03]]
 
 const el = ref(null)
 let map = null
@@ -127,6 +132,21 @@ function arc(from, to, steps = 32) {
     points.push([u * u * from.lat + 2 * u * t * c.lat + t * t * to.lat, u * u * from.lng + 2 * u * t * c.lng + t * t * to.lng])
   }
   return points
+}
+
+// Centres a point in the part of the map the floating cards leave free (cover), at a zoom. How to call: viewInFree([1.3, 103.8], 15)
+function viewInFree(point, zoom) {
+  const c = props.cover || {}
+  const z = Math.max(zoom, map.getMinZoom())
+  const shifted = map.project(point, z).add([((c.right || 0) - (c.left || 0)) / 2, ((c.bottom || 0) - (c.top || 0)) / 2])
+  map.setView(map.unproject(shifted, z), z, reducedMotion() ? { animate: false } : undefined)
+}
+
+// The furthest out the map may zoom: no further than its tiles fill the box, so no grey shows round them on a big screen (the full-screen
+// maps from 1128px), and never out to zoom 10. How to call: syncMinZoom()
+function syncMinZoom() {
+  if (!map || !el.value?.clientWidth) return
+  map.setMinZoom(Math.max(10, map.getBoundsZoom(BOUNDS, true)))
 }
 
 function draw() {
@@ -201,9 +221,11 @@ function draw() {
   const key = frame.map((p) => p.join(',')).sort().join('|')
   if (key !== fittedKey) {
     fittedKey = key
-    if (frame.length > 1) map.fitBounds(L.latLngBounds(frame), { padding: [64, 64], maxZoom: 16, animate: !reducedMotion() })
-    else if (frame.length === 1) map.setView(frame[0], 15, reducedMotion() ? { animate: false } : undefined)
-    else map.setView(SINGAPORE, 11, reducedMotion() ? { animate: false } : undefined)
+    const c = props.cover || {}
+    if (frame.length > 1) map.fitBounds(L.latLngBounds(frame), { paddingTopLeft: [64 + (c.left || 0), 64 + (c.top || 0)], paddingBottomRight: [64 + (c.right || 0), 64 + (c.bottom || 0)], maxZoom: 16, animate: !reducedMotion() })
+    else if (frame.length === 1) viewInFree(frame[0], 15)
+    // Nothing to show yet: the main island, in the part of the map the cards leave free (never zoomed out past the map's edges).
+    else map.fitBounds(L.latLngBounds(ISLAND), { paddingTopLeft: [16 + (c.left || 0), 16 + (c.top || 0)], paddingBottomRight: [16 + (c.right || 0), 16 + (c.bottom || 0)], animate: !reducedMotion() })
   }
 }
 
@@ -337,6 +359,7 @@ onMounted(() => {
   map = L.map(el.value, { center: SINGAPORE, zoom: 11, minZoom: 10, maxZoom: 18, zoomSnap: 0.25, zoomControl: false, maxBounds: BOUNDS, zoomAnimation: !reducedMotion(), fadeAnimation: !reducedMotion(), markerZoomAnimation: !reducedMotion() })
   L.control.zoom({ position: props.zoomPosition }).addTo(map)
   L.tileLayer(TILES, { attribution: ATTRIBUTION, minZoom: 10, minNativeZoom: 11, maxZoom: 19, bounds: BOUNDS }).addTo(map)
+  syncMinZoom()
   // The rain has a pane between the tiles (200) and the route (400), so it lies on the map and under everything drawn on it.
   map.createPane('rain').style.zIndex = 350
   layers = { rain: L.layerGroup().addTo(map), base: L.layerGroup().addTo(map), radius: L.layerGroup().addTo(map) }
@@ -349,15 +372,21 @@ onMounted(() => {
   emit('view')
   // The map can start hidden (the List / Map switch on phones). Re-measure whenever its box changes.
   let lastWidth = el.value.clientWidth
+  let lastHeight = el.value.clientHeight
   observer = new ResizeObserver(() => {
     const width = el.value?.clientWidth || 0
+    const height = el.value?.clientHeight || 0
     map.invalidateSize()
-    // Shown for the first time (it was 0 wide): fit the view again now that it has a size.
-    if (!lastWidth && width) {
+    syncMinZoom()
+    // Shown for the first time (it was 0 wide), or its box changed size by more than a little: fit the view again, so everyone stays in
+    // sight. Confirming a meeting spot changes the list beside the map, and the map's height with it; the view fitted to the old size
+    // could leave someone outside the new one (Darius, 4 November 2026).
+    if ((!lastWidth && width) || (width && (Math.abs(width - lastWidth) > 40 || Math.abs(height - lastHeight) > 40))) {
       fittedKey = ''
       draw()
     }
     lastWidth = width
+    lastHeight = height
   })
   observer.observe(el.value)
 })
@@ -374,6 +403,12 @@ onBeforeUnmount(() => {
 
 // The radius is not here: it draws no pin, and rebuilding every pin on each step of the slider was wasted work (drawRadius has its own watch).
 watch(() => [props.people, props.area, props.places, props.route, props.spokes, props.selected, props.finding, props.keep], draw, { deep: true })
+// The covered strip changed (the window was resized past the panel's breakpoint): frame the view again.
+watch(() => JSON.stringify(props.cover || {}), () => {
+  if (!map) return
+  fittedKey = ''
+  draw()
+})
 watch(() => [props.area?.lat, props.area?.lng, props.radius, props.finding], () => map && drawRadius())
 // Only a change of place redraws the rain, not a new array with the same places (a parent computes it again on every update).
 watch(() => props.rain.map((p) => `${p.lat},${p.lng}`).join('|'), drawRain)

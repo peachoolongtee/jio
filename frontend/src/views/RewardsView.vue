@@ -1,11 +1,12 @@
 <script setup>
 // Rewards: spend JioCoins on sample café vouchers.
 //   - The balance sits at the top right; the + beside it opens a small popover on how JioCoins are earned.
-//   - Tabs at the top switch between "Café vouchers" and "Your vouchers" (with how many codes are ready to use). Each list sits in a white
-//     panel, with every voucher a card nested in it (Faith, 4 November 2026).
-//   - Café vouchers, filtered by category and, with "Can claim", to the ones the balance covers that hold no code to use. Each card has
+//   - One white card holds both lists, with every voucher a card nested in it (Faith, 4 November 2026). At its top a two-way switch,
+//     "Vouchers" and "Your vouchers" (with a red badge of how many codes are ready to use), and a red streak runs round its border
+//     (BorderTrail). The switch moved into the card from above it, and "Café vouchers" became "Vouchers" (Darius, 4 November 2026).
+//   - Vouchers, filtered by category and, with "Can claim", to the ones the balance covers that hold no code to use. Each card has
 //     its price at the bottom, beside its action:
-//       Not claimed   "Claim", or "Claim again" when the last code was used or ran out. A Claim that the balance does not cover is greyed,
+//       Not claimed   "Claim", also once the last code was used or ran out. A Claim that the balance does not cover is greyed,
 //                     with the JioCoins that are missing under the price.
 //       Holding a code "Claimed", until that code is used or runs out.
 //     Claiming asks first, then shows the code and lowers the balance. Every button on the page is the same round pill.
@@ -23,9 +24,9 @@ import ChipButton from '@/components/ui/ChipButton.vue'
 import CoinBadge from '@/components/ui/CoinBadge.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import GridPulse from '@/components/ui/GridPulse.vue'
+import BorderTrail from '@/components/ui/BorderTrail.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import ModalDialog from '@/components/ui/ModalDialog.vue'
-import SegmentTabs from '@/components/ui/SegmentTabs.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import { useGroupsStore } from '@/stores/groups.js'
 import { POINTS_PER_MEETUP } from '@/lib/mock/people.js'
@@ -73,9 +74,9 @@ const shownRewards = computed(() =>
 const iconFor = (reward) => REWARD_CATEGORIES.find((c) => c.id === reward?.category)?.icon || 'drink'
 // Whether a voucher holds a code still to use. How to call: holdsCode(reward) -> true
 const holdsCode = (reward) => groups.redemptions.some((r) => r.rewardId === reward.id && voucherState(r, now.value) === 'usable')
-// Whether a voucher has been claimed before, so its button says "Claim again". How to call: claimedBefore(reward) -> false
-const claimedBefore = (reward) => groups.redemptions.some((r) => r.rewardId === reward.id)
-const claimWord = (reward) => (claimedBefore(reward) ? 'Claim again' : 'Claim')
+// The claim button's word: always "Claim". Once a code is used or runs out the voucher is simply claimable again, with no "Claim again"
+// (Darius, 4 November 2026). How to call: claimWord(reward) -> 'Claim'
+const claimWord = () => 'Claim'
 // A voucher the balance does not cover, and that holds no code. How to call: isShort(reward) -> true
 const isShort = (reward) => reward.cost > points.value && !holdsCode(reward)
 
@@ -93,7 +94,7 @@ const myVouchers = computed(() => [
 const tab = ref('shop')
 const tabs = computed(() => {
   const ready = mine.value.usable.length
-  return [{ id: 'shop', label: 'Café vouchers' }, { id: 'mine', label: ready ? `Your vouchers (${ready})` : 'Your vouchers' }]
+  return [{ id: 'shop', label: 'Vouchers', count: 0 }, { id: 'mine', label: 'Your vouchers', count: ready }]
 })
 
 // The voucher whose details are open: { reward, voucher }, where voucher is the claim shown, if any.
@@ -208,9 +209,16 @@ async function closeRedeemed() {
     </header>
 
     <div class="screen__body">
-      <SegmentTabs v-model="tab" label="Which vouchers" :tabs="tabs" />
+      <!-- One card for both lists: the switch at its top, and a red streak running round its border. -->
+      <div class="rewards__card">
+      <BorderTrail :size="120" :width="2" :duration="6" background="linear-gradient(to left, var(--primary-disabled), var(--primary), var(--primary-disabled))" />
+      <div class="switch" role="group" aria-label="Which vouchers">
+        <button v-for="t in tabs" :key="t.id" type="button" class="switch__tab" :class="{ 'is-active': tab === t.id }" :aria-pressed="String(tab === t.id)" :aria-label="t.count ? `${t.label}, ${t.count} ready to use` : undefined" @click="tab = t.id">
+          <AppIcon :name="t.id === 'shop' ? 'gift' : 'coin'" :size="18" />{{ t.label }}<span v-if="t.count" class="switch__badge tnum" aria-hidden="true">{{ t.count }}</span>
+        </button>
+      </div>
       <section v-if="tab === 'shop'" class="section rewards__panel" aria-labelledby="vouchers-head">
-        <h2 id="vouchers-head" ref="listHead" class="sr-only" tabindex="-1">Café vouchers</h2>
+        <h2 id="vouchers-head" ref="listHead" class="sr-only" tabindex="-1">Vouchers</h2>
         <div v-if="groups.rewards.length" class="filters">
           <div class="scroll-x" role="radiogroup" v-radio-group aria-label="Voucher category">
             <ChipButton radio :selected="category === 'all'" @click="category = 'all'">All</ChipButton>
@@ -259,6 +267,7 @@ async function closeRedeemed() {
           </li>
         </ul>
       </section>
+      </div>
       <p class="sr-only" role="status" data-testid="voucher-status">{{ announcement }}</p>
     </div>
 
@@ -343,9 +352,23 @@ async function closeRedeemed() {
 .pop-leave-active { transition: opacity 120ms var(--ease-out), transform 120ms var(--ease-out); }
 .pop-enter-from, .pop-leave-to { opacity: 0; transform: scale(0.92) translateY(-4px); }
 @media (prefers-reduced-motion: reduce) { .pop-enter-active, .pop-leave-active { transition: none; } }
-/* A white panel holds each list, with every voucher a card nested in it (Faith, 4 November 2026). */
-.rewards__panel { padding: var(--spacing-lg); border: 1px solid var(--hairline); border-radius: var(--rounded-lg); background: var(--canvas); }
-@media (max-width: 743.98px) { .rewards__panel { padding: var(--spacing-base) var(--spacing-md); } }
+/* One white card holds the switch and the list, with every voucher a card nested in it (Faith, 4 November 2026); the red streak runs
+   round its border (Darius, 4 November 2026). */
+.rewards__card { position: relative; display: flex; flex-direction: column; gap: var(--spacing-lg); padding: var(--spacing-lg); border: 1px solid var(--border-strong); border-radius: var(--rounded-lg); background: var(--canvas); }
+@media (max-width: 743.98px) { .rewards__card { gap: var(--spacing-base); padding: var(--spacing-base) var(--spacing-md); } }
+.rewards__panel { margin: 0; }
+/* The switch: two halves of one pill. The current one is white with a bold ink rim; the other is muted on the soft track. */
+.switch { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; align-self: center; width: min(100%, 460px); padding: 4px; border-radius: var(--rounded-full); background: var(--surface-soft); }
+.switch__tab { display: inline-flex; align-items: center; justify-content: center; gap: var(--spacing-sm); min-height: var(--tap-min); padding: 0 var(--spacing-base); border: 2px solid transparent; border-radius: var(--rounded-full); background: transparent; color: var(--muted); font: var(--text-button-md); cursor: pointer; transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out); }
+.switch__tab.is-active { border-color: var(--ink); background: var(--canvas); color: var(--ink); }
+@media (hover: hover) { .switch__tab:not(.is-active):hover { color: var(--ink); } }
+.switch__tab:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* How many codes are ready to use: a small red badge, white figures (4.89:1 on the pressed red). */
+.switch__badge { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: var(--rounded-full); background: var(--primary-active); color: var(--on-primary); font: var(--text-badge); }
+/* Phones: tighter halves, labels on one line, and no icons under 420px so both names fit. */
+@media (max-width: 743.98px) { .switch__tab { gap: var(--spacing-xs); padding: 0 var(--spacing-sm); font: var(--text-button-sm); white-space: nowrap; } }
+@media (max-width: 419.98px) { .switch__tab :deep(svg) { display: none; } }
+@media (prefers-reduced-motion: reduce) { .switch__tab { transition: none; } }
 .filters { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-xs) var(--spacing-md); margin-bottom: var(--spacing-base); }
 .filters .scroll-x { min-width: 0; flex: 1 1 auto; margin-right: 0; padding-right: 0; }
 .earn { display: flex; flex-direction: column; gap: var(--spacing-sm); margin: 0; padding: 0; list-style: none; }

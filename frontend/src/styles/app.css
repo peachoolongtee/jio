@@ -214,3 +214,54 @@ svg { display: block; flex-shrink: 0; }
 .grid-page { position: relative; isolation: isolate; }
 .grid-page > :not(.page-grid) { position: relative; z-index: 1; }
 .grid-page > .grid-pulse.page-grid { position: fixed; inset: 0; }
+
+/* Map-first pages (Locate and the itinerary, SplitView mapFirst), from 1128px (Darius, 4 November 2026): the map is the whole screen and
+   the page floats over it.
+   - Top: the back button on the left, one card with the title, the date and the steps in the middle.
+   - Top right: Change plan, Invite and Hold to cancel.
+   - Down the right edge: the page's body (its notices and the list's sections), each in a white card of its own, in a column that
+     scrolls on its own. The column lets presses through to the map between its cards.
+   - Bottom right: the footer's button(s), pill-shaped like everything else that floats over the map.
+   - Left out here, where the map is the page (the lead, 4 November 2026): "Walking times are from …", the weather's source line (a
+     simulated forecast still says so), the map's colour key and "Expand map". Phones still show the two lines under their list.
+   - The column shows a thin scroll bar, so a card cut off at its foot reads as more to scroll, not as a broken card.
+   Phones and tablets keep the List / Map switch. */
+@media (min-width: 1128px) {
+  .screen:has(.split--first) { --map-panel: 420px; --map-edge: var(--spacing-lg); }
+  .screen:has(.itin-split), .screen:has(.roam-split) { --map-panel: 520px; }
+  .screen:has(.plan-split) { --map-panel: 560px; }
+  /* "What next?" keeps its sections in one wrapper (RoamPanel); it steps aside so each section is a card of its own. */
+  .screen:has(.split--first) .roam-panel { display: contents; }
+
+  .screen:has(.split--first) > .session-head { position: fixed; z-index: 15; top: var(--map-edge); right: var(--map-edge); left: var(--map-edge); flex-direction: row; align-items: flex-start; gap: var(--spacing-sm); padding: 0; pointer-events: none; }
+  .screen:has(.split--first) > .session-head .screen__bar { display: contents; }
+  .screen:has(.split--first) > .session-head .screen__bar > *, .screen:has(.split--first) > .session-head .session-head__card { pointer-events: auto; }
+  .screen:has(.split--first) > .session-head .screen__bar > :first-child { order: 0; flex-shrink: 0; background: var(--canvas); box-shadow: var(--shadow-float); }
+  /* The card sits in the middle of the page's top (Darius, 4 November 2026), between the back button and the actions. */
+  .screen:has(.split--first) > .session-head .session-head__card { position: absolute; top: 0; left: 50%; transform: translateX(-50%); order: 1; width: min(560px, calc(100vw - 740px)); padding: var(--spacing-sm) var(--spacing-base) var(--spacing-md); border-radius: var(--rounded-lg); background: var(--canvas); box-shadow: var(--shadow-float); gap: var(--spacing-sm); }
+  .screen:has(.split--first) > .session-head .screen__titles { order: -1; gap: 2px; }
+  .screen:has(.split--first) > .session-head .screen__titles h1 { margin: 0; font: var(--text-display-sm); -webkit-line-clamp: 1; line-clamp: 1; }
+  .screen:has(.split--first) > .session-head .session-head__actions { order: 2; margin-left: auto; }
+  .screen:has(.split--first) > .session-head .session-head__actions :is(.btn, .icon-btn, .hold) { box-shadow: var(--shadow-float); }
+  .screen:has(.split--first) > .session-head .session-head__actions .icon-btn { background: var(--canvas); }
+
+  /* The column starts under the middle card (about 120px tall, its title on one line). */
+  .screen:has(.split--first) > .screen__body { position: fixed; z-index: 10; top: calc(var(--map-edge) + 136px); right: var(--map-edge); bottom: calc(var(--map-edge) + var(--tap-min) + var(--spacing-base)); width: var(--map-panel); padding: 0 0 var(--spacing-xs); gap: var(--spacing-sm); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; pointer-events: none; }
+  .screen:has(.split--first) > .screen__body::-webkit-scrollbar { width: 6px; }
+  .screen:has(.split--first) > .screen__body::-webkit-scrollbar-thumb { border-radius: var(--rounded-full); background: var(--border-strong); }
+  .screen:has(.split--first) > .screen__body::-webkit-scrollbar-track { background: transparent; }
+  /* The notes that only explained the list, and the colour key that floated loose over the map. */
+  .screen:has(.split--first) :is(.walk-from, .cat-key), .screen:has(.split--first) .wx:not(:has(.wx__line--simulated)) { display: none; }
+  .screen:has(.split--first) > .screen__body > *, .screen:has(.split--first) .split__list > * { pointer-events: auto; }
+  .screen:has(.split--first) .split--first { pointer-events: none; }
+  /* Each section a white card of its own over the map, raised above it (the map is fixed inside the same column). */
+  .screen:has(.split--first) > .screen__body > :not(.split):not(.sr-only):not(.roam-panel), .screen:has(.split--first) .roam-panel > :not(.split):not(.sr-only), .screen:has(.split--first) .split__list > :not(.sr-only) { position: relative; z-index: 1; flex-shrink: 0; border-radius: var(--rounded-lg); background: var(--canvas); box-shadow: var(--shadow-float); }
+  .screen:has(.split--first) > .screen__body > :not(.split):not(.card):not(.sr-only):not(.roam-panel), .screen:has(.split--first) .roam-panel > :not(.split):not(.card):not(.sr-only), .screen:has(.split--first) .split__list > :not(.card):not(.sr-only) { padding: var(--spacing-base); }
+  .screen:has(.split--first) .split__list { gap: var(--spacing-sm); }
+
+  /* The map's colour key: at the top left, under the header's card, clear of the zoom buttons at the bottom left. */
+  .screen:has(.split--first) .split__map .cat-key { top: 190px; bottom: auto; left: var(--map-edge); }
+  .screen:has(.split--first) > .screen__footer { position: fixed; z-index: 20; right: var(--map-edge); bottom: var(--map-edge); left: auto; width: var(--map-panel); flex-direction: row; align-items: center; justify-content: flex-end; gap: var(--spacing-sm); padding: 0; border: 0; background: transparent; }
+  .screen:has(.split--first) > .screen__footer > .btn { flex: 1 1 0; min-width: 0; border-radius: var(--rounded-full); box-shadow: var(--shadow-float); }
+  .screen:has(.split--first) > .screen__footer > :not(.btn) { padding: var(--spacing-sm) var(--spacing-base); border-radius: var(--rounded-full); background: var(--canvas); box-shadow: var(--shadow-float); }
+}

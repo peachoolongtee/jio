@@ -2,7 +2,8 @@
 // One meeting spot in the list, kept short (walkthrough, 1 November 2026): its number, its name with the longest trip and the
 // average beside it, then a "Vote" toggle with the people who chose it and "More details" at the end of that row. "More details"
 // opens a dialog with who put the spot forward, "We are here already", and each person on a line of their own: their avatar, their
-// name and their time to get there. On your own suggestion, "We are here already" and Withdraw. The whole card selects the spot (and
+// name and their time to get there. On your own suggestion the dialog also has "We are here already" and Withdraw, so the card itself
+// looks like every other one; the selected card has a red streak running round its border (Darius, 4 November 2026). The whole card selects the spot (and
 // its pin on the map) when pressed anywhere but on its own controls (Faith's walkthrough, 30 October 2026: the name alone was too
 // small a target); the name stays a real button, for the keyboard and screen readers.
 //   <SpotRow :spot="spot" :number="1" :selected="true" :mine="false" :names="nameOf" my-id="ian" can-approve fairest
@@ -21,6 +22,7 @@
 // Only areas are shown, never a member's exact place. Times say "about" when they are estimates.
 import { computed, ref } from 'vue'
 import AppButton from '../ui/AppButton.vue'
+import BorderTrail from '../ui/BorderTrail.vue'
 import AppIcon from '../ui/AppIcon.vue'
 import AvatarStack from '../ui/AvatarStack.vue'
 import ChipButton from '../ui/ChipButton.vue'
@@ -97,10 +99,8 @@ function pick(event) {
       </button>
     </div>
 
-    <div v-if="own && !readonly" class="spot__own">
-      <ChipButton check :selected="own.here" :aria-busy="busy ? 'true' : undefined" :aria-label="`We are here already: ${spot.area.name}`" @click="emit('here', !own.here)">We are here already</ChipButton>
-      <AppButton variant="tertiary" :aria-busy="busy ? 'true' : undefined" @click="emit('withdraw')">Withdraw<span class="sr-only"> my suggestion of {{ spot.area.name }}</span></AppButton>
-    </div>
+    <!-- The selected spot: a red streak running round its border, as the Rewards card (Darius, 4 November 2026). -->
+    <BorderTrail v-if="selected" class="spot__trail" :size="90" :width="2" :duration="5" background="linear-gradient(to left, var(--primary-disabled), var(--primary), var(--primary-disabled))" />
 
     <!-- Each person on a line of their own: avatar, name, and their time to get there. -->
     <ModalDialog v-model:open="detailsOpen" :title="spot.area.name" :text="detailsText">
@@ -117,6 +117,12 @@ function pick(event) {
         </ul>
         <p v-else class="body-sm text-muted">No trips to compare yet. They appear as people share where they start.</p>
         <p v-if="spot.approximate" class="caption-sm text-muted">{{ ABOUT_NOTE }}</p>
+        <!-- Your own suggestion: "We are here already" and Withdraw are here, so its card in the list looks like every other one
+             (Darius, 4 November 2026). -->
+        <div v-if="own && !readonly" class="spot__own">
+          <ChipButton check :selected="own.here" :aria-busy="busy ? 'true' : undefined" :aria-label="`We are here already: ${spot.area.name}`" @click="emit('here', !own.here)">We are here already</ChipButton>
+          <AppButton variant="tertiary" :aria-busy="busy ? 'true' : undefined" @click="emit('withdraw'); detailsOpen = false">Withdraw<span class="sr-only"> my suggestion of {{ spot.area.name }}</span></AppButton>
+        </div>
       </template>
       <AppButton block variant="secondary" @click="detailsOpen = false">Close</AppButton>
     </ModalDialog>
@@ -126,14 +132,19 @@ function pick(event) {
 <style scoped>
 /* A flat light grey card with the default grey edge, set apart from the white page (walkthrough, 1 November 2026). Hovered, a shade
    darker. The selected spot turns white with a 2px ink outline (the padding gives back the pixel so nothing moves). */
-.spot { display: flex; flex-direction: column; gap: var(--spacing-sm); min-width: 0; padding: var(--spacing-md) var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--surface-strong); cursor: pointer; transition: border-color var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out); }
-@media (hover: hover) { .spot:not(.is-selected):hover { border-color: var(--border-strong); background: var(--hairline-soft); } }
+.spot { display: flex; flex-direction: column; gap: var(--spacing-sm); min-width: 0; padding: var(--spacing-md) var(--spacing-base); border: 1px solid var(--border-strong); border-radius: var(--rounded-md); background: var(--canvas); cursor: pointer; transition: border-color var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out); }
+/* White, not grey (Darius, 4 November 2026): a firm grey border at rest, the bold ink outline when selected. */
+@media (hover: hover) { .spot:not(.is-selected):hover { border-color: var(--ink); background: var(--surface-soft); } }
+.spot { position: relative; }
+/* Selected: the bold ink border, with a red streak running round over it, as the Rewards card (the streak is hidden under reduced
+   motion; the ink border still marks the selection). */
 .spot.is-selected { padding: 11px calc(var(--spacing-base) - 1px); border: 2px solid var(--ink); background: var(--canvas); }
+.spot .spot__trail { inset: -2px; }
 .spot__top { display: flex; align-items: center; gap: var(--spacing-sm); min-width: 0; }
 .spot__head { display: flex; flex: 1 1 0; align-items: center; gap: var(--spacing-md); min-width: 0; min-height: var(--tap-min); margin: 0; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
 .spot__head:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 /* The number on the row is the number on its pin. Ink when selected, so the pair differs by more than colour. */
-.spot__num { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: var(--rounded-full); background: var(--canvas); color: var(--ink); font: var(--text-badge); font-weight: 700; }
+.spot__num { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--ink); font: var(--text-badge); font-weight: 700; }
 .spot.is-selected .spot__num { background: var(--selected); color: var(--on-selected); }
 /* The name and its times on one line; on a narrow phone the times wrap under the name. */
 .spot__text { display: flex; flex: 1 1 0; flex-wrap: wrap; align-items: baseline; gap: 2px var(--spacing-sm); min-width: 0; }

@@ -20,17 +20,15 @@ export function dietChips({ mine = [], others = [], dropped = [], canDrop = fals
 
 <script setup>
 // The Halal, Vegetarian and Vegan chips of an outing (ticket #107), used inline on the Vote page and inside "Confirm dietary
-// needs". A tap picks a need or takes it off. Taking off a need someone else in the outing has asks first, in a dialog that
-// reminds the person someone needs it ("Unselect halal?"); then the group's places no longer have to fit it. Selecting it again
-// brings it back with no question. Only the host (`canDrop`) can do that: to a guest a need someone else has is selected and
+// needs". A tap picks a need or takes it off, at once: taking off a need someone else in the outing has no longer asks first (Darius,
+// 4 November 2026: the "Unselect halal?" dialog was a step too many); the group's places then no longer have to fit it. Selecting it
+// again brings it back. Only the host (`canDrop`) can do that: to a guest a need someone else has is selected and
 // locked, with a line that says why. Everyone changes their own needs. It holds no state: each change is sent as
 // `change({ mine, dropped })`, for the caller to keep or save.
 //   <DietaryChips :mine="mine" :others="others" :dropped="dropped" :can-drop="isHost" label="Your dietary needs" @change="save" />
-import { computed, ref, useId } from 'vue'
-import AppButton from '../ui/AppButton.vue'
+import { computed, useId } from 'vue'
 import AppIcon from '../ui/AppIcon.vue'
 import ChipButton from '../ui/ChipButton.vue'
-import ModalDialog from '../ui/ModalDialog.vue'
 import { cleanDietary } from '@/lib/signupRules.js'
 import { needsText } from '@/lib/dietText.js'
 
@@ -60,33 +58,19 @@ const droppedNoteId = useId()
 const droppedMine = computed(() => chips.value.filter((c) => c.droppedMine).map((c) => c.value))
 const droppedMineWord = computed(() => needsText(droppedMine.value))
 
-// The need waiting for "Unselect halal?", or ''.
-const asking = ref('')
-const askingWord = computed(() => needsText([asking.value]))
-
 // How to call: send(['vegan'], ['halal'])
 const send = (mine, dropped) => emit('change', { mine: cleanDietary(mine), dropped: cleanDietary(dropped) })
 
-// Pick a need or take it off. Taking off a need someone else has asks first.
+// Pick a need or take it off. Taking off a need someone else has stops the group filtering for it (and takes it off the person's own
+// needs too, if it is theirs).
 // How to call: toggle(chip)
 function toggle(chip) {
   if (props.busy || chip.locked) return
   const need = chip.value
-  if (chip.selected && chip.shared) {
-    asking.value = need
-    return
-  }
+  if (chip.selected && chip.shared) return send(props.mine.filter((n) => n !== need), [...props.dropped, need])
   // Back on, for a need someone else has, or the person's own that the host dropped: the group filters for it again.
   if (chip.shared || chip.droppedMine) return send(props.mine, props.dropped.filter((n) => n !== need))
   send(props.mine.includes(need) ? props.mine.filter((n) => n !== need) : [...props.mine, need], props.dropped)
-}
-
-// "Unselect halal": the group's places no longer have to fit it, and if it is the person's own too, it comes off.
-// How to call: dropAsked()
-function dropAsked() {
-  const need = asking.value
-  asking.value = ''
-  send(props.mine.filter((n) => n !== need), [...props.dropped, need])
 }
 </script>
 
@@ -101,17 +85,6 @@ function dropAsked() {
     </div>
     <p v-if="locked" :id="noteId" class="caption-sm text-muted" data-testid="diet-locked-reason">Someone in the outing needs this, so it stays on. Only the host can change that.</p>
     <p v-if="droppedMine.length" :id="droppedNoteId" class="caption-sm text-muted" data-testid="diet-dropped-mine">The host stopped filtering places for {{ droppedMineWord }}, so they may not be {{ droppedMineWord }}. Select it to have them fit it again.</p>
-
-    <!-- Taking off a need someone else in the outing has (the host only): the safer choice first. -->
-    <ModalDialog
-      :open="!!asking"
-      :title="`Unselect ${askingWord}?`"
-      :text="`Someone in this outing needs ${askingWord}. If you unselect it, the places suggested to the group may not be ${askingWord}.`"
-      @update:open="(v) => { if (!v) asking = '' }"
-    >
-      <AppButton block data-testid="diet-keep" @click="asking = ''">Keep {{ askingWord }}</AppButton>
-      <AppButton block variant="secondary" data-testid="diet-drop" @click="dropAsked">Unselect {{ askingWord }}</AppButton>
-    </ModalDialog>
   </div>
 </template>
 

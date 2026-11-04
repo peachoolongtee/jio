@@ -49,9 +49,10 @@ const layer = ref(null)
 const cardId = (id) => `${uid}-card-${id}`
 const byId = computed(() => Object.fromEntries(props.meetups.map((m) => [m.id, m])))
 
-// How pins stand in a row: 58px apart, so the selected pin, drawn 1.2 times larger (60px), still clears its neighbours, and a pin's
-// width and height for telling when two would overlap.
-const ROW = { fan: 58, width: 60, height: 76 }
+// How pins near each other stand: 76px apart and scattered a little up and down (lib/homeMeetups.js layoutPins, Darius, 4 November 2026:
+// spread out, not on one line), so even with the sideways jitter neighbours are at least 65px apart and the selected pin, drawn 1.2 times
+// larger, still clears them; and a pin's width and height for telling when two would overlap.
+const ROW = { fan: 76, width: 60, height: 76, scatter: true }
 // Map units per degree (lib/singaporeDots.js project: x grows with longitude, y falls with latitude).
 const UNITS_PER_DEGREE = 1000
 // How far a pin's tip stays from the box's sides, in px (the clamp in .mwrap's CSS).
