@@ -50,7 +50,7 @@
 //     the page is left, paused while hidden, one at a time, a failure keeps the last answer), and shows a rain banner for
 //     everyone, with "Swap to <indoor place>?" for the host (RainBanners). A simulated forecast adds a banner at the top.
 import { coins } from '@/lib/currency.js'
-import { NO_COINS, earnsCoins, itineraryAction, photosOpen, roamOpen, singaporeDate } from '@/lib/session.js'
+import { NO_COINS, earnsCoins, itineraryAction, roamOpen, singaporeDate } from '@/lib/session.js'
 import { dayOf } from '@/lib/homeMeetups.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -242,8 +242,6 @@ const showWeather = computed(() => confirmed.value && !!itinerary.value)
 const check = computed(() => events.weatherChecks[props.id])
 // The shared clock: rain is drawn only while its forecast is current.
 const now = useNow()
-// Have photos opened? From the outing's Singapore day on (the demo's session-day switch counts today as the day).
-const photosDay = computed(() => photosOpen(session.value, now.value))
 // Are the stops on Singapore's today? A stop that day with no forecast was not held back by the forecast window, so its mark does not say so.
 const stopsToday = computed(() => !!session.value && dayOf(session.value, now.value) === singaporeDate(now.value))
 // A stop's weather: the check's if there is one, else the plan's. How to call: weatherOf(itinerary.stops[0]) -> { state: 'dry', ... } or null
@@ -474,18 +472,7 @@ async function endPlan() {
           <span class="photos-cta__go" aria-hidden="true"><span class="photos-cta__word">Review</span> <AppIcon name="arrow-right" :size="16" /></span>
         </RouterLink>
 
-        <!-- Photos from the day: here from the outing's day on, for every member, so it is clear where to add them (not before the day, and not while "What next?" is the page: nothing has happened yet). A session on the server has none: photos would need storage of their own. -->
-        <RouterLink v-if="!remote && !nearbyHere && photosDay" :to="`/sessions/${id}/photos`" class="photos-cta">
-          <span class="photos-cta__icon" aria-hidden="true"><AppIcon name="camera" :size="20" /></span>
-          <span class="photos-cta__text">
-            <span class="title-sm">Photos from the day</span>
-            <span class="caption-sm text-muted">{{ photoCount ? `${photoCount} ${photoCount === 1 ? 'photo' : 'photos'} so far. Add yours.` : 'Add your photos for everyone in the group to see.' }}</span>
-          </span>
-          <span v-if="photoCount" class="photos-cta__strip" aria-hidden="true">
-            <img v-for="p in photos.slice(-3)" :key="p.id" :src="p.src" alt="" />
-          </span>
-          <span class="photos-cta__go" aria-hidden="true"><span class="photos-cta__word">Add photos</span> <AppIcon name="arrow-right" :size="16" /></span>
-        </RouterLink>
+        <!-- "Photos from the day" is on the finish and review page ("How was it?"), not here (Darius, 4 November 2026). -->
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
 
         <!-- Where the suggested order came from, when the host confirmed it. Moving or deleting a stop by hand clears it. -->
