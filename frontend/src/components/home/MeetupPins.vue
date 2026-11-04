@@ -93,9 +93,9 @@ const placed = computed(() => {
   })
   const k = scale.value
   const moves = k ? layoutPins(shown.map((s) => ({ id: s.pin.id, x: s.dx * k, y: s.dy * k })), { ...ROW, maxX: box.value.width / 2 - EDGE_PX }) : null
-  return shown.map(({ pin, dx, dy }) => {
+  return shown.map(({ pin, dx, dy }, index) => {
     const move = moves ? moves.get(pin.id) : { x: pin.offset?.x || 0, y: pin.offset?.y || 0 }
-    return { ...pin, style: { '--dx': dx, '--dy': dy, '--ox': move.x, '--oy': move.y } }
+    return { ...pin, style: { '--dx': dx, '--dy': dy, '--ox': move.x, '--oy': move.y, '--n': index } }
   })
 })
 const frame = computed(() => ({ '--w': props.span[0], '--h': props.span[1] }))
@@ -222,11 +222,16 @@ watch([shownId, () => props.selectedId], ([id]) => place(id))
 watch(placed, (list) => { if (openId.value && !list.some((p) => p.id === openId.value)) hide() })
 const cardStyle = computed(() => (placement.value ? { left: `${placement.value.left}px`, top: `${placement.value.top}px`, '--caret': `${placement.value.caret}px` } : { visibility: 'hidden' }))
 
+// The pins' one hop: on for the first moments after the map is drawn, then off, so it never plays again while Home is open.
+const hello = ref(true)
+let helloTimer = 0
 onMounted(() => {
+  helloTimer = setTimeout(() => (hello.value = false), 2500)
   document.addEventListener('pointerdown', onOutside)
   window.addEventListener('resize', hide)
 })
 onBeforeUnmount(() => {
+  clearTimeout(helloTimer)
   clearTimers()
   document.removeEventListener('pointerdown', onOutside)
   window.removeEventListener('resize', hide)
@@ -234,7 +239,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="layer" class="pins" :style="frame" role="group" aria-label="Meetups on the map">
+  <div ref="layer" class="pins" :class="{ 'is-hello': hello }" :style="frame" role="group" aria-label="Meetups on the map">
     <!-- Each wrapper is a point (the pin's tip) that holds the pin and, while open, its card, so the card follows the pin in the tab order. -->
     <div
       v-for="pin in placed"
@@ -330,6 +335,10 @@ onBeforeUnmount(() => {
 .is-selected .mpin .mpin__bob { animation: meetup-pin-bob 2.8s ease-in-out infinite; }
 .is-selected .mpin .mpin__shadow { animation: meetup-pin-bob-shadow 2.8s ease-in-out infinite; }
 @keyframes meetup-pin-bob { 50% { transform: translateY(-10px); } }
+/* A pin that is not selected gives one small hop when it first appears, one after another, so a person new to Home sees the pins can be
+   tapped (Darius, 4 November 2026). Once only: it is the pin's first draw. */
+.pins.is-hello .mwrap:not(.is-selected) .mpin__bob { animation: meetup-pin-hello 700ms cubic-bezier(0.34, 1.56, 0.64, 1); animation-delay: calc(400ms + var(--n, 0) * 90ms); }
+@keyframes meetup-pin-hello { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-14px); } }
 @keyframes meetup-pin-bob-shadow { 50% { transform: translateX(-50%) scale(0.75); opacity: 0.55; } }
 @media (hover: hover) {
   .mwrap:not(.is-selected) .mpin:hover .mpin__body { transform: translateY(-3px) scale(1.06); }
@@ -351,6 +360,6 @@ onBeforeUnmount(() => {
 @media (prefers-reduced-motion: reduce) {
   .mcard-enter-active, .mcard-leave-active { transition: none; }
   .mpin__body, .mpin__shape path { transition: none; }
-  .is-selected .mpin .mpin__bob, .is-selected .mpin .mpin__shadow { animation: none; }
+  .is-selected .mpin .mpin__bob, .is-selected .mpin .mpin__shadow, .pins.is-hello .mwrap:not(.is-selected) .mpin__bob { animation: none; }
 }
 </style>
