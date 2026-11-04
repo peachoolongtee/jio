@@ -2,9 +2,11 @@
 // A labelled slider with its current value written on the right. Ink track, white thumb with the one shadow tier.
 //   <RangeSlider v-model="budget" label="Budget per person" :min="5" :max="60" :step="5" :format="(v) => `Up to SGD ${v}`" />
 // `disabled` greys it out and ignores input (a switch elsewhere, such as "Auto", is in charge).
+// The model moves with the thumb; `commit` fires when the person lets go, or presses an arrow key, for work too slow to do on every move.
 import { computed, useId } from 'vue'
 
 const model = defineModel({ type: Number, required: true })
+defineEmits(['commit'])
 const props = defineProps({
   label: { type: String, required: true },
   min: { type: Number, default: 0 },
@@ -36,6 +38,7 @@ const fill = computed(() => `${((model.value - props.min) / (props.max - props.m
       :disabled="disabled"
       :aria-valuetext="text"
       :style="{ '--fill': fill }"
+      @change="$emit('commit')"
     />
   </div>
 </template>

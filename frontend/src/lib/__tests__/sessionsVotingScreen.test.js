@@ -269,7 +269,11 @@ describe('voting', () => {
 describe('the radius', () => {
   // "Auto distance" is on until the host turns it off (1 km to start); then the slider runs over 100 m, 250 m, 500 m, 1 km, 2 km and
   // 3 km, and a step is saved once the slider rests.
-  const slide = (view, step) => view.type('input[type=range]', String(step))
+  // Moves the slider and lets go. How to call: slide(view, 4)
+  const slide = (view, step) => {
+    view.type('input[type=range]', String(step))
+    view.one('input[type=range]').dispatch('change')
+  }
   const autoSwitch = (view) => view.one('[role=switch]')
 
   it('lets the host turn Auto off and choose one with the slider, and shows it', async () => {
