@@ -55,6 +55,7 @@ import { visibleSessions } from '@/lib/sessionFilter.js'
 import { EMPTY_TEXT, SESSION_FILTERS, narrowSessions, narrowedEmptyText, profileSessions } from '@/lib/profileSessions.js'
 import { useNow } from '@/lib/useNow.js'
 import { vRadioGroup } from '@/lib/radioGroup.js'
+import SpotlightCard from '@/components/ui/SpotlightCard.vue'
 
 const props = defineProps({ id: { type: String, default: '' } })
 
@@ -195,6 +196,9 @@ async function signOut() {
         </div>
         <div class="hero__body">
           <UserAvatar class="hero__avatar" :name="person.name" :src="person.photo" :person="person.id" :size="104" labelled />
+          <!-- Who they are, the four numbers and the one action, in one card whose border lights up under the pointer (Darius,
+               4 November 2026). -->
+          <SpotlightCard class="hero__card" glow-color="red" custom-size>
           <div class="hero__grid">
             <div class="hero__who">
               <h1 class="hero__name" data-grid-avoid>{{ person.name }}<span v-if="isMe" class="hero__you caption">You</span></h1>
@@ -233,6 +237,7 @@ async function signOut() {
               </AppButton>
             </div>
           </div>
+          </SpotlightCard>
         </div>
       </section>
 
@@ -350,6 +355,10 @@ async function signOut() {
 .hero__name { display: flex; align-items: center; gap: var(--spacing-sm); margin: 0; font: var(--text-display-xl); overflow-wrap: anywhere; }
 .hero__you { padding: 2px var(--spacing-sm); border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--muted); font-weight: 600; }
 .hero__side { display: flex; flex-direction: column; gap: var(--spacing-md); }
+/* The card round them: roomy inside, a little more on wide screens. The numbers' strip sits in it with no fill of its own. */
+.hero__card { padding: var(--spacing-lg); }
+@media (min-width: 744px) { .hero__card { padding: var(--spacing-lg) var(--spacing-xl); } }
+.hero__card .stats { background: transparent; }
 
 /* Three numbers in a bordered strip, split by thin lines. */
 .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; padding: var(--spacing-md) 0; border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
