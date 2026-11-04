@@ -408,8 +408,10 @@ const settingRadius = ref(false)
 // The newest value asked for while a save was running, as { metres }, or null. The slider keeps moving while a save runs, so its last
 // value waits here and is saved next, never dropped (null metres is Auto, hence the wrapper).
 let queuedRadius = null
-// Save a radius. A value asked for while one is being saved waits and is saved after it (only the newest of them); the draft the
-// slider and switch show is let go only when the value saved is the one it shows, so it never snaps back past a newer one.
+// Save a radius. A value asked for while one is being saved waits and is saved after it (only the newest of them). The draft the slider
+// and switch show is let go only once the plan has come back with the value it shows (the watch below): the plan is read again after the
+// save ends, and letting go sooner showed the old value for half a second (Faith's recording, 4 November 2026). A failed save lets it go at
+// once, so the slider shows what is really saved.
 // How to call: await setRadius(1000)
 async function setRadius(metres) {
   if (settingRadius.value) {
@@ -423,11 +425,13 @@ async function setRadius(metres) {
       await planner.setRadius(props.id, metres)
     } catch (e) {
       error.value = e.message
+      if (draftRadius.value === metres) draftRadius.value = undefined
     } finally {
       settingRadius.value = false
     }
+  } else if (draftRadius.value === metres) {
+    draftRadius.value = undefined
   }
-  if (draftRadius.value === metres) draftRadius.value = undefined
   const next = queuedRadius
   queuedRadius = null
   if (next) await setRadius(next.metres)
@@ -436,10 +440,14 @@ async function setRadius(metres) {
 const radiusFor = (km) => RADII.find((m) => m != null && m >= km * 1000) ?? null
 // How far the places may be, in words: the chosen radius, or the planner's own limit of 3 km under Auto.
 const reachText = computed(() => radiusLabel(radius.value ?? 3000))
-// The slider runs over the distances. While it moves the map's ring follows it at once (`draftRadius`); once it has rested for a moment
-// the radius is saved and the places follow.
-const RADIUS_SETTLE_MS = 500
+// The slider runs over the distances. While it moves the map's ring follows it at once (`draftRadius`). The radius is saved and the places
+// follow only when it is let go: a pause during a drag used to save too, and each save ranks every slot again (one slow drag sent 76
+// requests). The short wait is for the arrow keys, which commit on each press.
+const RADIUS_SETTLE_MS = 300
 const draftRadius = ref(undefined)
+watch(radius, (saved) => {
+  if (draftRadius.value === saved) draftRadius.value = undefined
+})
 const shownRadius = computed(() => (draftRadius.value !== undefined ? draftRadius.value : radius.value))
 const autoRadius = computed({
   get: () => shownRadius.value == null,
@@ -457,10 +465,16 @@ const radiusStep = computed({
   set: (i) => {
     draftRadius.value = MANUAL_RADII[i]
     clearTimeout(radiusTimer)
-    radiusTimer = setTimeout(() => setRadius(MANUAL_RADII[i]), RADIUS_SETTLE_MS)
   },
 })
 let radiusTimer = 0
+// The slider was let go: save where it rests. How to call: <RangeSlider @commit="commitRadius" />
+function commitRadius() {
+  clearTimeout(radiusTimer)
+  const metres = draftRadius.value
+  if (metres === undefined) return
+  radiusTimer = setTimeout(() => setRadius(metres), RADIUS_SETTLE_MS)
+}
 onBeforeUnmount(() => clearTimeout(radiusTimer))
 // The slider's words: "Auto" while the switch is on, else the distance. How to call: radiusStepText(2) -> 'Within 500 m'
 const radiusStepText = (i) => (autoRadius.value ? 'Auto' : `Within ${radiusLabel(MANUAL_RADII[i])}`)
@@ -992,7 +1006,7 @@ async function keepDialog(e) {
         </div>
         <div v-else-if="voting && slots.length" class="radius" data-testid="radius">
           <ToggleSwitch v-model="autoRadius" class="radius__auto" label="Auto distance" :hint="autoRadius ? 'Jio looks further out until 3 places fit, up to 3 km. Turn off to choose.' : ''" :disabled="settingRadius" data-testid="radius-auto" />
-          <RangeSlider v-model="radiusStep" class="radius__slider" :label="`Search within, from ${session.area.name}`" :min="0" :max="MANUAL_RADII.length - 1" :step="1" :format="radiusStepText" :disabled="autoRadius" data-testid="radius-slider" />
+          <RangeSlider v-model="radiusStep" class="radius__slider" @commit="commitRadius" :label="`Search within, from ${session.area.name}`" :min="0" :max="MANUAL_RADII.length - 1" :step="1" :format="radiusStepText" :disabled="autoRadius" data-testid="radius-slider" />
           <!-- Every category short of places, said once, with one way to widen far enough for all of them. -->
           <p v-if="shortOfPlaces" class="few-line" data-testid="radius-short">
             <span class="caption-sm text-muted">Few places within {{ radiusLabel(radius) }} for {{ listJoin(shortOfPlaces.labels).replace(' or ', ' and ') }}.</span>

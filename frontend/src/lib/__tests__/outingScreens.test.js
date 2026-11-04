@@ -152,13 +152,17 @@ describe('the radius slider', () => {
     expect(slider(view).attrs['aria-valuetext']).toBe('Within 1 km')
     const calls = () => planner.rankSlot.mock.calls.filter(([args]) => args.radiusMeters).map(([args]) => args.radiusMeters)
     const before = calls().length
-    // Dragged through 250 m to 2 km: the words follow at once, and only 2 km is asked for.
+    // Dragged through 250 m to 2 km, with a pause on the way: the words follow at once, nothing is asked for until it is let go, and
+    // then only 2 km.
     view.type('input[type=range]', '1')
     await view.tick()
     expect(slider(view).attrs['aria-valuetext']).toBe('Within 250 m')
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    expect(calls()).not.toContain(250)
     view.type('input[type=range]', '4')
     await view.tick()
     expect(slider(view).attrs['aria-valuetext']).toBe('Within 2 km')
+    slider(view).dispatch('change')
     await until(() => calls().slice(before).includes(2000))
     expect(calls().slice(before)).not.toContain(250)
     await new Promise((resolve) => setTimeout(resolve, 50))
@@ -167,6 +171,23 @@ describe('the radius slider', () => {
     await view.click(auto())
     await until(async () => (await api.getSession(id)).radius == null)
     expect(slider(view).attrs['aria-valuetext']).toBe('Auto')
+  })
+
+  // Faith's recording, 4 November 2026: the save ended before the plan was read again, so the slider showed the old value for half a second.
+  it('never snaps back to the old distance after it is let go, while the plan is read again', async () => {
+    const { view, api, id } = await votingPage()
+    await view.click(view.one('[role=switch]'))
+    await until(async () => (await api.getSession(id)).radius === 1000)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    view.type('input[type=range]', '4')
+    slider(view).dispatch('change')
+    const seen = new Set()
+    const watching = setInterval(() => seen.add(slider(view).attrs['aria-valuetext']), 5)
+    await until(async () => (await api.getSession(id)).radius === 2000)
+    await new Promise((resolve) => setTimeout(resolve, 900))
+    clearInterval(watching)
+    expect([...seen]).toEqual(['Within 2 km'])
+    expect(view.errors).toEqual([])
   })
 })
 
@@ -329,6 +350,7 @@ describe('a radius change that clears votes', () => {
     await until(() => view.has('input[type=range]'))
     expect(view.text()).not.toContain('were cleared')
     view.type('input[type=range]', '2')
+    view.one('input[type=range]').dispatch('change')
     await until(() => view.text().includes('Votes for places outside the new ring were cleared.'))
     expect(view.errors).toEqual([])
     await view.click(view.one('button[aria-label="Dismiss"]'))

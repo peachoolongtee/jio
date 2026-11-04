@@ -268,13 +268,17 @@ let circleLabel = null
 let circleArea = ''
 let shownRadius = 0
 let tween = 0
-const RADIUS_MS = 480
+const RADIUS_MS = 240
+// How long the circle rests before the map zooms out to show it, so the map holds still while the slider is being dragged.
+const RADIUS_VIEW_MS = 400
+let viewTimer = 0
 const easeOut = (t) => 1 - (1 - t) ** 3
 const radiusText = (m) => (m >= 1000 ? `${m / 1000} km` : `${m} m`)
 const topOf = (area, metres) => [area.lat + metres / 111320, area.lng]
 
 function drawRadius() {
   cancelAnimationFrame(tween)
+  clearTimeout(viewTimer)
   const area = props.area
   const target = area && props.radius && !props.finding ? props.radius : 0
   const key = area ? `${area.lat},${area.lng}` : ''
@@ -301,14 +305,15 @@ function drawRadius() {
   }
   if (reducedMotion() || from === target) {
     set(target)
-    return keepInView()
+    viewTimer = setTimeout(keepInView, RADIUS_VIEW_MS)
+    return
   }
   const start = performance.now()
   const step = (now) => {
     const t = Math.min(1, (now - start) / RADIUS_MS)
     set(from + (target - from) * easeOut(t))
     if (t < 1) tween = requestAnimationFrame(step)
-    else keepInView()
+    else viewTimer = setTimeout(keepInView, RADIUS_VIEW_MS)
   }
   tween = requestAnimationFrame(step)
 }
@@ -361,12 +366,14 @@ onMounted(() => {
 // while the map is still gliding does not end in an error.
 onBeforeUnmount(() => {
   cancelAnimationFrame(tween)
+  clearTimeout(viewTimer)
   observer?.disconnect()
   if (map) retireMap(map, VIEW_EVENTS, onView)
   map = null
 })
 
-watch(() => [props.people, props.area, props.places, props.route, props.spokes, props.selected, props.finding, props.radius, props.keep], draw, { deep: true })
+// The radius is not here: it draws no pin, and rebuilding every pin on each step of the slider was wasted work (drawRadius has its own watch).
+watch(() => [props.people, props.area, props.places, props.route, props.spokes, props.selected, props.finding, props.keep], draw, { deep: true })
 watch(() => [props.area?.lat, props.area?.lng, props.radius, props.finding], () => map && drawRadius())
 // Only a change of place redraws the rain, not a new array with the same places (a parent computes it again on every update).
 watch(() => props.rain.map((p) => `${p.lat},${p.lng}`).join('|'), drawRain)
