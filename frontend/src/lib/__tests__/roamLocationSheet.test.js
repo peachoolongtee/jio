@@ -66,6 +66,10 @@ beforeEach(() => {
 })
 afterEach(() => vi.unstubAllGlobals())
 
+// The sheet's "Use current location", which shows "Here" and is named by its label (Darius, 4 November 2026), or undefined.
+// How to call: await current(page).listeners.click({})
+const current = (page) => page.all('button').find((b) => b.props['aria-label'] === 'Use current location')
+
 // Open the page, refuse "Use my location" so the sheet opens, and give the browser a position for the sheet's own button.
 async function openSheet(position) {
   // The page's way on ("Itinerary") is a link, so it needs a router.
@@ -75,7 +79,7 @@ async function openSheet(position) {
   await flush()
   vi.stubGlobal('navigator', { geolocation: { getCurrentPosition: vi.fn((ok, refuse) => (refuse ? refuse({ code: 1 }) : null)) } })
   await page.button('Use my location').click()
-  expect(page.button('Use current location')).not.toBeNull()
+  expect(current(page)).toBeDefined()
   vi.stubGlobal('navigator', { geolocation: { getCurrentPosition: vi.fn(position) } })
   return page
 }
@@ -84,7 +88,7 @@ describe('the sheet\'s "Use current location" on the Roam page', () => {
   it('centres the list on the area of the position, at the area\'s own point, and never sends the position', async () => {
     api.placeFromCoords.mockResolvedValue({ id: 'here-toa-payoh', label: 'Current location', sub: 'Toa Payoh', areaId: 'toa-payoh' })
     const page = await openSheet((ok) => ok({ coords: { latitude: 1.33217, longitude: 103.84779 } }))
-    await page.button('Use current location').click()
+    await current(page).listeners.click({})
     await flush()
     expect(api.placeFromCoords).toHaveBeenCalledWith(1.33217, 103.84779)
     expect(api.roamNearby).toHaveBeenLastCalledWith(...REQUEST({ lat: 1.3343, lng: 103.8563 }))
@@ -92,14 +96,14 @@ describe('the sheet\'s "Use current location" on the Roam page', () => {
     expect(JSON.stringify(api.roamNearby.mock.calls)).not.toContain('1.33217')
     expect(page.text()).not.toContain('1.33217')
     // The sheet has closed.
-    expect(page.button('Use current location')).toBeNull()
+    expect(current(page)).toBeUndefined()
   })
 
   it('says so in the sheet, and leaves the list where it was, when the position is outside Singapore', async () => {
     api.placeFromCoords.mockResolvedValue(null)
     const page = await openSheet((ok) => ok({ coords: { latitude: 51.5, longitude: -0.12 } }))
     const asked = api.roamNearby.mock.calls.length
-    await page.button('Use current location').click()
+    await current(page).listeners.click({})
     await flush()
     expect(page.text()).toContain('Your current location is outside Singapore. Search for a place instead.')
     expect(api.roamNearby).toHaveBeenCalledTimes(asked)
@@ -108,7 +112,7 @@ describe('the sheet\'s "Use current location" on the Roam page', () => {
   it('says so in the sheet, and leaves the list where it was, when the browser refuses the sheet\'s own request', async () => {
     const page = await openSheet((ok, refuse) => refuse({ code: 1 }))
     const asked = api.roamNearby.mock.calls.length
-    await page.button('Use current location').click()
+    await current(page).listeners.click({})
     await flush()
     expect(page.text()).toContain('Location access is off. Search for a place instead.')
     expect(api.roamNearby).toHaveBeenCalledTimes(asked)

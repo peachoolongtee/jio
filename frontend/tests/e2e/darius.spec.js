@@ -82,8 +82,10 @@ test.describe('Home, "Already out?" and finishing an outing', () => {
     await page.getByTestId('home-list-toggle').click()
     await expect(page.getByRole('button', { name: /^Chinatown makan crawl Wed 4 Nov/ })).toBeVisible()
 
-    // 1. Open today's outing and finish it. The pointer can be left resting on a map pin, whose popover carries a second
-    // "Open meetup" link with the same name; move it away and wait until only the detail card's link is left.
+    // 1. Open today's outing and finish it. Pick its row first: its card opens in the panel in place of the list. The pointer can be
+    // left resting on a map pin, whose popover carries a second "Open meetup" link with the same name; move it away and wait until
+    // only the detail card's link is left.
+    await page.getByRole('button', { name: /^Chinatown makan crawl Wed 4 Nov/ }).click()
     await page.mouse.move(0, 0)
     const openMeetup = page.getByRole('link', { name: 'Open meetup Chinatown makan crawl' })
     await expect(openMeetup).toHaveCount(1)
@@ -107,6 +109,9 @@ test.describe('Home, "Already out?" and finishing an outing', () => {
     await expect(page.getByRole('button', { name: /^Chinatown makan crawl/ })).toHaveCount(0)
 
     // 4. Sessions, Past: it is there, finished.
+    // Home is back on the map alone, so List shows the rows and the link under them.
+    const list = page.getByTestId('home-list-toggle')
+    if ((await list.getAttribute('aria-pressed')) !== 'true') await list.click()
     await page.getByTestId('see-all-meetups').click()
     await expect(page.getByRole('heading', { level: 1, name: 'Sessions' })).toBeVisible()
     await page.getByRole('button', { name: 'Past', exact: true }).click()

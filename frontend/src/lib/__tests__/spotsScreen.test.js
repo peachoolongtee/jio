@@ -183,7 +183,8 @@ describe('Vote', () => {
     const s = session()
     s.spots.suggestions = { ian: { areaId: 'novena', here: false } }
     s.spots.list[2] = spot('novena', 'Novena', { by: 'ian', byName: 'Ian' })
-    const page = list(s)
+    // Both are in your own spot's "More details" dialog (Darius, 4 November 2026).
+    const page = await details(list(s))
     await page.button('We are here already').click()
     expect(events.suggestMySpot).toHaveBeenCalledWith('s1', 'novena', { here: true })
     await page.button('Withdraw').click()
@@ -203,7 +204,7 @@ describe('Vote', () => {
       s.spots.list[2] = spot('novena', 'Novena', { by: 'ian', byName: 'Ian' })
       let finish
       call().mockImplementation(() => new Promise((resolve) => (finish = resolve)))
-      const page = list(s)
+      const page = await details(list(s))
       const button = press(page)
       const first = button.listeners.click({})
       await nextTick()

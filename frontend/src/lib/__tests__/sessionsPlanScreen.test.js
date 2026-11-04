@@ -299,11 +299,16 @@ describe('the itinerary', () => {
     expect(guest.view.has('[data-testid=remote-finish]')).toBe(false)
   })
 
-  it('gives the host the edit controls and a guest none (no pencil, travel modes only to read)', async () => {
+  // The itinerary has no edit mode any more (Darius, 4 November 2026): the host's Replace, Delete and drag handle are on every stop.
+  it('gives the host the edit controls on every stop and a guest none (travel modes only to read)', async () => {
     const host = await drawn()
-    expect(host.view.has('button[aria-label="Edit itinerary"]')).toBe(true)
+    const stopNames = names(host.view)
+    for (const name of stopNames) {
+      expect(host.view.has(`button[aria-label="Delete stop: ${name}"]`)).toBe(true)
+      expect(host.view.has(`button[aria-label="Replace stop: ${name}"]`)).toBe(true)
+    }
     const guest = await drawn({ host: false })
-    expect(guest.view.has('button[aria-label="Edit itinerary"]')).toBe(false)
+    expect(guest.view.all('button').some((b) => /^(Delete|Replace) stop: /.test(b.attrs['aria-label'] || ''))).toBe(false)
   })
 
   it('has no photos link for a session on the server (photos are not shared yet)', async () => {
@@ -314,7 +319,6 @@ describe('the itinerary', () => {
 
   it('deletes a stop for everyone when the host edits and confirms, and keeps the page on the stop that took its place', async () => {
     const { view, w, id } = await drawn()
-    await view.click(view.one('button[aria-label="Edit itinerary"]'))
     const first = names(view)[1]
     await view.click(view.one(`button[aria-label="Delete stop: ${first}"]`))
     expect(dialogText(view)).toContain(`Delete ${first}?`)
@@ -332,7 +336,6 @@ describe('the itinerary', () => {
     await until(() => view.has('.celebrate'))
     await until(() => view.all('p[role=status]').some((p) => view.text(p).startsWith('Plan confirmed.')))
     expect(view.text()).toContain('4 stops')
-    await view.click(view.one('button[aria-label="Edit itinerary"]'))
     const first = names(view)[1]
     await view.click(view.one(`button[aria-label="Delete stop: ${first}"]`))
     await view.click(pressExact(view, 'Delete'))
@@ -406,7 +409,6 @@ describe('the itinerary', () => {
 
   it('deletes the stop the dialog was opened for, even when another device moved the stops while it was open', async () => {
     const { view, w, sam, id } = await drawn()
-    await view.click(view.one('button[aria-label="Edit itinerary"]'))
     const target = names(view)[1]
     const targetVenue = w.database.tables.stops.find((s) => s.seq === 1).venue_id
     await view.click(view.one(`button[aria-label="Delete stop: ${target}"]`))
@@ -423,7 +425,6 @@ describe('the itinerary', () => {
 
   it('says why a change the server refused did not happen, in one line above the stops, and shows the plan as stored', async () => {
     const { view, w } = await drawn()
-    await view.click(view.one('button[aria-label="Edit itinerary"]'))
     const target = names(view)[1]
     // Another device deletes it first.
     w.database.run({ as: SERVICE, kind: 'delete', table: 'stops', filters: [eq('venue_id', w.database.tables.stops.find((s) => s.seq === 1).venue_id)] })
@@ -443,7 +444,6 @@ describe('the itinerary', () => {
     expect(view.has('[data-testid=plan-load-error]')).toBe(false)
     expect(names(view)).toHaveLength(4)
     expect(names(view)[1]).toBe('A place that is no longer listed')
-    await view.click(view.one('button[aria-label="Edit itinerary"]'))
     // The host can still take it out, and put another place in it.
     expect(view.has('button[aria-label="Delete stop: A place that is no longer listed"]')).toBe(true)
     expect(view.all('button').some((b) => (b.attrs['aria-label'] || '').includes('A place that is no longer listed') && /Replace/.test(b.attrs['aria-label'] || ''))).toBe(true)

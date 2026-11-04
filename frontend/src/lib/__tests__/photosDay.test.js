@@ -114,11 +114,13 @@ describe('the Photos row on the itinerary', () => {
     expect(view.text()).not.toContain('Photos from the day')
   })
 
-  it.each([['on the day', '2026-10-10T08:00:00+08:00'], ['after it', '2026-10-13T08:00:00+08:00']])('is there %s', async (_name, iso) => {
+  // The row moved to the finish and review page, "How was it?" (Darius, 4 November 2026), so the itinerary has none on the day or
+  // after it either. The Photos page itself still opens on the day (below).
+  it.each([['on the day', '2026-10-10T08:00:00+08:00'], ['after it', '2026-10-13T08:00:00+08:00']])('is not there %s either: photos are added on "How was it?"', async (_name, iso) => {
     const { api, id } = await outingAt(iso)
     const view = await draw(api, `/sessions/${id}/itinerary`, 'EventView', { id })
-    await until(() => view.text().includes('Photos from the day'))
-    expect(view.all('a').some((a) => (a.attrs.href || '').endsWith(`/sessions/${id}/photos`))).toBe(true)
+    await until(() => view.has('[data-testid="change-plan"]'))
+    expect(view.text()).not.toContain('Photos from the day')
   })
 })
 

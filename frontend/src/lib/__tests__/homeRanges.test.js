@@ -41,13 +41,12 @@ async function meetupAt(api, date, areaId) {
 
 // Home for Ian with one meetup this week (Saturday, Bugis) and two next week (Bishan, Orchard). `at`, if given, is the time Home is opened
 // at (the meetups are made at the test's own time, before it).
+// `meetups`, if given, are other [date, area] pairs to make instead.
 // How to call: await drawHome({ at: '2026-10-31T13:00:00+08:00' })
-async function drawHome({ at } = {}) {
+async function drawHome({ at, meetups = [['2026-10-31', 'bugis'], ['2026-11-03', 'bishan'], ['2026-11-04', 'orchard']] } = {}) {
   const api = await loadApi()
   await api.signUp({ email: 'ian@example.com', name: 'Ian', username: 'ian', dob: '2000-01-31', homeAreaId: 'tampines' })
-  await meetupAt(api, '2026-10-31', 'bugis')
-  await meetupAt(api, '2026-11-03', 'bishan')
-  await meetupAt(api, '2026-11-04', 'orchard')
+  for (const [date, areaId] of meetups) await meetupAt(api, date, areaId)
   if (at) vi.setSystemTime(new Date(at))
   const { createPinia, setActivePinia } = await import('pinia')
   const pinia = createPinia()
@@ -77,7 +76,9 @@ describe('the week chips on Home', () => {
     expect(chip(view, 'This week').attrs['aria-checked']).toBe('true')
     expect(chip(view, 'This week').attrs['aria-label']).toBe('This week, 1 meetup')
     expect(chip(view, 'Next week').attrs['aria-label']).toBe('Next week, 2 meetups')
-    expect(chip(view, 'After next week').attrs['aria-disabled']).toBe('true')
+    // Three week chips and Your turn (Darius, 4 November 2026): After next week has no chip of its own, it is inside All.
+    expect(chip(view, 'After next week')).toBeUndefined()
+    expect(chip(view, 'All').attrs['aria-label']).toBe('All, 3 meetups')
     expect(view.text('[data-testid=pins]')).toBe('1')
     expect(view.one('[data-testid=pins]').attrs['data-areas']).toBe('Bugis')
     // The list is behind List, so Home is the map.
@@ -97,18 +98,19 @@ describe('the week chips on Home', () => {
     const view = await drawHome()
     const mine = () => view.one('[data-testid=your-turn-filter]')
     await view.click(mine())
-    expect(mine().attrs['aria-pressed']).toBe('true')
-    for (const label of ['This week', 'Next week', 'After next week', 'All']) expect(chip(view, label).attrs['aria-checked']).toBe('false')
+    expect(mine().attrs['aria-checked']).toBe('true')
+    for (const label of ['This week', 'Next week', 'All']) expect(chip(view, label).attrs['aria-checked']).toBe('false')
     expect(view.text('p[role=status]')).toBe('Showing only the 3 meetups waiting for you')
     await until(() => view.text('[data-testid=pins]') === '3')
-    await view.click(mine())
-    expect(mine().attrs['aria-pressed']).toBe('false')
+    // Your turn is one of the four radios now, so it is turned off by choosing a week.
+    await view.click(chip(view, 'This week'))
+    expect(mine().attrs['aria-checked']).toBe('false')
     expect(chip(view, 'This week').attrs['aria-checked']).toBe('true')
     expect(chip(view, 'All').attrs['aria-checked']).toBe('false')
-    expect(view.text('p[role=status]')).toBe('Showing this week again')
+    expect(view.text('p[role=status]')).toBe('Showing this week, 1 meetup')
     await view.click(mine())
     await view.click(chip(view, 'Next week'))
-    expect(mine().attrs['aria-pressed']).toBe('false')
+    expect(mine().attrs['aria-checked']).toBe('false')
     expect(view.text('p[role=status]')).toBe('Showing next week, 2 meetups')
     await until(() => view.text('[data-testid=pins]') === '2')
   })
@@ -123,10 +125,12 @@ describe('the week chips on Home', () => {
   })
 
   it('ignore a chip with nothing in it', async () => {
-    const view = await drawHome()
-    await view.click(chip(view, 'After next week'))
+    // Both meetups are this week (Saturday and Sunday), so Next week is empty.
+    const view = await drawHome({ meetups: [['2026-10-31', 'bugis'], ['2026-11-01', 'orchard']] })
+    expect(chip(view, 'Next week').attrs['aria-disabled']).toBe('true')
+    await view.click(chip(view, 'Next week'))
     expect(chip(view, 'This week').attrs['aria-checked']).toBe('true')
-    expect(view.text('[data-testid=pins]')).toBe('1')
+    expect(view.text('[data-testid=pins]')).toBe('2')
   })
 })
 
@@ -134,23 +138,26 @@ describe('the routes on the map', () => {
   const BISHAN = '1.35092,103.84822'
   const ORCHARD = '1.30406,103.83186'
 
-  it('are always six, from the same starts, converging on the selected meetup\'s pin, and move when another is picked', async () => {
+  // With meetups on the map and none chosen the map rests with no lines (Darius, 4 November 2026: lines meeting nowhere read as noise).
+  it('are none until a meetup is picked, then six from the same starts converging on its pin, and move when another is picked', async () => {
     const view = await drawHome()
     const { AREAS } = await import('../mock/places.js')
     const at = (id) => AREAS.find((a) => a.id === id)
     const bugis = `${at('bugis').lat},${at('bugis').lng}`
-    // Nothing selected: six routes running round the island, meeting nowhere.
-    expect(view.text('[data-testid=routes]')).toBe('6')
-    expect(view.one('[data-testid=routes]').attrs['data-ends'].split('|')).toHaveLength(6)
+    // Nothing selected: no routes.
+    expect(view.text('[data-testid=routes]')).toBe('0')
     await openList(view)
     await view.click(row(view, 'Out 2026-10-31'))
     await until(() => view.one('[data-testid=routes]').attrs['data-ends'] === bugis)
     expect(view.text('[data-testid=routes]')).toBe('6')
-    // Next week does not list the Bugis meetup, so nothing is selected; picking the Bishan row converges there, then Orchard's, still six.
+    // Next week does not list the Bugis meetup, so nothing is selected and the lines go; picking the Bishan row converges there, then Orchard's, still six.
     await view.click(chip(view, 'Next week'))
-    await until(() => view.one('[data-testid=routes]').attrs['data-ends'].split('|').length === 6)
+    await until(() => view.text('[data-testid=routes]') === '0')
     await view.click(row(view, 'Out 2026-11-03'))
     await until(() => view.one('[data-testid=routes]').attrs['data-ends'] === BISHAN)
+    // The open meetup's card covers the list in the panel: its × goes back to the list.
+    await view.click(view.one('[data-testid=home-panel-close]'))
+    if (!view.has('[data-testid=meetup-status]')) await openList(view)
     await view.click(row(view, 'Out 2026-11-04'))
     await until(() => view.one('[data-testid=routes]').attrs['data-ends'] === ORCHARD)
     expect(view.text('[data-testid=routes]')).toBe('6')

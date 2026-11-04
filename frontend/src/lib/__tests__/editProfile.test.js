@@ -530,10 +530,11 @@ describe('changing the password', () => {
     expect(String(field.attrs.tabindex)).toBe('-1')
   })
 
-  it('says to type the passwords only with the form, and not above the note a local account gets', async () => {
+  // The line "Type your current password, then the new one twice." was removed as saying what the form already shows (Darius, 4 November 2026).
+  it('shows the password form only to a real account, and a local account gets the note instead', async () => {
     const real = await setUp()
     const form = await draw(real, '/profile/edit/password', 'EditProfileView')
-    expect(form.text()).toContain('Type your current password, then the new one twice.')
+    expect(form.has('[data-testid="no-password-note"]')).toBe(false)
     expect(form.has('[data-testid="password-username"]')).toBe(true)
     const local = await setUp({ fake: null })
     const note = await draw(local, '/profile/edit/password', 'EditProfileView')

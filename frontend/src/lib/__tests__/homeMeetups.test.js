@@ -86,12 +86,13 @@ describe('selectMeetup', () => {
 })
 
 describe('dayLabel and whenLine', () => {
-  it('says Today, a weekday inside the week, then the date', () => {
+  // Every pin carries its weekday and the day of the month since 4 November 2026 (Darius, "give every home pin the weekday and date").
+  it('says Today, then the weekday and the day of the month', () => {
     expect(dayLabel(make({ date: '2026-10-10' }), NOW)).toBe('Today')
-    expect(dayLabel(make({ date: '2026-10-11' }), NOW)).toBe('Sun')
-    expect(dayLabel(make({ date: '2026-10-16' }), NOW)).toBe('Fri')
-    expect(dayLabel(make({ date: '2026-10-17' }), NOW)).toBe('17 Oct')
-    expect(dayLabel(make({ date: '2026-10-03' }), NOW)).toBe('3 Oct')
+    expect(dayLabel(make({ date: '2026-10-11' }), NOW)).toBe('Sun 11')
+    expect(dayLabel(make({ date: '2026-10-16' }), NOW)).toBe('Fri 16')
+    expect(dayLabel(make({ date: '2026-10-17' }), NOW)).toBe('Sat 17')
+    expect(dayLabel(make({ date: '2026-10-03' }), NOW)).toBe('Sat 3')
   })
   it('says Today for the demo session day', () => {
     expect(dayLabel(make({ date: '2026-12-25', isToday: true }), NOW)).toBe('Today')

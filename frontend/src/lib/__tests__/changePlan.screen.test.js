@@ -169,10 +169,13 @@ describe('choosing the spot again after a changed start (Faith, 31 October 2026)
     await view.click(view.one('[data-testid=change-spot]'))
     await until(() => view.has('[data-testid=choose-again-pick]'))
     expect(view.has('[data-testid=choose-again-vote]')).toBe(true)
-    expect(view.has('[data-testid=choose-again-fairest]')).toBe(true)
+    // From the swap button nobody's trip changed, so "Use the fairest spot" is not offered (Darius, 4 November 2026).
+    expect(view.has('[data-testid=choose-again-fairest]')).toBe(false)
     // "Pick the place yourself" opens the area step, marked as coming from here.
     expect(view.one('[data-testid=choose-again-pick]').attrs.href).toBe(`/sessions/${id}/change-place?where=1&from=locate`)
-    await view.click(view.one('[data-testid=choose-again-keep]'))
+    // Keeping the spot is the dialog's × now, not a "Keep" button.
+    expect(view.has('[data-testid=choose-again-keep]')).toBe(false)
+    await view.click(view.one('[data-testid=modal-close]'))
     await until(() => !view.has('[data-testid=choose-again-pick]'))
     expect(row(w, id)).toMatchObject({ status: 'voting', meeting_area_id: had })
     expect(w.server.calls.map((c) => c.route)).not.toContain('changeMeetingPlace')
@@ -312,5 +315,45 @@ describe('while "Choose places again" runs', () => {
     await until(() => router.currentRoute.value.path === `/sessions/${id}/plan`)
     await until(() => !view.has('[role=dialog]'))
     expect(row(w, id).status).toBe('voting')
+  })
+})
+
+
+//Ian's changePlan test cases
+
+describe('backing out of and failing a change from a confirmed plan', () => {
+  it('Keep the meeting place changes nothing on a confirmed plan', async () => {
+    const { id, sam, w } = await confirmed({ hostLast: true })
+    const { view, router } = await draw('ChangePlan', `/sessions/${id}/itinerary`, { session: { id, hostId: sam.id, status: 'confirmed' } })
+
+    await view.click('[data-testid=change-plan]')
+    await view.click('[data-testid=change-place]')
+    await until(() => view.has('[data-testid=change-lost]'))
+    await view.click('[data-testid=change-keep]')
+
+    //I need to make sure that the changes are not list and that it is still confirmed
+    expect(view.has('[data-testid=change-lost]')).toBe(false)
+    expect(row(w, id).status).toBe('confirmed')
+    expect(router.currentRoute.value.path).toBe(`/sessions/${id}/itinerary`)
+  })
+
+  // Test to check the catch error function when the change plan does not go through properly
+  it('says why "Choose places again" failed and keeps the dialog open', async () => {
+    const { id, sam, w } = await confirmed({ hostLast: true })
+    const { view, router } = await draw('ChangePlan', `/sessions/${id}/itinerary`, { session: { id, hostId: sam.id, status: 'confirmed' } })
+
+    await view.click('[data-testid=change-plan]')
+
+    //Intentionally crash the server to induce an error
+    w.server.down = true
+    await view.click('[data-testid=change-again]')
+    await until(() => view.has('[data-testid=change-error]'))
+
+    expect(view.has('[role=dialog]')).toBe(true)
+    //Need to make sure that it is not a blank error
+    expect(view.text('[data-testid=change-error]')).not.toBe('')
+
+    expect(row(w, id).status).toBe('confirmed')
+    expect(router.currentRoute.value.path).toBe(`/sessions/${id}/itinerary`)
   })
 })

@@ -44,9 +44,13 @@ describe('text on the grey cards', () => {
     }
   }
 
-  it('the people card and the spot cards are the grey these were worked out for, and the travel times use these tokens', () => {
-    expect(read('../../views/GroupDetailView.vue')).toMatch(/\.people-card \{ background: var\(--surface-strong\)/)
-    expect(read('../../components/spots/SpotRow.vue')).toMatch(/\.spot \{[^}]*background: var\(--surface-strong\)/)
+  // The people card and the spot cards are white with a firm border since 4 November 2026 (Darius): --canvas is one of the grounds above.
+  it('the people card and the spot cards are a ground these were worked out for, and the travel times use these tokens', () => {
+    const ground = (css) => css.match(/background: var\((--[a-z-]+)\)/)?.[1]
+    const people = read('../../views/GroupDetailView.vue').match(/\.people-card \{[^}]*\}/)[0]
+    const spot = read('../../components/spots/SpotRow.vue').match(/\.spot \{[^}]*background[^}]*\}/)[0]
+    expect(GREYS).toContain(ground(people))
+    expect(GREYS).toContain(ground(spot))
     const list = read('../../components/group/MemberList.vue')
     for (const name of ['--travel-short', '--travel-medium-text', '--travel-long']) expect(list).toContain(`var(${name})`)
   })

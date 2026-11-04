@@ -267,58 +267,52 @@ describe('voting', () => {
 })
 
 describe('the radius', () => {
-  // "Auto distance" is on until the host turns it off (1 km to start); then the slider runs over 100 m, 250 m, 500 m, 1 km, 2 km and
-  // 3 km, and a step is saved once the slider rests.
-  // Moves the slider and lets go. How to call: slide(view, 4)
-  const slide = (view, step) => {
-    view.type('input[type=range]', String(step))
-    view.one('input[type=range]').dispatch('change')
-  }
-  const autoSwitch = (view) => view.one('[role=switch]')
+  // "Distance from <area>": a row of chips, Auto (the default) then 100 m, 250 m, 500 m, 1 km, 2 km and 3 km (Darius, 4 November 2026;
+  // it was an "Auto distance" switch and a slider). A tap saves it.
+  // The distance chip with these words. How to call: chip(view, '1 km')
+  const chip = (view, label) => view.all('[role=radio]').find((b) => view.text(b) === label)
 
-  it('lets the host turn Auto off and choose one with the slider, and shows it', async () => {
+  it('lets the host choose a distance from the chips, and shows it chosen', async () => {
     const { w, id } = await voting()
     const { view } = await draw(id)
     await until(() => view.has('[data-testid=radius]'))
-    await view.click(autoSwitch(view))
+    await view.click(chip(view, '1 km'))
     await until(() => w.database.tables.sessions[0].radius_meters === 1000)
     expect(w.server.calls.find((c) => c.route === 'radius').body).toEqual({ radiusMeters: 1000 })
-    slide(view, 4)
+    await until(() => !chip(view, '2 km').attrs['aria-disabled'])
+    await view.click(chip(view, '2 km'))
     await until(() => w.database.tables.sessions[0].radius_meters === 2000)
-    expect(view.one('input[type=range]').attrs['aria-valuetext']).toBe('Within 2 km')
+    await until(() => chip(view, '2 km').attrs['aria-checked'] === 'true')
+    expect(chip(view, '1 km').attrs['aria-checked']).toBe('false')
   })
 
-  // Review of 1 November 2026: a value the slider reached while a save was running was dropped, and the draft was cleared, so the
-  // slider snapped back with no error. The newest value now waits and is saved next.
-  it('saves the last value the slider reached while an earlier save was still running', async () => {
+  // Review of 1 November 2026: a value chosen while a save was running snapped back with no error. The chip tapped stays chosen while its
+  // save runs, the chips wait for it, and it is still chosen once the plan comes back.
+  it('keeps the chip that was tapped chosen while its save runs, and after', async () => {
     const { w, id } = await voting()
     const { view } = await draw(id)
     await until(() => view.has('[data-testid=radius]'))
-    await view.click(autoSwitch(view))
-    await until(() => w.database.tables.sessions[0].radius_meters === 1000)
     let release
     const held = new Promise((resolve) => { release = resolve })
     let reached = false
     w.server.after.radius = async () => { reached = true; await held }
-    slide(view, 1)
+    await view.click(chip(view, '2 km'))
     await until(() => reached)
-    slide(view, 4)
-    // The slider's rest time passes while the first save is still running; the thumb stays where the host put it.
-    await new Promise((resolve) => setTimeout(resolve, 800))
-    expect(view.one('input[type=range]').attrs['aria-valuetext']).toBe('Within 2 km')
+    expect(chip(view, '2 km').attrs['aria-checked']).toBe('true')
+    expect(chip(view, 'Auto').attrs['aria-checked']).toBe('false')
     w.server.after.radius = async () => {}
     release()
     await until(() => w.database.tables.sessions[0].radius_meters === 2000)
-    await until(() => view.one('input[type=range]').attrs['aria-valuetext'] === 'Within 2 km')
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(chip(view, '2 km').attrs['aria-checked']).toBe('true')
   })
 
-  it('puts the disabled slider\'s thumb at the far end, 3 km, the most Auto looks, instead of at 1 km', async () => {
+  it('starts on Auto, which looks further out until 3 places fit, up to 3 km', async () => {
     const { id } = await voting()
     const { view } = await draw(id)
     await until(() => view.has('[data-testid=radius]'))
-    const slider = view.one('input[type=range]')
-    expect(slider.attrs['aria-valuetext']).toBe('Auto')
-    expect(String(slider.value)).toBe('5')
+    expect(chip(view, 'Auto').attrs['aria-checked']).toBe('true')
+    expect(view.all('[role=radio]').map((b) => view.text(b)).filter((s) => /^(Auto|[0-9.]+ k?m)$/.test(s))).toEqual(['Auto', '100 m', '250 m', '500 m', '1 km', '2 km', '3 km'])
   })
 
   it('shows a guest the host\'s radius as a line, not as choices', async () => {
@@ -331,19 +325,19 @@ describe('the radius', () => {
     expect(view.has('[data-testid=radius]')).toBe(false)
   })
 
-  it('says why in plain words when the radius cannot be set, and the slider tries again', async () => {
+  it('says why in plain words when the radius cannot be set, and the same chip tries again', async () => {
     const { w, id } = await voting()
     const { view } = await draw(id)
     await until(() => view.has('[data-testid=radius]'))
     w.server.down = true
-    await view.click(autoSwitch(view))
+    await view.click(chip(view, '1 km'))
     await until(() => view.has('p[role=alert]'))
     expect(view.text(view.one('p[role=alert]'))).toMatch(/Cannot reach|could not be reached/)
+    // A failed save lets the chip go, so the chosen one is what is really saved.
+    await until(() => chip(view, 'Auto').attrs['aria-checked'] === 'true')
     w.server.down = false
-    await view.click(autoSwitch(view))
+    await view.click(chip(view, '1 km'))
     await until(() => w.database.tables.sessions[0].radius_meters === 1000)
-    slide(view, 2)
-    await until(() => w.database.tables.sessions[0].radius_meters === 500)
   })
 })
 

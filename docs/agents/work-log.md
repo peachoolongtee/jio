@@ -1968,3 +1968,25 @@ No database change.
     - `DESIGN.md` brought up to what ships.
   - **Measured:** Tampines + Bishan picks Paya Lebar on the area table. In 500 random pairs, 134 had fewer than 3 drink or shop places within 3 km, 12 of them an empty list. In 500 random triples, 125 and 4.
   - **Not seen in a browser:** the pin's warning and Home's overdue banner (tested only).
+
+## Round 49: the tests moved to the redesigns of 4 November (2026-11-04)
+
+Done directly by the lead's session, with no agents ("fix it yourself"). It goes to `dev` through `review/pr-220`, which also carries #220 (the lead's own unit and component tests).
+
+- **Why:** #221 to #236 (Darius, Jonathan, Faith) redesigned screens on purpose, and the tests still described the old ones: 65 unit and component tests and 4 end-to-end tests failed on plain `dev`. Each change was checked against its commit and code comment before its test was moved. No app code was changed.
+- **What the tests now check:**
+  - Vote's distance as chips (Auto to 3 km), search as tick then "Add", and "CDC-friendly".
+  - The itinerary with no edit mode: Replace and Delete always there for the host, none for a guest.
+  - Photos on "How was it?", not on the itinerary.
+  - Rain as slanted streaks with no chip for simulated rain, and Home's wash circles.
+  - A host's tap drops a shared need at once (no "Unselect halal?").
+  - White cards with a firm border.
+  - "We are here already" and Withdraw in a spot's More details dialog.
+  - Home: pins say the weekday and date; This week, Next week, Your turn and All; no lines until a pin is picked; a picked meetup's card in place of the list.
+  - The post button is `RainbowButton`; the grid's livelier pulse; no "Best when…" lines; no password hint line.
+  - "Change meeting spot" closes by its × and has no "Use the fairest spot".
+  - Rewards: "Vouchers" and "Your vouchers" with a badge, and "Claim" for a used voucher.
+  - The location sheet's short "Here" button.
+- **End to end:** Darryl's replace test has no "Edit itinerary"; Darius's finish test picks the row, then opens the list again for "See all"; Faith's start test checks the People card without the person's own "Your locations" rows; the sheet's line under its choices is gone.
+- **Verified** on the merged tree: backend 2118 passed, 2 skipped, also with outbound calls blocked; frontend 3228 passed, 200 files, under `TZ=UTC`; build succeeded; end to end 17 of 17.
+- **For the lead:** the "Unselect halal?" reminder and the sheet's "Friends see the area name only" line were removed by Darius, both product points. Some app comments are stale: `setRadius` in `PlannerView.vue` still speaks of a slider, and `GRID_PULSE` in `gridPulse.js` says "(none)" for a grid that lights two cells by itself. `LiquidMetalButton.vue` is no longer used anywhere. The demo clips predate the redesign.

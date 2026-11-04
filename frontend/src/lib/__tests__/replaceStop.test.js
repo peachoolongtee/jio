@@ -210,13 +210,12 @@ async function draw(t, path, name) {
 const errorsOf = (view) => view.errors.map((e) => String(e?.stack || e).slice(0, 300))
 
 describe('the itinerary', () => {
-  it('has Replace on every stop only in edit mode, which opens the voting page for that stop', async () => {
+  // The itinerary has no edit mode any more (Darius, 4 November 2026): Replace is a swap button on every stop, for the host.
+  it('has Replace on every stop, which opens the voting page for that stop', async () => {
     const t = await setUp()
     const eat = stopOf(await t.api.getItinerary(t.id), 'eat')
     const view = await draw(t, `/sessions/${t.id}/itinerary`, 'EventView')
     await until(() => view.has('.stop__name') || view.text().includes(eat.venue.name))
-    expect(view.has(`[data-testid="replace-${eat.slotId}"]`)).toBe(false)
-    await view.click('button[aria-label="Edit itinerary"]')
     await until(() => view.has(`[data-testid="replace-${eat.slotId}"]`))
     expect(view.one(`[data-testid="replace-${eat.slotId}"]`).attrs['aria-label']).toBe(`Replace stop: ${eat.venue.name}`)
     await view.click(`[data-testid="replace-${eat.slotId}"]`)
@@ -231,7 +230,6 @@ describe('the itinerary', () => {
     const only = (await t.api.getItinerary(t.id)).stops[0]
     const view = await draw(t, `/sessions/${t.id}/itinerary`, 'EventView')
     await until(() => view.text().includes(only.venue.name))
-    await view.click('button[aria-label="Edit itinerary"]')
     await until(() => view.has(`[data-testid="replace-${only.slotId}"]`))
     expect(view.has(`button[aria-label="Delete stop: ${only.venue.name}"]`)).toBe(false)
   })
@@ -791,8 +789,6 @@ describe('the itinerary and the plan page, for the host and for a member', () =>
     const t = await setUp(guestOrdered)
     const eat = stopOf(await t.api.getItinerary(t.id), 'eat')
     const view = await draw(t, `/sessions/${t.id}/itinerary`, 'EventView')
-    await until(() => view.has('button[aria-label="Edit itinerary"]'))
-    await view.click('button[aria-label="Edit itinerary"]')
     await until(() => view.all('button').some((b) => (b.attrs['aria-label'] || '').startsWith('Delete stop')))
     // The member can edit the day (Delete is there) but not replace a stop.
     expect(view.has(`[data-testid="replace-${eat.slotId}"]`)).toBe(false)

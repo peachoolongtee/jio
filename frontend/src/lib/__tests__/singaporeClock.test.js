@@ -91,10 +91,10 @@ describe('when a session starts and ends', () => {
 })
 
 describe('where else the app says the day', () => {
-  it('labels a meetup on Singapore\'s today as Today, and one the day after as a weekday', () => {
+  it('labels a meetup on Singapore\'s today as Today, and one the day after as its weekday and date', () => {
     expect(dayLabel({ date: '2026-10-11' }, AFTER_MIDNIGHT)).toBe('Today')
-    expect(dayLabel({ date: '2026-10-12' }, AFTER_MIDNIGHT)).toBe('Mon')
-    expect(dayLabel({ date: '2026-10-11' }, LATE)).toBe('Sun')
+    expect(dayLabel({ date: '2026-10-12' }, AFTER_MIDNIGHT)).toBe('Mon 12')
+    expect(dayLabel({ date: '2026-10-11' }, LATE)).toBe('Sun 11')
     expect(whenLine({ date: '2026-10-11', start: '08:30' }, AFTER_MIDNIGHT)).toBe('Sun 11 Oct · 08:30')
   })
 
