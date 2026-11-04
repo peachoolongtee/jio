@@ -40,6 +40,11 @@ pnpm build                         # frontend production build
 
 End-to-end tests (Playwright) start their own stub backend and frontend, and never touch a real service: see `frontend/tests/e2e/README.md` (`pnpm test:e2e`).
 
+## Deploy
+
+- **Frontend:** a static site built from `frontend/` with `pnpm build` (output `frontend/dist`). Set `VITE_API_BASE_URL` to the backend's address and `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`, or `VITE_ALLOW_LOCAL_ACCOUNTS=1` for a demo that keeps accounts in the browser. The app's addresses are real paths (`/sessions/s1`), so every path must serve `index.html`: `frontend/vercel.json` does that on Vercel, and `frontend/public/_redirects` on Netlify.
+- **Backend:** `pnpm --filter jio-backend start` with `NODE_ENV=production`. It refuses to start without `FRONTEND_ORIGIN` (the frontend's address, for CORS) and the three Supabase settings, and refuses `STUB_EXTERNALS` in production.
+
 ## Repository layout
 
 - `frontend/` Vue 3 + Vite app

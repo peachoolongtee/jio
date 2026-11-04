@@ -16,6 +16,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 import JioLogo from './JioLogo.vue'
 import RainbowButton from './RainbowButton.vue'
+import { usePostReader } from '@/lib/usePostReader.js'
 import AddFriends from '../home/AddFriends.vue'
 import { enterGame } from '@/lib/enterGame.js'
 
@@ -32,6 +33,8 @@ defineProps({
   },
 })
 
+// "Find places from a post" only where the server can read posts (lib/usePostReader.js).
+const offerPosts = usePostReader()
 const route = useRoute()
 const isActive = (tab) => route.meta.tab === tab.id
 
@@ -83,7 +86,7 @@ async function go(to) {
          2026; narrower, they are pinned on Home instead). -->
     <div class="tabbar__tools">
       <AddFriends />
-      <RainbowButton label="Find places from a post" to="/places/from-post" icon="sparkles" data-testid="topbar-post-places" />
+      <RainbowButton v-if="offerPosts" label="Find places from a post" to="/places/from-post" icon="sparkles" data-testid="topbar-post-places" />
     </div>
   </nav>
 </template>
