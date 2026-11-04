@@ -8,7 +8,8 @@
 // readers; these buttons are the way in.
 // pins: [{ id, lat, lng, offset: { x, y }, label, name }] (lib/homeMeetups.js pinsFor, with a label and a name added).
 // label: the short word on the pin ("Sat"). name: what a screen reader says (title, area and date).
-// The selected pin is bigger, filled red, white inside and bobbing, so it differs from the rest by more than colour.
+// The selected pin is bigger, filled red, white inside and bobbing, so it differs from the rest by more than colour. While none is
+// selected, every pin hops slowly, each at its own moment, so the map invites a tap (Darius, 4 November 2026).
 // A pin stays inside the box (its tip is moved in from the edge if its area is near it).
 // The popover (MeetupSummary, compact), one at a time, never changes the selection (clicking a pin does):
 //   a mouse      hover for 120 ms; it stays while the pointer is on the pin or the card, and closes 150 ms after leaving
@@ -240,7 +241,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="layer" class="pins" :class="{ 'is-hello': hello }" :style="frame" role="group" aria-label="Meetups on the map">
+  <div ref="layer" class="pins" :class="{ 'is-hello': hello, 'is-idle': !selectedId && !hello }" :style="frame" role="group" aria-label="Meetups on the map">
     <!-- Each wrapper is a point (the pin's tip) that holds the pin and, while open, its card, so the card follows the pin in the tab order. -->
     <div
       v-for="pin in placed"
@@ -341,6 +342,13 @@ onBeforeUnmount(() => {
 .pins.is-hello .mwrap:not(.is-selected) .mpin__bob { animation: meetup-pin-hello 700ms cubic-bezier(0.34, 1.56, 0.64, 1); animation-delay: calc(400ms + var(--n, 0) * 90ms); }
 @keyframes meetup-pin-hello { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-14px); } }
 @keyframes meetup-pin-bob-shadow { 50% { transform: translateX(-50%) scale(0.75); opacity: 0.55; } }
+/* Nothing selected yet (after the first hops): every pin hops slowly and softly, out of step with the others, its shadow shrinking as it
+   rises. A pin under the pointer, or with focus, keeps still. */
+.pins.is-idle .mwrap .mpin__bob { animation: meetup-pin-idle 3.6s ease-in-out infinite; animation-delay: calc(var(--n, 0) * -1.3s); }
+.pins.is-idle .mwrap .mpin__shadow { animation: meetup-pin-idle-shadow 3.6s ease-in-out infinite; animation-delay: calc(var(--n, 0) * -1.3s); }
+.pins.is-idle .mwrap:is(:hover, :focus-within) :is(.mpin__bob, .mpin__shadow) { animation-play-state: paused; }
+@keyframes meetup-pin-idle { 0%, 55%, 100% { transform: translateY(0); } 25% { transform: translateY(-9px); } 40% { transform: translateY(-1px); } }
+@keyframes meetup-pin-idle-shadow { 0%, 55%, 100% { transform: translateX(-50%) scale(1); } 25% { transform: translateX(-50%) scale(0.8); opacity: 0.6; } }
 @media (hover: hover) {
   .mwrap:not(.is-selected) .mpin:hover .mpin__body { transform: translateY(-3px) scale(1.06); }
 }
@@ -361,6 +369,6 @@ onBeforeUnmount(() => {
 @media (prefers-reduced-motion: reduce) {
   .mcard-enter-active, .mcard-leave-active { transition: none; }
   .mpin__body, .mpin__shape path { transition: none; }
-  .is-selected .mpin .mpin__bob, .is-selected .mpin .mpin__shadow, .pins.is-hello .mwrap:not(.is-selected) .mpin__bob { animation: none; }
+  .is-selected .mpin .mpin__bob, .is-selected .mpin .mpin__shadow, .pins.is-hello .mwrap:not(.is-selected) .mpin__bob, .pins.is-idle .mwrap :is(.mpin__bob, .mpin__shadow) { animation: none; }
 }
 </style>

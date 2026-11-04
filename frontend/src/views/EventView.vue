@@ -240,11 +240,11 @@ const showWeather = computed(() => confirmed.value && !!itinerary.value)
 const check = computed(() => events.weatherChecks[props.id])
 // The shared clock: rain is drawn only while its forecast is current.
 // What the floating cards cover of the full-screen map from 1128px (app.css "Map-first pages"): the header's card at the top, the column of
-// cards on the right (520 px wide) and the buttons at the foot, so the map frames every stop in the rest. Nothing below 1128px.
+// cards on the right (460 px wide) and the buttons at the foot, so the map frames every stop in the rest. Nothing below 1128px.
 const mapCover = ref({})
 function syncCover() {
   const wide = (globalThis.innerWidth || 0) >= 1128
-  mapCover.value = wide ? { top: 170, right: 520 + 48, bottom: 72 } : {}
+  mapCover.value = wide ? { top: 170, right: 460 + 48, bottom: 72 } : {}
 }
 onMounted(() => {
   syncCover()
@@ -478,7 +478,7 @@ async function endPlan() {
         </template>
 
         <!-- Map first (Darius, 4 November 2026, as Home and Locate): from 1128px the map on the left and the timeline docked on the right,
-             full height and 520px wide (the stops need more room than Locate's cards), with the footer at its foot. -->
+             full height and 460px wide, with the footer at its foot. -->
         <SplitView v-else v-model:view="view" class="itin-split" label="Itinerary" even map-first>
           <template #list>
             <div v-if="!itinerary" class="stack gap-md">

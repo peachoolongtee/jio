@@ -176,12 +176,12 @@ function begin() {
   else loading.value = false
 }
 // What the floating cards cover of the full-screen map from 1128px (app.css "Map-first pages"): the header's card at the top, the column of
-// cards on the right (520 px wide) and the button at the foot, so the map frames the places in the rest. Nothing below 1128px.
+// cards on the right (460 px wide) and the button at the foot, so the map frames the places in the rest. Nothing below 1128px.
 const mapCover = ref({})
 // Sets mapCover for the window's width. How to call: syncCover()
 function syncCover() {
   const wide = (globalThis.innerWidth || 0) >= 1128
-  mapCover.value = wide ? { top: 170, right: 520 + 48, bottom: 72 } : {}
+  mapCover.value = wide ? { top: 170, right: 460 + 48, bottom: 72 } : {}
 }
 onMounted(() => {
   syncCover()
