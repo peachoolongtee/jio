@@ -29,13 +29,16 @@ function seeded(seed) {
 // The streaks of one patch `size` units across, in that patch's own units (scale: map units for each rain unit, as for SingaporeMap).
 // Each is { x, length, width, opacity, seconds, delay, still }: it starts just above the patch at x, falls `travel` (the patch and its
 // own length), starts `delay` seconds into its fall (negative, so the patch is full of rain at once) and, under reduced motion, stands
-// `still` units down. How to call: rainStreaks({ size: 240, seed: 3 }) -> { travel: 260, drops: [{ x: 31.2, length: 14, ... }, ...] }
-export function rainStreaks({ size, seed = 1, scale = 1 }) {
+// `still` units down. `max` raises the cap on streaks, and `pace` keeps their speed for a bigger area (the seconds are for 240 rain units
+// of fall, and grow with the fall), for rain over a whole map (SingaporeMap).
+// How to call: rainStreaks({ size: 240, seed: 3 }) -> { travel: 260, drops: [{ x: 31.2, length: 14, ... }, ...] }
+export function rainStreaks({ size, seed = 1, scale = 1, max = RAIN_STREAKS.max, pace = false }) {
   const S = RAIN_STREAKS
   const next = seeded(seed)
   const between = ([lo, hi]) => lo + next() * (hi - lo)
   const units = size / scale
-  const count = Math.round(Math.min(S.max, Math.max(S.min, (units * units) / S.perArea)))
+  const count = Math.round(Math.min(max, Math.max(S.min, (units * units) / S.perArea)))
+  const slow = pace ? Math.max(1, units / 240) : 1
   // The slant moves the streaks sideways as they fall, so they start across a wider band than the patch, and every part of it is rained on.
   const spread = size * 1.4
   const maxLength = S.width[1] * S.length * scale
@@ -43,7 +46,7 @@ export function rainStreaks({ size, seed = 1, scale = 1 }) {
   const drops = []
   for (let i = 0; i < count; i++) {
     const width = between(S.width) * scale
-    const seconds = between(S.seconds)
+    const seconds = between(S.seconds) * slow
     drops.push({
       x: num(size / 2 - spread / 2 + next() * spread),
       width: num(width),
