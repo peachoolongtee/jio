@@ -3,18 +3,21 @@
 // one point, with the greeting above. Below, on white, what comes next. Three states:
 //   No active meetup        the band's action is a map pin in the middle, "Jio your friends", on the meeting point;
 //                           below, Your meetups (past ones, or an empty state).
-//   One or more going       every meetup that has a meeting point is a pin on the map (a button: its day on it), and the
-//                           soonest is selected. The routes meet at the selected one's meeting area, only that pin bobs,
-//                           and under the map a card shows it: when, where it stands, who is in, what it needs next from
-//                           you, and Open meetup. With two or more, Your meetups lists them all (a row selects, like
-//                           a pin; hovering or focusing a pin opens a small card of its details), and a meetup with no
-//                           meeting point yet is there, with no pin. A new meetup starts from the tab bar's Create
+//   One or more going       every meetup that has a meeting point is a pin on the map (a button: its day on it). Home opens
+//                           on the map alone, nothing selected, with the week chips above it, unless a meetup is happening
+//                           right now, which opens by itself (the lead's flow of 4 November 2026). Picking a pin selects it: the routes meet at its meeting area, only that pin bobs, and a tall panel opens with everything about
+//                           it (from 1024px down the right of the screen, the map sliding left; below, a sheet from the
+//                           bottom): its card (when, where it stands, who is in, what it needs next from you, Open
+//                           meetup) and the places near its meeting area. Its ×, Escape, or the empty map closes it.
+//                           With two or more, "List" under the chips shows Your meetups (a row selects, like a pin;
+//                           hovering or focusing a pin opens a small card of its details), and a meetup with no meeting
+//                           point yet is there, with no pin. A new meetup starts from the tab bar's Create
 //                           (the list has no row of its own for it: one way in is enough). Nothing sits in the
 //                           map's corner, so no pin has a control beside it.
-//   Meetup with a midpoint  Places near that meeting area below: places around it, nearest first, with one Filter
+//   Meetup with a midpoint  Places near that meeting area, in the panel under its card: nearest first, with one Filter
 //                           button. They follow the selected meetup.
-// The selected meetup lives in the address (?meetup=id), so a reload or a shared link opens the same one; an id that
-// is not there falls back to the soonest. What decides the order, the pins and the next step is lib/homeMeetups.js.
+// The selected meetup lives in the address (?meetup=id), so a reload or a shared link opens the same one; with no id, or
+// one that is not listed, nothing is selected except a meetup happening now (lib/homeMeetups.js homeSelection). What decides the order, the pins and the next step is lib/homeMeetups.js.
 // The filter has toggles (Touristy spots, Hidden gems, CDC Vouchers accepted, Food, Café),
 // a budget slider (the most to spend per person) and a distance slider (from the midpoint).
 // Tapping a place opens it (?place=id): its card grows into PlaceDetail and shrinks back on close. If the place
@@ -43,7 +46,6 @@ import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
 import PlaceTile from '@/components/event/PlaceTile.vue'
-import PlaceCarousel from '@/components/ui/PlaceCarousel.vue'
 import PlaceDetail from '@/components/event/PlaceDetail.vue'
 import WeatherSource from '@/components/weather/WeatherSource.vue'
 import InvitationList from '@/components/event/InvitationList.vue'
@@ -54,7 +56,7 @@ import MeetupPins from '@/components/home/MeetupPins.vue'
 import AddFriends from '@/components/home/AddFriends.vue'
 import LiquidMetalButton from '@/components/ui/LiquidMetalButton.vue'
 import * as api from '@/lib/api.js'
-import { MEETUP_RANGES, activeMeetups, needsMe, allMeetupsLabel, dayLabel, defaultRange, homeList, meetupsIn, pinName, pinnedMeetups, pinsFor, rangeCounts, selectMeetup } from '@/lib/homeMeetups.js'
+import { MEETUP_RANGES, activeMeetups, needsMe, allMeetupsLabel, dayLabel, defaultRange, homeList, homeSelection, meetupsIn, pinName, pinnedMeetups, pinsFor, rangeCounts } from '@/lib/homeMeetups.js'
 import { visibleSessions } from '@/lib/sessionFilter.js'
 import { AREAS } from '@/lib/mock/places.js'
 import { useHomeRain } from '@/lib/useHomeRain.js'
@@ -164,7 +166,9 @@ function toggleMine() {
 // "Your meetups" lists a few (lib/homeMeetups.js homeList), and the selected one is one of them, so the card, the rows and the pins
 // agree and picking a pin changes nothing else on the map. "See all N meetups" opens Sessions when there are more, or finished ones.
 const shownMeetups = computed(() => homeList(inRangeMeetups.value.length ? inRangeMeetups.value : meetups.value))
-const selected = computed(() => selectMeetup(shownMeetups.value, route.query.meetup))
+// Closing the card of a meetup that opened by itself (happening now) keeps it closed until Home is opened again.
+const liveDismissed = ref(false)
+const selected = computed(() => homeSelection(shownMeetups.value, route.query.meetup, now.value, { liveDismissed: liveDismissed.value }))
 const past = computed(() => sessions.value.filter((s) => !meetups.value.includes(s)).slice(0, 3))
 const hasFinished = computed(() => sessions.value.length > meetups.value.length)
 const moreMeetups = computed(() => meetups.value.length > shownMeetups.value.length || hasFinished.value)
@@ -201,10 +205,65 @@ watch(
 // Selecting by pin or by row is the same thing: put the id in the address (replacing the entry, so Back does not
 // step through selections) and keep any other part of the address, such as an open place.
 // How to call: select('s3')
-function select(id) {
+async function select(id) {
   if (id === selected.value?.id) return
   announce.value = `${meetups.value.find((m) => m.id === id)?.title || 'Meetup'} selected`
-  router.replace({ query: { ...route.query, meetup: id } })
+  await router.replace({ query: { ...route.query, meetup: id } })
+  // The panel scrolls back to its top for the new meetup.
+  if (panel.value) panel.value.scrollTop = 0
+}
+
+// Closing the card: nothing selected, the map alone again. Focus goes back to the selected pin, if a pin had it.
+// How to call: closeMeetup()
+function closeMeetup() {
+  if (!selected.value) return
+  const doc = globalThis.document
+  const pin = doc && typeof panel.value?.contains === 'function' && panel.value.contains(doc.activeElement) ? doc.querySelector('.hero__pins .mpin[aria-pressed="true"]') : null
+  announce.value = `${selected.value.title || 'Meetup'} closed`
+  liveDismissed.value = true
+  const query = Object.fromEntries(Object.entries(route.query).filter(([key]) => key !== 'meetup'))
+  router.replace({ query })
+  pin?.focus({ preventScroll: true })
+}
+// A click on the map that is not on a pin or its card closes the open meetup.
+// How to call: onStageClick(event)
+function onStageClick(event) {
+  if (!selected.value || event.target.closest?.('.mwrap, button, a')) return
+  closeMeetup()
+}
+// Escape closes the open meetup, unless something above it is open (a place, the filter) or a pin's own card is open (its Escape
+// closes that card first, MeetupPins).
+// How to call: window.addEventListener('keydown', onKey)
+function onKey(event) {
+  if (event.key !== 'Escape' || event.defaultPrevented || !selected.value || openPlace.value || filterOpen.value) return
+  if (globalThis.document?.activeElement?.closest?.('.mwrap.is-open')) return
+  closeMeetup()
+}
+onMounted(() => globalThis.window?.addEventListener('keydown', onKey))
+onBeforeUnmount(() => globalThis.window?.removeEventListener('keydown', onKey))
+const panel = ref(null)
+// The tall panel is open while a meetup is selected.
+const drawerOpen = computed(() => events.loaded && !!selected.value)
+// Below 1024px the panel is a sheet over the lower part of the screen, so when it opens the page scrolls the map up into the room above
+// it (the body leaves room to scroll, in the CSS), and the selected pin stays in sight.
+const stage = ref(null)
+watch(drawerOpen, async (open) => {
+  if (!open || typeof matchMedia !== 'function' || !matchMedia('(max-width: 1023px)').matches) return
+  await nextTick()
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches
+  stage.value?.scrollIntoView?.({ block: 'start', behavior: reduce ? 'auto' : 'smooth' })
+}, { flush: 'post' })
+
+// "List" under the week chips shows Your meetups under the map. Off at first, so Home is the map; the choice is remembered in this
+// browser only (a convenience, so a reload keeps it).
+const LIST_KEY = 'jio-home-list'
+const listOpen = ref(false)
+try { listOpen.value = localStorage.getItem(LIST_KEY) === '1' } catch { /* storage blocked: start closed */ }
+// How to call: toggleList()
+function toggleList() {
+  listOpen.value = !listOpen.value
+  try { localStorage.setItem(LIST_KEY, listOpen.value ? '1' : '0') } catch { /* storage blocked: the choice lasts this visit */ }
+  announce.value = listOpen.value ? 'Showing the list of meetups' : 'List hidden'
 }
 
 // The routes on the map: friends from all round the island converging on the selected meetup's pin (ROUTE_STARTS, below).
@@ -293,9 +352,11 @@ const fadeRain = computed(() => !rainPlacesKey.value || rainFaded.value !== rain
 
 // One line under the greeting, about where things stand.
 const blurb = computed(() => {
-  if (!selected.value) return 'Pick a day, invite your friends, and Jio finds the fairest place for everyone to meet.'
-  // Several going: the pins and the list say it, so there is no line (Faith's walkthrough, 30 October 2026).
-  if (meetups.value.length > 1) return ''
+  if (!hasMeetups.value) return 'Pick a day, invite your friends, and Jio finds the fairest place for everyone to meet.'
+  // Meetups on the map, none open: say what a pin does, once, plainly.
+  if (!selected.value) return pins.value.length ? 'Choose a pin to see that meetup.' : 'Open List to see your meetups.'
+  // Several going, one open: how to move on, in the line's place, so the greeting does not jump as the card opens.
+  if (meetups.value.length > 1) return 'Choose another pin, or close the card to see the whole map.'
   if (area.value) return `Your group meets at ${area.value.name}. Here is what is nearby.`
   return 'Once everyone shares where they are starting, Jio works out the midpoint.'
 })
@@ -469,7 +530,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 </script>
 
 <template>
-  <main class="screen home" data-testid="landing-view">
+  <main class="screen home" :class="{ 'has-drawer': drawerOpen }" data-testid="landing-view">
     <!-- The band: a muted map of Singapore; the routes meet at the selected meetup (or under the main action, in the middle). -->
     <section class="hero" :class="{ 'has-meetup': hasMeetups, 'hero--full': fullMap }" aria-labelledby="home-hello">
       <!-- Finding people and adding them as friends (walkthrough, 30 October 2026), and under it finding places from a post, a liquid
@@ -498,20 +559,86 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         </div>
       </div>
 
+      <!-- Which meetups the map pins: the week chips, "Your turn" (every meetup waiting on you, whatever its week), and List, which shows
+           them as a list under the map. Above the map, so they never cover a pin. -->
+      <div v-if="events.loaded && hasMeetups" class="home__filters" data-testid="home-filters">
+        <div v-if="meetups.length > 1" class="scroll-x home__ranges" role="radiogroup" v-radio-group aria-label="Show meetups for" data-testid="meetup-ranges">
+          <ChipButton v-for="r in MEETUP_RANGES" :key="r.id" radio :selected="!onlyMine && range === r.id" :disabled="!counts[r.id]" :aria-label="`${r.label}, ${counts[r.id]} ${counts[r.id] === 1 ? 'meetup' : 'meetups'}`" @click="pickRange(r.id)">{{ r.label }}<span class="home__range-count tnum" aria-hidden="true">{{ counts[r.id] }}</span></ChipButton>
+        </div>
+        <div class="home__toggles">
+          <ChipButton v-if="allMine.length && meetups.length > 1" check :selected="onlyMine" :aria-label="`Your turn, ${allMine.length} ${allMine.length === 1 ? 'meetup' : 'meetups'}`" data-testid="your-turn-filter" @click="toggleMine">Your turn<span class="home__range-count tnum" aria-hidden="true">{{ allMine.length }}</span></ChipButton>
+          <ChipButton check :selected="listOpen" data-testid="home-list-toggle" @click="toggleList">List</ChipButton>
+        </div>
+      </div>
+
       <!-- The map, with the button where the routes meet, or a pin for each meetup. -->
-      <div class="hero__stage">
-        <SingaporeMap :key="mapKey" class="hero__map" :routes="mapRoutes" :center="MEET" :span="mapSpan" :quick="quickMap" :rain="rain.view.value?.places || []" :fade-rain="fadeRain" hide-meet />
-        <div v-if="rainChip && rainChipFrame" class="hero__rain" :style="rainChipFrame" aria-hidden="true"><RainChip :text="rainChip" class="hero__rain-chip" /></div>
-        <template v-if="hasMeetups">
-          <MeetupPins class="hero__pins" :pins="pins" :meetups="meetups" :my-id="auth.myId" :names="nameOf" :selected-id="selected.id" :center="MEET" :span="mapSpan" @select="select" @drawn="drawnAt = $event" />
-        </template>
-        <div v-else class="hero__action" :class="{ 'is-pin': events.loaded }">
-          <SkeletonRow v-if="!events.loaded && !loadError" :lines="1" />
-          <AppButton v-else-if="!events.loaded" variant="secondary" @click="loadHome">Could not load your meetups · Retry</AppButton>
-          <PinButton v-else to="/sessions/new" class="rise" />
+      <div class="hero__room">
+        <div ref="stage" class="hero__stage" @click="onStageClick">
+          <div class="hero__world">
+            <SingaporeMap :key="mapKey" class="hero__map" :routes="mapRoutes" :center="MEET" :span="mapSpan" :quick="quickMap" :rain="rain.view.value?.places || []" :fade-rain="fadeRain" hide-meet />
+            <div v-if="rainChip && rainChipFrame" class="hero__rain" :style="rainChipFrame" aria-hidden="true"><RainChip :text="rainChip" class="hero__rain-chip" /></div>
+            <template v-if="hasMeetups">
+              <MeetupPins class="hero__pins" :pins="pins" :meetups="meetups" :my-id="auth.myId" :names="nameOf" :selected-id="selected?.id || ''" :center="MEET" :span="mapSpan" quiet-selected @select="select" @drawn="drawnAt = $event" />
+            </template>
+          </div>
+          <div v-if="!hasMeetups" class="hero__action" :class="{ 'is-pin': events.loaded }">
+            <SkeletonRow v-if="!events.loaded && !loadError" :lines="1" />
+            <AppButton v-else-if="!events.loaded" variant="secondary" @click="loadHome">Could not load your meetups · Retry</AppButton>
+            <PinButton v-else to="/sessions/new" class="rise" />
+          </div>
         </div>
       </div>
     </section>
+
+    <!-- The open meetup: a tall panel, everything about it in one place (the lead's word, 4 November 2026): its card, then the places near
+         its meeting area, nearest first. From 1024px it runs the height of the screen on the right and the map, greeting and chips slide
+         left to make room; below 1024px it comes up from the bottom as a tall sheet, with the top of the map still showing over it. It is
+         not a dialog: the pins stay usable, and picking another one changes what it shows. Its ×, Escape or the empty map closes it. -->
+    <Transition name="drawer">
+      <aside v-if="drawerOpen" ref="panel" class="home__drawer" aria-labelledby="home-detail-title" data-testid="home-panel">
+        <div class="home__drawer-head">
+          <span class="home__grip" aria-hidden="true" />
+          <button type="button" class="hero__close" aria-label="Close meetup" title="Close" data-testid="home-panel-close" @click="closeMeetup"><AppIcon name="close" :size="18" /></button>
+        </div>
+        <MeetupDetail class="home__drawer-card" :meetup="selected" :my-id="auth.myId" :names="nameOf" />
+
+        <!-- A midpoint: places around it, nearest first, one under another. -->
+        <section v-if="area" class="home__drawer-places" aria-labelledby="home-places">
+          <div class="section__head">
+            <div class="stack home__headtext">
+              <h2 id="home-places" class="title-lg">Places near {{ area.name }}</h2>
+              <p class="home__context"><AppIcon name="pin" :size="16" /><span class="truncate">For {{ selected.title }}</span></p>
+            </div>
+            <button type="button" class="filter-btn" :class="{ 'is-on': activeCount }" :aria-label="activeCount ? `Filter, ${activeCount} on` : 'Filter'" title="Filter" @click="openFilter">
+              <AppIcon name="filter" :size="18" />
+              <span v-if="activeCount" class="filter-btn__count" aria-hidden="true">{{ activeCount }}</span>
+            </button>
+          </div>
+
+          <EmptyState v-if="placesError" title="Could not load places" text="Check your connection and try again." role="alert">
+            <AppButton variant="secondary" @click="loadPlaces(area.id)">Retry</AppButton>
+          </EmptyState>
+          <!-- Skeletons only the first time; after that the last places stay, faded, until the new ones come, so the panel does not
+               shrink and grow under the person when another meetup is picked (Faith, 31 October 2026). -->
+          <div v-else-if="loadingPlaces && !places.length" class="stack">
+            <SkeletonRow v-for="n in 4" :key="n" avatar />
+          </div>
+          <EmptyState v-else-if="!filtered.length && !loadingPlaces" title="No places match">
+            <AppButton variant="secondary" @click="clearApplied">Clear all</AppButton>
+          </EmptyState>
+          <template v-else>
+            <ul class="home__places" :class="{ 'is-refreshing': loadingPlaces }" :aria-busy="loadingPlaces ? 'true' : undefined" :aria-label="`Places near ${area.name}`" data-testid="home-places">
+              <li v-for="place in filtered.slice(0, shown)" :key="place.id">
+                <RouterLink :to="{ query: { ...route.query, place: place.id } }" class="place-link place-link--tile" :data-place="place.id">
+                  <PlaceTile :place="place" :morph="morphId === place.id" />
+                </RouterLink>
+              </li>
+            </ul>
+            <AppButton v-if="filtered.length > shown" variant="secondary" class="home__more" data-testid="home-places-more" @click="shown += PAGE">Show more · {{ filtered.length - shown }} nearby</AppButton>
+          </template>
+        </section>
+      </aside>
+    </Transition>
 
     <div class="screen__body home__body">
       <InvitationList />
@@ -537,68 +664,16 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         </ul>
       </section>
 
-      <!-- Meetups going: the selected one, and with two or more, all of them. -->
-      <div v-if="events.loaded && selected" class="home__meetups" :class="{ 'is-split': meetups.length > 1 }">
-        <MeetupDetail class="rise" :meetup="selected" :my-id="auth.myId" :names="nameOf" />
-        <section v-if="meetups.length > 1" class="section rise" style="--i: 1" aria-labelledby="home-meetups">
-          <div class="section__head">
-            <h2 id="home-meetups" class="display-sm">Your meetups</h2>
-          </div>
-          <div class="home__filters">
-            <div class="scroll-x home__ranges" role="radiogroup" v-radio-group aria-label="Show meetups for" data-testid="meetup-ranges">
-              <ChipButton v-for="r in MEETUP_RANGES" :key="r.id" radio :selected="!onlyMine && range === r.id" :disabled="!counts[r.id]" :aria-label="`${r.label}, ${counts[r.id]} ${counts[r.id] === 1 ? 'meetup' : 'meetups'}`" @click="pickRange(r.id)">{{ r.label }}<span class="home__range-count tnum" aria-hidden="true">{{ counts[r.id] }}</span></ChipButton>
-            </div>
-            <ChipButton v-if="allMine.length" check :selected="onlyMine" :aria-label="`Your turn, ${allMine.length} ${allMine.length === 1 ? 'meetup' : 'meetups'}`" data-testid="your-turn-filter" @click="toggleMine">Your turn<span class="home__range-count tnum" aria-hidden="true">{{ allMine.length }}</span></ChipButton>
-          </div>
-          <MeetupList :meetups="shownMeetups" :selected-id="selected.id" :my-id="auth.myId" @select="select" />
-          <AppButton v-if="moreMeetups" variant="secondary" class="home__see-all" to="/sessions" data-testid="see-all-meetups">{{ allMeetupsLabel(sessions.length) }}<AppIcon name="arrow-right" :size="16" /></AppButton>
-        </section>
-        <!-- One meetup: its card is above, and no list. -->
-        <div v-else-if="hasFinished" class="home__all"><AppButton variant="secondary" class="home__see-all" to="/sessions" data-testid="see-all-meetups">{{ allMeetupsLabel(sessions.length) }}<AppIcon name="arrow-right" :size="16" /></AppButton></div>
-      </div>
+      <!-- Meetups going, as a list, when List is on: a row selects, like a pin. -->
+      <section v-if="events.loaded && hasMeetups && listOpen" id="home-list" class="section rise home__list" aria-labelledby="home-meetups">
+        <div class="section__head">
+          <h2 id="home-meetups" class="display-sm">Your meetups</h2>
+        </div>
+        <MeetupList :meetups="shownMeetups" :selected-id="selected?.id || ''" :my-id="auth.myId" @select="select" />
+        <AppButton v-if="moreMeetups" variant="secondary" class="home__see-all" to="/sessions" data-testid="see-all-meetups">{{ allMeetupsLabel(sessions.length) }}<AppIcon name="arrow-right" :size="16" /></AppButton>
+      </section>
       <p class="sr-only" role="status">{{ announce }}</p>
 
-      <!-- A midpoint: places around it, nearest first. -->
-      <section v-if="area" class="section rise" aria-labelledby="home-places">
-        <div class="section__head">
-          <div class="stack home__headtext">
-            <h2 id="home-places" class="display-sm">Places near {{ area.name }}</h2>
-            <p class="home__context"><AppIcon name="pin" :size="16" /><span class="truncate">For {{ selected.title }}</span></p>
-          </div>
-          <button type="button" class="filter-btn" :class="{ 'is-on': activeCount }" :aria-label="activeCount ? `Filter, ${activeCount} on` : 'Filter'" title="Filter" @click="openFilter">
-            <AppIcon name="filter" :size="18" />
-            <span v-if="activeCount" class="filter-btn__count" aria-hidden="true">{{ activeCount }}</span>
-          </button>
-        </div>
-
-        <EmptyState v-if="placesError" title="Could not load places" text="Check your connection and try again." role="alert">
-          <AppButton variant="secondary" @click="loadPlaces(area.id)">Retry</AppButton>
-        </EmptyState>
-        <!-- Skeletons only the first time; after that the last places stay, faded, until the new ones come, so the page does not
-             shrink and grow under the person when another meetup is picked (Faith, 31 October 2026). -->
-        <div v-else-if="loadingPlaces && !places.length" class="grid-3">
-          <SkeletonRow v-for="n in 6" :key="n" avatar />
-        </div>
-        <EmptyState v-else-if="!filtered.length && !loadingPlaces" title="No places match">
-          <AppButton variant="secondary" @click="clearApplied">Clear all</AppButton>
-        </EmptyState>
-        <!-- One row that scrolls sideways (walkthrough, 30 October 2026: the grid showed every place at once). "Show more" is the row's
-             last card and adds the next twelve. -->
-        <PlaceCarousel v-else :items="filtered.slice(0, shown)" :label="`Places near ${area.name}`" :class="{ 'is-refreshing': loadingPlaces }" :aria-busy="loadingPlaces ? 'true' : undefined" data-testid="home-places">
-          <template #item="{ item: place }">
-            <RouterLink :to="{ query: { ...route.query, place: place.id } }" class="place-link place-link--tile" :data-place="place.id">
-              <PlaceTile :place="place" :morph="morphId === place.id" />
-            </RouterLink>
-          </template>
-          <template v-if="filtered.length > shown" #end>
-            <button type="button" class="home__more-card" data-testid="home-places-more" @click="shown += PAGE">
-              <span class="home__more-icon" aria-hidden="true"><AppIcon name="plus" :size="20" /></span>
-              <span class="title-sm">Show more</span>
-              <span class="caption-sm text-muted">{{ filtered.length - shown }} more nearby</span>
-            </button>
-          </template>
-        </PlaceCarousel>
-      </section>
     </div>
 
     <BottomSheet v-model:open="filterOpen" title="Filter">
@@ -714,22 +789,85 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 /* Where the places are: the area name in Rausch, bold, with its pin. */
 .home__context { display: inline-flex; align-items: center; gap: var(--spacing-xs); max-width: 100%; margin: 0; color: var(--primary); font: var(--text-title-md); font-weight: 700; }
 
-/* The meetups under the band: the selected one's card, and with two or more the list beside it from 744px, where the
-   card stays in view as a long list scrolls. */
-.home__meetups { display: flex; flex-direction: column; gap: var(--spacing-lg); }
-.home__all { display: flex; }
-/* The week chips over "Your meetups", each with its count after the label. */
-.home__filters { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-xs) var(--spacing-md); margin-top: calc(var(--spacing-xs) * -1); }
-.home__filters .scroll-x { min-width: 0; flex: 1 1 auto; }
+/* The chips above the map: the weeks, each with its count after the label, then "Your turn" and List. Centred under the greeting, in
+   front of the map's faded top, so they never sit over a pin. */
+.home__filters { position: relative; z-index: 3; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--spacing-xs) var(--spacing-md); width: 100%; max-width: 960px; margin-top: var(--spacing-md); padding: 0 var(--gutter); }
+.home__filters .scroll-x { min-width: 0; flex: 0 1 auto; }
+.home__toggles { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--spacing-xs); }
 .home__range-count { margin-left: var(--spacing-xs); opacity: 0.7; }
+/* The list, when List is on. */
+.home__list { display: flex; flex-direction: column; gap: var(--spacing-base); }
+
+/* The map's layers move together (.hero__world). */
+.hero__room { position: relative; align-self: stretch; }
+.hero__world { position: absolute; inset: 0; transition: transform 560ms cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* The open meetup's tall panel. Below 1024px a sheet from the bottom, above the tab bar, most of the screen tall, so the top of the map
+   (and its pins) still shows over it. From 1024px the full height under the top bar, on the right, and the band (greeting, chips, map)
+   narrows to the room left of it, so all of it slides left and stays centred there (the chips wrap if they must), with the map a
+   little smaller; the body's list and notes
+   keep clear of the panel too. The add-friends tools step aside while it is open. */
+.home { --drawer-w: min(440px, 38vw); }
+.home__drawer {
+  position: fixed;
+  z-index: 22;
+  right: 0;
+  bottom: var(--tabbar-real-height);
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  max-height: calc(58dvh - var(--tabbar-real-height));
+  padding: var(--spacing-xs) var(--gutter) var(--spacing-xl);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid color-mix(in srgb, var(--hairline) 70%, transparent);
+  border-bottom: 0;
+  border-radius: var(--rounded-lg) var(--rounded-lg) 0 0;
+  /* Frosted glass, as Leaderboard's board: the map shows through softly. */
+  background: color-mix(in srgb, var(--canvas) 72%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  backdrop-filter: blur(14px) saturate(1.3);
+  box-shadow: 0 -8px 32px rgb(0 0 0 / 0.14);
+  text-align: left;
+}
+.home__drawer-head { position: sticky; top: calc(var(--spacing-xs) * -1); z-index: 2; display: flex; align-items: center; justify-content: center; min-height: var(--tap-min); margin: 0 calc(var(--gutter) * -1) calc(var(--spacing-lg) * -1); padding: 0 var(--gutter); }
+.home__grip { width: 40px; height: 4px; border-radius: var(--rounded-full); background: var(--border-strong); }
+.home__drawer .hero__close { position: absolute; top: var(--spacing-xxs); right: var(--gutter); }
+/* Inside the panel the meetup's card has no frame of its own: the panel is the frame. */
+.home__drawer-card { padding: 0; border: 0; box-shadow: none; background: none; }
+.home__drawer-places { display: flex; flex-direction: column; gap: var(--spacing-base); padding-top: var(--spacing-lg); border-top: 1px solid var(--hairline); }
+.home__places { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--spacing-base); margin: 0; padding: 0; list-style: none; }
+.home__more { align-self: stretch; }
+.hero__close { display: inline-flex; align-items: center; justify-content: center; width: var(--tap-min); height: var(--tap-min); border: 1px solid var(--hairline); border-radius: var(--rounded-full); background: var(--canvas); color: var(--ink); cursor: pointer; }
+@media (hover: hover) { .hero__close:hover { background: var(--surface-soft); } }
+.hero__close:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.drawer-enter-active { transition: transform 520ms cubic-bezier(0.16, 1, 0.3, 1), opacity 240ms var(--ease-out); }
+.drawer-leave-active { transition: transform 260ms var(--ease-out), opacity 200ms var(--ease-out); }
+.drawer-enter-from, .drawer-leave-to { transform: translateY(100%); opacity: 0; }
+.home__tools { transition: opacity var(--motion-fast) var(--ease-out); }
+@media (max-width: 1023px) { .has-drawer .home__body { padding-bottom: 58dvh; } }
+@media (min-width: 1024px) {
+  .home__drawer { top: var(--topbar-real-height); bottom: 0; left: auto; width: var(--drawer-w); max-height: none; padding: var(--spacing-md) var(--spacing-lg) var(--spacing-xl); border-width: 0 0 0 1px; border-radius: 0; box-shadow: -12px 0 40px rgb(0 0 0 / 0.08); }
+  .home__drawer-head { justify-content: flex-end; margin-bottom: calc(var(--tap-min) * -1 - var(--spacing-lg)); background: none; pointer-events: none; }
+  .home__drawer-head .hero__close { position: static; pointer-events: auto; }
+  .home__grip { display: none; }
+  .home__drawer-card { padding-right: calc(var(--tap-min) + var(--spacing-sm)); }
+  .home__places { grid-template-columns: 1fr; }
+  .drawer-enter-from, .drawer-leave-to { transform: translateX(100%); opacity: 1; }
+  .hero { transition: padding-right 560ms cubic-bezier(0.16, 1, 0.3, 1); }
+  .has-drawer .hero { padding-right: var(--drawer-w); }
+  .has-drawer .hero__world { transform: scale(0.88); }
+  .has-drawer .home__tools { opacity: 0; pointer-events: none; visibility: hidden; }
+  .home__body { transition: padding-right 560ms cubic-bezier(0.16, 1, 0.3, 1); }
+  .has-drawer .home__body { padding-right: calc(var(--drawer-w) + var(--gutter)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero, .hero__world, .home__body, .drawer-enter-active, .drawer-leave-active { transition: none; }
+}
 /* The way to every meetup: a secondary button under the list, full width on phones and its own width from 744px. */
 .home__see-all { align-self: stretch; }
 @media (min-width: 744px) { .home__see-all { align-self: flex-start; } }
-@media (min-width: 744px) {
-  .home__meetups:not(.is-split) > * { max-width: var(--form-max-width); }
-  .home__meetups.is-split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: start; }
-  .home__meetups.is-split > :first-child { position: sticky; top: calc(var(--topbar-real-height) + var(--spacing-base)); }
-}
 .home__headtext { min-width: 0; }
 
 /* A place card is a link to its detail view. */
