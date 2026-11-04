@@ -79,7 +79,7 @@ const last = computed(() => Math.min(props.rankings.length, (page.value + 1) * s
 .rankings__row { display: grid; grid-template-columns: 20px 24px 40px minmax(0, 1fr) auto; align-items: center; gap: var(--spacing-md); min-height: 72px; padding: var(--spacing-sm) var(--spacing-base); }
 .rankings__row + .rankings__row { border-top: 1px solid var(--hairline); }
 /* Your row: outlined and lifted, like a selected card. */
-.rankings__row.is-me { border-radius: var(--rounded-md); background: var(--surface-soft); box-shadow: inset 0 0 0 2px var(--ink); }
+.rankings__row.is-me { border-radius: var(--rounded-md); background: var(--canvas); box-shadow: inset 0 0 0 2px var(--ink); } /* White, the bold border marks it (Darius, 4 November 2026). */
 .rankings__rank { color: var(--ink); font: var(--text-title-md); text-align: center; }
 .rankings__crown { display: inline-flex; }
 .is-top-1 .rankings__crown { color: var(--medal-gold-fg); }

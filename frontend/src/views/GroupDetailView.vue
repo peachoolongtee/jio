@@ -591,7 +591,8 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
 
 <style scoped>
 /* The people under the spots: the same light grey card as the spots, so the two read as one set (walkthrough, 1 November 2026). */
-.people-card { background: var(--surface-strong); }
+/* White with a bold ink border, not a grey fill (Darius, 4 November 2026). */
+.people-card { border: 2px solid var(--ink); background: var(--canvas); }
 /* Inviting: a card like the invite page's. A header with a ring of who has joined out of everyone invited, and
    Invite; then who is in, each with a Host, Joined or Invited tag. */
 .lobby { gap: var(--spacing-lg); }

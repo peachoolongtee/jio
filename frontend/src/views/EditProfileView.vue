@@ -392,7 +392,8 @@ async function savePassword() {
 .edit__group .field-label { margin: 0; color: var(--muted); }
 /* The photo card: the avatar, @username and name, and Change photo on the right. On a narrow phone the button wraps
    under the name. */
-.edit__card { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-md) var(--spacing-base); padding: var(--spacing-base); border-radius: var(--rounded-md); background: var(--surface-soft); }
+/* White with a bold ink border, not a grey fill (Darius, 4 November 2026). */
+.edit__card { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-md) var(--spacing-base); padding: var(--spacing-base); border: 2px solid var(--ink); border-radius: var(--rounded-md); background: var(--canvas); }
 .edit__who { display: flex; flex: 1 1 120px; flex-direction: column; min-width: 0; }
 .edit__card-actions { display: flex; align-items: center; gap: var(--spacing-base); }
 /* Outlined, as the upload label at sign-up is, so "Save details" is the one red action on the page. */

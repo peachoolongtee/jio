@@ -53,7 +53,7 @@ function onClick(event) {
 <style scoped>
 /* A flat card with a hairline. The selected one has a 2px ink outline and a soft fill (the padding gives back the pixel so nothing moves). */
 .choice { display: flex; align-items: flex-start; gap: var(--spacing-md); width: 100%; min-width: 0; min-height: var(--tap-min); margin: 0; padding: var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); color: var(--ink); font: inherit; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: border-color var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out); }
-.choice.is-selected { padding: calc(var(--spacing-base) - 1px); border: 2px solid var(--ink); background: var(--surface-soft); }
+.choice.is-selected { padding: calc(var(--spacing-base) - 1px); border: 2px solid var(--ink); background: var(--canvas); } /* White, the bold border marks it (Darius, 4 November 2026). */
 @media (hover: hover) { .choice:not(.is-selected):hover { border-color: var(--border-control); } }
 .choice:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .choice__icon { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--ink); }
