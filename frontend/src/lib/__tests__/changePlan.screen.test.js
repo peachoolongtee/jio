@@ -314,3 +314,43 @@ describe('while "Choose places again" runs', () => {
     expect(row(w, id).status).toBe('voting')
   })
 })
+
+
+//Ian's changePlan test cases
+
+describe('backing out of and failing a change from a confirmed plan', () => {
+  it('Keep the meeting place changes nothing on a confirmed plan', async () => {
+    const { id, sam, w } = await confirmed({ hostLast: true })
+    const { view, router } = await draw('ChangePlan', `/sessions/${id}/itinerary`, { session: { id, hostId: sam.id, status: 'confirmed' } })
+
+    await view.click('[data-testid=change-plan]')
+    await view.click('[data-testid=change-place]')
+    await until(() => view.has('[data-testid=change-lost]'))
+    await view.click('[data-testid=change-keep]')
+
+    //I need to make sure that the changes are not list and that it is still confirmed
+    expect(view.has('[data-testid=change-lost]')).toBe(false)
+    expect(row(w, id).status).toBe('confirmed')
+    expect(router.currentRoute.value.path).toBe(`/sessions/${id}/itinerary`)
+  })
+
+  // Test to check the catch error function when the change plan does not go through properly
+  it('says why "Choose places again" failed and keeps the dialog open', async () => {
+    const { id, sam, w } = await confirmed({ hostLast: true })
+    const { view, router } = await draw('ChangePlan', `/sessions/${id}/itinerary`, { session: { id, hostId: sam.id, status: 'confirmed' } })
+
+    await view.click('[data-testid=change-plan]')
+
+    //Intentionally crash the server to induce an error
+    w.server.down = true
+    await view.click('[data-testid=change-again]')
+    await until(() => view.has('[data-testid=change-error]'))
+
+    expect(view.has('[role=dialog]')).toBe(true)
+    //Need to make sure that it is not a blank error
+    expect(view.text('[data-testid=change-error]')).not.toBe('')
+
+    expect(row(w, id).status).toBe('confirmed')
+    expect(router.currentRoute.value.path).toBe(`/sessions/${id}/itinerary`)
+  })
+})
