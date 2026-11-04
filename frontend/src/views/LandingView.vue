@@ -54,7 +54,7 @@ import MeetupDetail from '@/components/home/MeetupDetail.vue'
 import MeetupList from '@/components/home/MeetupList.vue'
 import MeetupPins from '@/components/home/MeetupPins.vue'
 import AddFriends from '@/components/home/AddFriends.vue'
-import LiquidMetalButton from '@/components/ui/LiquidMetalButton.vue'
+import RainbowButton from '@/components/ui/RainbowButton.vue'
 import * as api from '@/lib/api.js'
 import { MEETUP_RANGES, activeMeetups, needsMe, allMeetupsLabel, dayLabel, defaultRange, homeList, homeSelection, meetupsIn, pinName, pinnedMeetups, pinsFor, rangeCounts } from '@/lib/homeMeetups.js'
 import { visibleSessions } from '@/lib/sessionFilter.js'
@@ -253,15 +253,17 @@ const panel = ref(null)
 const listOpen = ref(false)
 // The tall panel is open while a meetup is selected, or the list is.
 const drawerOpen = computed(() => events.loaded && hasMeetups.value && (!!selected.value || listOpen.value))
-// Below 1024px the panel is a sheet over the lower part of the screen, so when it opens the page scrolls the map up into the room above
-// it (the body leaves room to scroll, in the CSS), and the selected pin stays in sight.
+// Below 1024px the panel is a sheet over the lower part of the screen, so when it opens (or Home opens with it, for a meetup happening
+// now) the page scrolls the map up into the room above it (the body leaves room to scroll, in the CSS), and the selected pin stays in sight.
 const stage = ref(null)
 watch(drawerOpen, async (open) => {
   if (!open || typeof matchMedia !== 'function' || !matchMedia('(max-width: 1023px)').matches) return
   await nextTick()
+  // Two frames on, so a page that has just opened is not then put back at the top by the router (router/index.js scrollBehavior).
+  if (typeof requestAnimationFrame === 'function') await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches
   stage.value?.scrollIntoView?.({ block: 'start', behavior: reduce ? 'auto' : 'smooth' })
-}, { flush: 'post' })
+}, { flush: 'post', immediate: true })
 
 // "List" opens the panel on Your meetups, the rows of the meetups the chips choose (Darius, 4 November 2026: a list under the map as well
 // as the panel was too much at once). A row opens that meetup in the panel, with "All meetups" at its top to come back; a pin chosen
@@ -553,13 +555,13 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
   <main class="screen home" :class="{ 'has-drawer': drawerOpen }" data-testid="landing-view">
     <!-- The band: a muted map of Singapore; the routes meet at the selected meetup (or under the main action, in the middle). -->
     <section class="hero" :class="{ 'has-meetup': hasMeetups, 'hero--full': fullMap }" aria-labelledby="home-hello">
-      <!-- Finding people and adding them as friends (walkthrough, 30 October 2026), and under it finding places from a post, a liquid
-           metal button (walkthrough, 1 November 2026). Below 1024px only, pinned to the top left corner so they stay on screen as the page
+      <!-- Finding people and adding them as friends (walkthrough, 30 October 2026), and under it finding places from a post, a round
+           button with a turning rainbow border (Darius, 4 November 2026; it was liquid metal from the walkthrough of 1 November). Below 1024px only, pinned to the top left corner so they stay on screen as the page
            scrolls and while the panel is open; from 1024px they are in the top bar (TabBar), on every page (Darius, 4 November 2026). No
            caption: the name is the button's label and tooltip. -->
       <div class="home__tools">
         <AddFriends />
-        <LiquidMetalButton label="Find places from a post" to="/places/from-post" icon="sparkles" data-testid="home-post-places" />
+        <RainbowButton label="Find places from a post" to="/places/from-post" icon="sparkles" data-testid="home-post-places" />
       </div>
       <RouterLink to="/profile" class="home__me" aria-label="Profile" title="Profile">
         <UserAvatar :name="auth.user?.name ?? ''" :src="auth.user?.photo" :person="auth.myId" :size="44" />

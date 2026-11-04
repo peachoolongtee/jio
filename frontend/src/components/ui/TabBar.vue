@@ -15,7 +15,7 @@ import { ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 import JioLogo from './JioLogo.vue'
-import LiquidMetalButton from './LiquidMetalButton.vue'
+import RainbowButton from './RainbowButton.vue'
 import AddFriends from '../home/AddFriends.vue'
 import { enterGame } from '@/lib/enterGame.js'
 
@@ -83,7 +83,7 @@ async function go(to) {
          2026; narrower, they are pinned on Home instead). -->
     <div class="tabbar__tools">
       <AddFriends />
-      <LiquidMetalButton label="Find places from a post" to="/places/from-post" icon="sparkles" data-testid="topbar-post-places" />
+      <RainbowButton label="Find places from a post" to="/places/from-post" icon="sparkles" data-testid="topbar-post-places" />
     </div>
   </nav>
 </template>
@@ -205,7 +205,7 @@ async function go(to) {
 @media (min-width: 1024px) {
   .tabbar__tools { order: 1; display: flex; align-items: center; gap: var(--spacing-sm); margin-left: auto; }
   .tabbar__tab.is-create { margin-left: var(--spacing-sm); }
-  .tabbar__tools :deep(.lm) { width: 40px; height: 40px; }
+  .tabbar__tools :deep(.rb) { --rb-size: 40px; }
   .tabbar__tools :deep(.add-friends) { width: 40px; height: 40px; box-shadow: none; }
 }
 
