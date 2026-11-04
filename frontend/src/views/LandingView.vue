@@ -634,7 +634,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         <section v-if="!selected" id="home-list" class="home__list" aria-labelledby="home-meetups">
           <h2 id="home-meetups" class="title-lg">Your meetups</h2>
           <MeetupList :meetups="shownMeetups" selected-id="" :my-id="auth.myId" @select="select" />
-          <AppButton v-if="moreMeetups" variant="secondary" class="home__see-all" to="/sessions" data-testid="see-all-meetups">{{ allMeetupsLabel(sessions.length) }}<AppIcon name="arrow-right" :size="16" /></AppButton>
+          <AppButton v-if="moreMeetups" next class="home__see-all" to="/sessions" data-testid="see-all-meetups">{{ allMeetupsLabel(sessions.length) }}</AppButton>
         </section>
 
         <MeetupDetail v-if="selected" class="home__drawer-card" :meetup="selected" :my-id="auth.myId" :names="nameOf" />
@@ -831,7 +831,8 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 /* The list, in the panel when List is on. */
 .home__list { display: flex; flex-direction: column; gap: var(--spacing-base); }
 .home__list h2 { margin: 0; }
-.home__list .home__see-all { align-self: stretch; }
+/* "See all meetups": the small round "next" pill (as "Itinerary →", red on hover), on the right (Darius, 4 November 2026). */
+.home__list .home__see-all { align-self: flex-end; height: 40px; min-width: 0; padding: 0 var(--spacing-base); font: var(--text-button-sm); }
 /* "All meetups": back from a meetup to the list, at the top left of the panel. */
 .home__back { position: absolute; top: var(--spacing-xxs); left: var(--gutter); display: inline-flex; align-items: center; gap: var(--spacing-xs); min-height: var(--tap-min); padding: 0 var(--spacing-sm); border: 0; border-radius: var(--rounded-full); background: transparent; color: var(--ink); font: var(--text-button-sm); cursor: pointer; }
 @media (hover: hover) { .home__back:hover { background: var(--surface-soft); } }
@@ -906,8 +907,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
   .hero, .hero__world, .home__body, .drawer-enter-active, .drawer-leave-active { transition: none; }
 }
 /* The way to every meetup: a secondary button under the list, full width on phones and its own width from 744px. */
-.home__see-all { align-self: stretch; }
-@media (min-width: 744px) { .home__see-all { align-self: flex-start; } }
+
 .home__headtext { min-width: 0; }
 
 /* A place card is a link to its detail view. */
