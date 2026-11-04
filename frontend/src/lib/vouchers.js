@@ -50,3 +50,15 @@ export function voucherGroups(redemptions = [], now = new Date()) {
   groups.expired.sort((a, b) => String(validUntilOf(b)).localeCompare(String(validUntilOf(a))))
   return groups
 }
+
+// The lines of a voucher's details. The offers are samples, so the last line says so.
+// How to call: voucherTerms({ offer: 'One free coffee', cafe: 'Sample Coffee Bar' }) -> ['One free coffee at Sample Coffee Bar.', ...]
+export function voucherTerms(reward) {
+  return [
+    `${reward?.offer} at ${reward?.cafe}.`,
+    'Show the code at the counter when you order.',
+    `Valid for ${VOUCHER_VALID_DAYS} days after you claim it.`,
+    'One use only. Mark it as used once the café has taken the code.',
+    'A demo voucher: no café has agreed to this offer.',
+  ]
+}

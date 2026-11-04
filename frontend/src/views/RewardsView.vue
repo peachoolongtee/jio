@@ -1,33 +1,38 @@
 <script setup>
 // Rewards: spend JioCoins on sample café vouchers.
 //   - The balance sits at the top right; the + beside it opens a small popover on how JioCoins are earned.
+//   - Tabs at the top switch between "Café vouchers" and "Your vouchers" (with how many codes are ready to use). Each list sits in a white
+//     panel, with every voucher a card nested in it (Faith, 4 November 2026).
 //   - Café vouchers, filtered by category and, with "Can claim", to the ones the balance covers that hold no code to use. Each card has
-//     its price at the bottom, beside its action (Faith, 4 November 2026):
+//     its price at the bottom, beside its action:
 //       Not claimed   "Claim", or "Claim again" when the last code was used or ran out. A Claim that the balance does not cover is greyed,
 //                     with the JioCoins that are missing under the price.
 //       Holding a code "Claimed", until that code is used or runs out.
 //     Claiming asks first, then shows the code and lowers the balance. Every button on the page is the same round pill.
-//   - Your vouchers, at the bottom: every code claimed, and the only place a code is listed. Codes to use come first, with their last day, the
-//     code to copy and "Mark as used", which asks first; used and expired ones follow, greyed, with the code struck through. Each code is
-//     valid for a while after it is claimed (lib/vouchers.js). After a code is marked, focus goes to the heading (the button that opened
-//     the dialog is gone) and a polite live region says "Marked as used".
+//   - Your vouchers: every code claimed, as rows that show no code. Codes to use come first with "Use now"; used and expired ones follow,
+//     greyed. Each code is valid for a while after it is claimed (lib/vouchers.js).
+//   - Pressing any voucher opens its details in a sheet: what it costs, its dates, the code if you hold one, and the terms. The sheet's
+//     button claims it or marks it as used, each of which asks first. After a code is marked, focus goes to the list's heading (the button
+//     that opened the dialog is gone) and a polite live region says "Marked as used".
 import { coins } from '@/lib/currency.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
+import BottomSheet from '@/components/ui/BottomSheet.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
 import CoinBadge from '@/components/ui/CoinBadge.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import GridPulse from '@/components/ui/GridPulse.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import ModalDialog from '@/components/ui/ModalDialog.vue'
+import SegmentTabs from '@/components/ui/SegmentTabs.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import { useGroupsStore } from '@/stores/groups.js'
 import { POINTS_PER_MEETUP } from '@/lib/mock/people.js'
 import { REWARD_CATEGORIES } from '@/lib/mock/rewards.js'
 import { vRadioGroup } from '@/lib/radioGroup.js'
 import { useNow } from '@/lib/useNow.js'
-import { dayLabel, validUntilOf, voucherGroups, voucherState } from '@/lib/vouchers.js'
+import { VOUCHER_VALID_DAYS, dayLabel, validUntilOf, voucherGroups, voucherState, voucherTerms } from '@/lib/vouchers.js'
 import CopyCode from '@/components/ui/CopyCode.vue'
 
 const groups = useGroupsStore()
@@ -77,19 +82,54 @@ const isShort = (reward) => reward.cost > points.value && !holdsCode(reward)
 // The claimed codes, usable first, then used, then expired, on a clock that moves so a code greys out once its last day passes.
 const now = useNow()
 const mine = computed(() => voucherGroups(groups.redemptions, now.value))
-// Your vouchers as one list, codes to use first, with the line each row shows. How to call: myVouchers.value -> [{ id, state, line, ... }]
+// Your vouchers as one list, codes to use first, with the date each row shows. How to call: myVouchers.value -> [{ id, state, dateLabel, day, line, ... }]
+const dated = (r, state, dateLabel, day) => ({ ...r, state, dateLabel, day, line: `${dateLabel} ${day}` })
 const myVouchers = computed(() => [
-  ...mine.value.usable.map((r) => ({ ...r, state: 'usable', line: validUntilOf(r) ? `Use by ${dayLabel(validUntilOf(r))}` : 'Ready to use' })),
-  ...mine.value.used.map((r) => ({ ...r, state: 'used', line: `Used on ${dayLabel(r.usedAt)}` })),
-  ...mine.value.expired.map((r) => ({ ...r, state: 'expired', line: `Expired on ${dayLabel(validUntilOf(r))}` })),
+  ...mine.value.usable.map((r) => (validUntilOf(r) ? dated(r, 'usable', 'Use by', dayLabel(validUntilOf(r))) : { ...r, state: 'usable', dateLabel: 'Status', day: 'Ready to use', line: 'Ready to use' })),
+  ...mine.value.used.map((r) => dated(r, 'used', 'Used on', dayLabel(r.usedAt))),
+  ...mine.value.expired.map((r) => dated(r, 'expired', 'Expired on', dayLabel(validUntilOf(r)))),
 ])
+// The tab showing: the vouchers to claim, or the ones you claimed.
+const tab = ref('shop')
+const tabs = computed(() => {
+  const ready = mine.value.usable.length
+  return [{ id: 'shop', label: 'Café vouchers' }, { id: 'mine', label: ready ? `Your vouchers (${ready})` : 'Your vouchers' }]
+})
+
+// The voucher whose details are open: { reward, voucher }, where voucher is the claim shown, if any.
+const detail = ref(null)
+const detailOpen = computed({ get: () => !!detail.value, set: (open) => { if (!open) detail.value = null } })
+const detailState = computed(() => detail.value?.voucher?.state || 'new')
+// Details from a card: the code still to use, if the voucher holds one. How to call: openCard(reward)
+function openCard(reward) {
+  detail.value = { reward, voucher: myVouchers.value.find((r) => r.rewardId === reward.id && r.state === 'usable') || null }
+}
+// Details from a row of Your vouchers. How to call: openMine(voucher)
+function openMine(voucher) {
+  detail.value = { reward: voucher.reward, voucher }
+}
+// The sheet closes first, so focus is back on the page before the dialog that asks takes it. How to call: await claimFromDetail()
+async function claimFromDetail() {
+  const { reward } = detail.value
+  detail.value = null
+  await nextTick()
+  error.value = ''
+  confirming.value = reward
+}
+// How to call: await useFromDetail()
+async function useFromDetail() {
+  const { voucher } = detail.value
+  detail.value = null
+  await nextTick()
+  askUse(voucher)
+}
 // The code being marked as used, while "Mark as used?" asks.
 const using = ref(null)
 const useBusy = ref(false)
 const useError = ref('')
-// The words for a screen reader after a code is marked, and the "Your vouchers" heading that takes focus then.
+// The words for a screen reader after a code is marked, and the heading of the list showing, which takes focus then.
 const announcement = ref('')
-const mineHead = ref(null)
+const listHead = ref(null)
 
 // Asks before a code is marked as used. How to call: askUse(redemption)
 function askUse(redemption) {
@@ -98,7 +138,7 @@ function askUse(redemption) {
 }
 
 // Marks the code in the dialog as used, then closes it; a refusal (it expired meanwhile, say) stays in the dialog. The button that
-// opened the dialog leaves the page with the code, so focus goes to the "Your vouchers" heading once the page has redrawn, and the live
+// opened the dialog leaves the page with the code, so focus goes to the list's heading once the page has redrawn, and the live
 // region says what happened (cleared first, so a second code is announced too).
 // How to call: await markUsed()
 async function markUsed() {
@@ -109,7 +149,7 @@ async function markUsed() {
     using.value = null
     announcement.value = ''
     await nextTick()
-    mineHead.value?.focus()
+    listHead.value?.focus()
     announcement.value = 'Marked as used'
   } catch (e) {
     useError.value = e.message
@@ -130,11 +170,11 @@ async function redeem() {
 }
 
 // Closes the dialog that shows a new code. The Claim button that opened it is gone (the card now says "Claimed"), so focus goes to the
-// heading of the list the code is in, without moving the page. How to call: closeRedeemed()
+// list's heading, without moving the page. How to call: closeRedeemed()
 async function closeRedeemed() {
   redeemed.value = null
   await nextTick()
-  mineHead.value?.focus({ preventScroll: true })
+  listHead.value?.focus({ preventScroll: true })
 }
 </script>
 
@@ -168,10 +208,9 @@ async function closeRedeemed() {
     </header>
 
     <div class="screen__body">
-      <section class="section" aria-labelledby="vouchers-head">
-        <div class="section__head">
-          <h2 id="vouchers-head" class="display-sm">Café vouchers</h2>
-        </div>
+      <SegmentTabs v-model="tab" label="Which vouchers" :tabs="tabs" />
+      <section v-if="tab === 'shop'" class="section rewards__panel" aria-labelledby="vouchers-head">
+        <h2 id="vouchers-head" ref="listHead" class="sr-only" tabindex="-1">Café vouchers</h2>
         <div v-if="groups.rewards.length" class="filters">
           <div class="scroll-x" role="radiogroup" v-radio-group aria-label="Voucher category">
             <ChipButton radio :selected="category === 'all'" @click="category = 'all'">All</ChipButton>
@@ -187,7 +226,7 @@ async function closeRedeemed() {
         <ul v-else class="grid-3">
           <li v-for="(reward, i) in shownRewards" :key="reward.id" class="voucher rise" :class="{ 'is-short': isShort(reward) }" :style="{ '--i': i }" data-testid="voucher-card">
             <span class="voucher__icon"><AppIcon :name="iconFor(reward)" :size="20" /></span>
-            <h3 class="title-md">{{ reward.offer }}</h3>
+            <h3 class="title-md"><button type="button" class="voucher__open" data-testid="voucher-open" @click="openCard(reward)">{{ reward.offer }}</button></h3>
             <p class="caption-sm text-muted">{{ reward.cafe }}</p>
             <div class="voucher__foot">
               <span class="voucher__price">
@@ -195,33 +234,62 @@ async function closeRedeemed() {
                 <span v-if="isShort(reward)" :id="`short-${reward.id}`" class="caption-sm voucher__short"><CoinBadge :amount="reward.cost - points" /> short</span>
               </span>
               <span v-if="holdsCode(reward)" class="state-pill" data-testid="voucher-held">Claimed</span>
-              <AppButton v-else-if="!isShort(reward)" variant="pill" class="rewards__pill" @click="confirming = reward">{{ claimWord(reward) }}</AppButton>
-              <AppButton v-else variant="secondary" small disabled :aria-describedby="`short-${reward.id}`">{{ claimWord(reward) }}</AppButton>
+              <AppButton v-else-if="!isShort(reward)" variant="pill" class="rewards__pill voucher__action" @click="confirming = reward">{{ claimWord(reward) }}</AppButton>
+              <AppButton v-else variant="secondary" class="voucher__action" small disabled :aria-describedby="`short-${reward.id}`">{{ claimWord(reward) }}</AppButton>
             </div>
           </li>
         </ul>
       </section>
 
-      <p class="sr-only" role="status" data-testid="voucher-status">{{ announcement }}</p>
-      <!-- Every code claimed, codes to use first; a code is listed here and nowhere else. -->
-      <section v-if="myVouchers.length" class="section" aria-labelledby="mine-head">
-        <h2 id="mine-head" ref="mineHead" class="display-sm mine__head" tabindex="-1">Your vouchers</h2>
-        <ul class="mine" data-testid="my-vouchers">
-          <li v-for="r in myVouchers" :key="r.id" class="mine__row" :class="{ 'is-done': r.state !== 'usable' }" :data-testid="`voucher-${r.state}`">
-            <span class="voucher__icon"><AppIcon :name="iconFor(r.reward)" :size="20" /></span>
-            <div class="mine__main">
-              <h3 class="title-sm">{{ r.reward?.offer }}</h3>
-              <p class="caption-sm mine__muted">{{ r.reward?.cafe }}</p>
-              <p class="caption-sm mine__muted">{{ r.line }}</p>
-              <CopyCode v-if="r.state === 'usable'" :code="r.code" :label="r.reward?.offer" />
-              <code v-else class="code">{{ r.code }}</code>
-            </div>
-            <AppButton v-if="r.state === 'usable'" variant="secondary" small data-testid="mark-used" @click="askUse(r)">Mark as used</AppButton>
-            <span v-else class="state-pill">{{ r.state === 'used' ? 'Used' : 'Expired' }}</span>
+      <!-- Every code claimed, codes to use first. A row shows no code: pressing it opens the details. -->
+      <section v-else class="section rewards__panel" aria-labelledby="mine-head">
+        <h2 id="mine-head" ref="listHead" class="sr-only" tabindex="-1">Your vouchers</h2>
+        <EmptyState v-if="!myVouchers.length" title="No vouchers yet" text="Vouchers you claim show up here." />
+        <ul v-else class="grid-3" data-testid="my-vouchers">
+          <li v-for="r in myVouchers" :key="r.id">
+            <button type="button" class="my-voucher" :class="{ 'is-done': r.state !== 'usable' }" :data-testid="`voucher-${r.state}`" @click="openMine(r)">
+              <span class="voucher__icon"><AppIcon :name="iconFor(r.reward)" :size="20" /></span>
+              <span class="my-voucher__text">
+                <span class="title-sm">{{ r.reward?.offer }}</span>
+                <span class="caption-sm voucher__muted">{{ r.reward?.cafe }}</span>
+                <span class="caption-sm voucher__muted">{{ r.line }}</span>
+              </span>
+              <span class="state-pill" :class="{ 'state-pill--go': r.state === 'usable' }">{{ r.state === 'usable' ? 'Use now' : r.state === 'used' ? 'Used' : 'Expired' }}</span>
+            </button>
           </li>
         </ul>
       </section>
+      <p class="sr-only" role="status" data-testid="voucher-status">{{ announcement }}</p>
     </div>
+
+    <!-- A voucher's details. -->
+    <BottomSheet v-model:open="detailOpen" :title="detail?.reward?.offer || ''">
+      <div v-if="detail" class="detail" data-testid="voucher-detail">
+        <p class="detail__place">
+          <span class="voucher__icon"><AppIcon :name="iconFor(detail.reward)" :size="20" /></span>
+          <span class="body-md">{{ detail.reward?.cafe }}</span>
+        </p>
+        <dl class="detail__facts">
+          <div><dt class="caption-sm voucher__muted">JioCoins</dt><dd class="title-sm"><CoinBadge :amount="detail.reward?.cost" /></dd></div>
+          <div v-if="detail.voucher"><dt class="caption-sm voucher__muted">{{ detail.voucher.dateLabel }}</dt><dd class="title-sm">{{ detail.voucher.day }}</dd></div>
+          <div v-else><dt class="caption-sm voucher__muted">Valid for</dt><dd class="title-sm">{{ VOUCHER_VALID_DAYS }} days after claiming</dd></div>
+        </dl>
+        <CopyCode v-if="detailState === 'usable'" :code="detail.voucher.code" :label="detail.reward?.offer" />
+        <code v-else-if="detail.voucher" class="code code--done">{{ detail.voucher.code }}</code>
+        <div class="stack gap-sm">
+          <h3 class="title-sm">Details</h3>
+          <ul class="detail__terms body-sm"><li v-for="line in voucherTerms(detail.reward)" :key="line">{{ line }}</li></ul>
+        </div>
+        <p v-if="detailState === 'new' && isShort(detail.reward)" class="caption voucher__short"><CoinBadge :amount="detail.reward.cost - points" /> short</p>
+      </div>
+      <template v-if="detail && detailState === 'usable'" #footer>
+        <AppButton variant="pill" class="rewards__pill" block data-testid="mark-used" @click="useFromDetail">Mark as used</AppButton>
+      </template>
+      <template v-else-if="detail && detailState === 'new'" #footer>
+        <AppButton v-if="isShort(detail.reward)" variant="secondary" small block disabled>{{ claimWord(detail.reward) }}</AppButton>
+        <AppButton v-else variant="pill" class="rewards__pill" block data-testid="detail-claim" @click="claimFromDetail">{{ claimWord(detail.reward) }}</AppButton>
+      </template>
+    </BottomSheet>
 
     <ModalDialog :open="!!confirming" :title="confirming ? `Claim for ${coins(confirming.cost)}?` : ''" @update:open="(v) => !v && (confirming = null)">
       <template #content>
@@ -275,14 +343,24 @@ async function closeRedeemed() {
 .pop-leave-active { transition: opacity 120ms var(--ease-out), transform 120ms var(--ease-out); }
 .pop-enter-from, .pop-leave-to { opacity: 0; transform: scale(0.92) translateY(-4px); }
 @media (prefers-reduced-motion: reduce) { .pop-enter-active, .pop-leave-active { transition: none; } }
+/* A white panel holds each list, with every voucher a card nested in it (Faith, 4 November 2026). */
+.rewards__panel { padding: var(--spacing-lg); border: 1px solid var(--hairline); border-radius: var(--rounded-lg); background: var(--canvas); }
+@media (max-width: 743.98px) { .rewards__panel { padding: var(--spacing-base) var(--spacing-md); } }
 .filters { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-xs) var(--spacing-md); margin-bottom: var(--spacing-base); }
-.filters .scroll-x { min-width: 0; flex: 1 1 auto; }
+.filters .scroll-x { min-width: 0; flex: 1 1 auto; margin-right: 0; padding-right: 0; }
 .earn { display: flex; flex-direction: column; gap: var(--spacing-sm); margin: 0; padding: 0; list-style: none; }
 .earn li { display: flex; align-items: center; gap: var(--spacing-sm); }
 .earn__icon { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--ink); }
 
-.voucher { display: flex; flex-direction: column; gap: var(--spacing-sm); height: 100%; padding: var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
+.voucher { position: relative; display: flex; flex-direction: column; gap: var(--spacing-sm); height: 100%; padding: var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
 .voucher__icon { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--rounded-full); background: var(--cat-drink-bg); color: var(--cat-drink-fg); }
+/* The offer's name opens the details, and its press area covers the card. The action sits above that area. */
+.voucher__open { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.voucher__open::after { content: ''; position: absolute; inset: 0; border-radius: var(--rounded-md); }
+.voucher__open:focus-visible { outline: none; }
+.voucher__open:focus-visible::after { outline: 2px solid var(--ink); outline-offset: 2px; }
+.voucher__action { position: relative; z-index: 1; }
+@media (hover: hover) { .voucher:hover, .my-voucher:hover { border-color: var(--border-strong); } }
 /* The price and the action share the bottom of the card, so cards of different heights still line up. */
 .voucher__foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-sm) var(--spacing-md); margin-top: auto; padding-top: var(--spacing-sm); }
 .voucher__price { display: flex; flex-direction: column; gap: var(--spacing-xxs); min-width: 0; }
@@ -293,18 +371,25 @@ async function closeRedeemed() {
 .rewards__pill { font-weight: 600; }
 /* A state, not a button: the shape of the buttons around it, in grey. Muted on this grey is over 4.5:1, so it stays readable. */
 .state-pill { flex: none; display: inline-flex; align-items: center; height: var(--tap-min); padding: 0 20px; border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--muted); font: var(--text-button-sm); font-weight: 600; }
-/* Your vouchers: one card a code, as many across as fit. */
-.mine { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: var(--spacing-md); margin: 0; padding: 0; list-style: none; }
-.mine__head:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: var(--rounded-xs); }
-.mine__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-sm) var(--spacing-md); padding: var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
-.mine__row > :last-child { margin-left: auto; }
-.mine__main { flex: 1 1 140px; display: flex; flex-direction: column; align-items: flex-start; gap: var(--spacing-xxs); min-width: 0; }
-.mine__muted { color: var(--muted); }
-.mine__main .code, .mine__main .copy-code { margin-top: var(--spacing-xs); }
-/* Used and expired codes: greyed, still readable (muted is 5.4:1 on white), the code struck through so it is not read out at a till. */
-.mine__row.is-done { background: var(--surface-soft); color: var(--muted); }
-.mine__row.is-done .voucher__icon { background: var(--surface-strong); color: var(--muted); }
-.mine__row.is-done .code { color: var(--muted); text-decoration: line-through; }
+/* "Use now" on a row: the row is the button, so this is a label in the voucher's own tint (6.1:1). */
+.state-pill--go { background: var(--status-voting-bg); color: var(--status-voting-fg); }
+.voucher__muted { color: var(--muted); }
+/* A row of Your vouchers: one button, with the icon, the words and the state across it. */
+.my-voucher { display: flex; align-items: center; gap: var(--spacing-md); width: 100%; height: 100%; padding: var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.my-voucher:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.my-voucher__text { flex: 1 1 auto; display: flex; flex-direction: column; gap: var(--spacing-xxs); min-width: 0; }
+/* Used and expired: greyed, still readable (muted is 5.4:1 on white). */
+.my-voucher.is-done { color: var(--muted); }
+.my-voucher.is-done .voucher__icon { background: var(--surface-strong); color: var(--muted); }
+/* A voucher's details. */
+.detail { display: flex; flex-direction: column; align-items: stretch; gap: var(--spacing-base); }
+.detail__place { display: flex; align-items: center; gap: var(--spacing-md); margin: 0; }
+.detail__facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-md); margin: 0; padding: var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); }
+.detail__facts dd { margin: var(--spacing-xxs) 0 0; }
+.detail__facts > div + div { padding-left: var(--spacing-md); border-left: 1px solid var(--hairline); }
+.detail__terms { display: flex; flex-direction: column; gap: var(--spacing-xs); margin: 0; padding-left: var(--spacing-lg); color: var(--body); list-style: disc; }
+/* A used or expired code: struck through so it is not read out at a till. */
+.code--done { align-self: flex-start; color: var(--muted); text-decoration: line-through; }
 .code { padding: var(--spacing-xs) var(--spacing-sm); border-radius: var(--rounded-xs); background: var(--surface-strong); font: var(--text-caption); letter-spacing: 1px; }
 .code--big { align-self: flex-start; padding: var(--spacing-sm) var(--spacing-base); font: var(--text-display-sm); }
 </style>
