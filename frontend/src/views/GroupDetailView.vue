@@ -414,38 +414,6 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
       </section>
 
       <template v-else>
-        <!-- Ian's own start and end, like a ride's pickup and drop-off: two rows joined by a dotted line. Each whole
-             row is the button for its own place, so it is clear which one you are changing. Only he sees the exact place. -->
-        <div class="route" role="group" aria-label="Your locations">
-          <component
-            :is="locked ? 'div' : 'button'"
-            :type="locked ? undefined : 'button'"
-            class="route__row"
-            :class="{ 'is-empty': !myLoc.start }"
-            @click="!locked && openSheet('start')"
-          >
-            <span class="route__mark route__mark--from" aria-hidden="true" />
-            <span class="route__text">
-              <span class="caption-sm text-muted">Starting from</span>
-              <span class="route__value truncate">{{ myLoc.start?.label || 'Add where you are starting' }}</span>
-            </span>
-            <AppIcon v-if="!locked" class="route__go" :name="myLoc.start ? 'chevron-right' : 'plus'" :size="18" />
-          </component>
-          <component
-            :is="locked ? 'div' : 'button'"
-            :type="locked ? undefined : 'button'"
-            class="route__row"
-            @click="!locked && openSheet('end')"
-          >
-            <span class="route__mark route__mark--to" aria-hidden="true" />
-            <span class="route__text">
-              <span class="caption-sm text-muted">Heading to after</span>
-              <span class="route__value truncate">{{ myLoc.end ? myLoc.end.label : 'Back to where you started' }}</span>
-            </span>
-            <AppIcon v-if="!locked" class="route__go" name="chevron-right" :size="18" />
-          </component>
-        </div>
-
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
         <BannerNote v-if="note" icon="info" dismissible @dismiss="note = ''">{{ note }}</BannerNote>
 
@@ -495,7 +463,40 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
               <template #actions><AppButton small variant="secondary" :disabled="busy" @click="rememberRejoin($event); rejoin()">Rejoin</AppButton></template>
             </BannerNote>
 
-            <section class="section card people-card" aria-label="People">
+            <section class="section card people-card" :class="{ 'is-tall': !spotList.length && !settled }" aria-label="People">
+            <!-- Ian's own start and end, like a ride's pickup and drop-off: two rows joined by a dotted line. Each whole
+                 row is the button for its own place, so it is clear which one you are changing. Only he sees the exact place.
+                 At the top of the People card, over everyone's progress, so the column is one card beside the map (Darius,
+                 4 November 2026). -->
+            <div class="route" role="group" aria-label="Your locations">
+              <component
+                :is="locked ? 'div' : 'button'"
+                :type="locked ? undefined : 'button'"
+                class="route__row"
+                :class="{ 'is-empty': !myLoc.start }"
+                @click="!locked && openSheet('start')"
+              >
+                <span class="route__mark route__mark--from" aria-hidden="true" />
+                <span class="route__text">
+                  <span class="caption-sm text-muted">Starting from</span>
+                  <span class="route__value truncate">{{ myLoc.start?.label || 'Add where you are starting' }}</span>
+                </span>
+                <AppIcon v-if="!locked" class="route__go" :name="myLoc.start ? 'chevron-right' : 'plus'" :size="18" />
+              </component>
+              <component
+                :is="locked ? 'div' : 'button'"
+                :type="locked ? undefined : 'button'"
+                class="route__row"
+                @click="!locked && openSheet('end')"
+              >
+                <span class="route__mark route__mark--to" aria-hidden="true" />
+                <span class="route__text">
+                  <span class="caption-sm text-muted">Heading to after</span>
+                  <span class="route__value truncate">{{ myLoc.end ? myLoc.end.label : 'Back to where you started' }}</span>
+                </span>
+                <AppIcon v-if="!locked" class="route__go" name="chevron-right" :size="18" />
+              </component>
+            </div>
               <!-- Once the spot is confirmed this card is about the trips: no votes ring, no status icons. -->
               <ProgressDonut v-if="progress && !settled" compact :title="progress.title" :people="progress.people" :done-label="progress.label" />
               <MemberList :session="peopleSession" :names="nameOf" :my-id="myId" :voters="voterIds" :statuses="!settled">
@@ -593,6 +594,12 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
 /* The people under the spots: the same light grey card as the spots, so the two read as one set (walkthrough, 1 November 2026). */
 /* White with a bold ink border, not a grey fill (Darius, 4 November 2026). */
 .people-card { border: 2px solid var(--ink); background: var(--canvas); }
+/* Inside the People card the route is not a card of its own: no border, a hairline under it, then the progress and the people. */
+.people-card .route { max-width: none; padding: 0 0 var(--spacing-sm); border: 0; border-bottom: 1px solid var(--hairline); border-radius: 0; background: none; }
+.people-card .route::before { left: calc(var(--spacing-base) + 5px); margin-top: calc(-15px - var(--spacing-sm) / 2); }
+/* Desktop, where the map stands beside it and grows to the list's height: when the card is the whole column (no spots yet), a taller
+   card, so both are taller. With spots above it the list is tall already. */
+@media (min-width: 1128px) { .people-card.is-tall { min-height: min(640px, calc(100dvh - 260px)); } }
 /* Inviting: a card like the invite page's. A header with a ring of who has joined out of everyone invited, and
    Invite; then who is in, each with a Host, Joined or Invited tag. */
 .lobby { gap: var(--spacing-lg); }
