@@ -6,7 +6,7 @@
 //     (BorderTrail). The switch moved into the card from above it, and "Café vouchers" became "Vouchers" (Darius, 4 November 2026).
 //   - Vouchers, filtered by category and, with "Can claim", to the ones the balance covers that hold no code to use. Each card has
 //     its price at the bottom, beside its action:
-//       Not claimed   "Claim", or "Claim again" when the last code was used or ran out. A Claim that the balance does not cover is greyed,
+//       Not claimed   "Claim", also once the last code was used or ran out. A Claim that the balance does not cover is greyed,
 //                     with the JioCoins that are missing under the price.
 //       Holding a code "Claimed", until that code is used or runs out.
 //     Claiming asks first, then shows the code and lowers the balance. Every button on the page is the same round pill.
@@ -74,9 +74,9 @@ const shownRewards = computed(() =>
 const iconFor = (reward) => REWARD_CATEGORIES.find((c) => c.id === reward?.category)?.icon || 'drink'
 // Whether a voucher holds a code still to use. How to call: holdsCode(reward) -> true
 const holdsCode = (reward) => groups.redemptions.some((r) => r.rewardId === reward.id && voucherState(r, now.value) === 'usable')
-// Whether a voucher has been claimed before, so its button says "Claim again". How to call: claimedBefore(reward) -> false
-const claimedBefore = (reward) => groups.redemptions.some((r) => r.rewardId === reward.id)
-const claimWord = (reward) => (claimedBefore(reward) ? 'Claim again' : 'Claim')
+// The claim button's word: always "Claim". Once a code is used or runs out the voucher is simply claimable again, with no "Claim again"
+// (Darius, 4 November 2026). How to call: claimWord(reward) -> 'Claim'
+const claimWord = () => 'Claim'
 // A voucher the balance does not cover, and that holds no code. How to call: isShort(reward) -> true
 const isShort = (reward) => reward.cost > points.value && !holdsCode(reward)
 
