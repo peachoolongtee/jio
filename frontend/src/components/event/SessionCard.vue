@@ -5,7 +5,7 @@
 //   <SessionCard :session="session" :names="nameOf" hero />   the large card at the top of Home,
 //                                                             photo-first when the day has photos
 // Both are flat white cards with a hairline, like Airbnb's reservation card; they lift on hover.
-// A sample past outing (`session.sample`, the demo's history on its own profile) is the same card, marked "Sample history", and opens
+// A sample past outing (`session.sample`, the demo's history on its own profile and a friend's) is the same card, marked "Sample history", and opens
 // nothing: there is no session behind it.
 import { computed, watch } from 'vue'
 import { RouterLink } from 'vue-router'

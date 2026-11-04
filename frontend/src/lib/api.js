@@ -60,10 +60,10 @@ const STORAGE_FULL = "Could not save: this browser's storage is full. Remove som
 // the sample list (a real account's own id). How to call: seeded(STARTING_MEETUPS, HOST_ID, false) -> 0
 const seeded = (table, id, demo) => (id === HOST_ID && !demo ? 0 : table[id] ?? 0)
 
-// The demo account's past outings, one for each meetup of its sample history (historyOf), so every bar on its own profile graph has a
-// card under it (Faith, 31 October 2026: the bars were made up and listed nothing). They are cards only, marked `sample`: there is no
-// session behind them to open, and nothing is stored. Title, area, time and friends are picked from the person and the day, so they are
-// the same each time. A local or real account has no sample history, so it has none.
+// A person's sample past outings, one for each meetup of their sample history (historyOf), so every bar on a profile graph has a card
+// under it (Faith, 31 October 2026: the bars were made up and listed nothing). They are cards only, marked `sample`: there is no session
+// behind them to open, and nothing is stored. Title, area, time and friends are picked from the person and the day, so they are the same
+// each time. getPerson gives them for the demo account's own profile and for a friend's, in the sample world (Faith, 4 November 2026).
 // How to call: samplePastSessions('ian') -> [{ id: 'past-2026-09-26-0', title: 'Kopi catch-up', date: '2026-09-26', status: 'completed', sample: true, ... }]
 const PAST_TITLES = ['Kopi catch-up', 'Hawker lunch', 'Movie night', 'Board games and dinner', 'Bubble tea run', 'Weekend brunch', 'Night market walk', 'Dinner catch-up']
 const PAST_AREAS = ['bugis', 'city-hall', 'orchard', 'tampines', 'bishan', 'jurong-east', 'paya-lebar', 'punggol', 'toa-payoh', 'serangoon']
@@ -81,8 +81,9 @@ function samplePastSessions(id) {
     const seed = `${id}:${date}:${n}`
     const area = areaById(pick(PAST_AREAS, `${seed}:area`))
     const [start, end] = pick(PAST_TIMES, `${seed}:time`)
-    const first = pick(PAST_FRIENDS, `${seed}:a`)
-    const second = pick(PAST_FRIENDS.filter((f) => f !== first), `${seed}:b`)
+    const others = PAST_FRIENDS.filter((f) => f !== id)
+    const first = pick(others, `${seed}:a`)
+    const second = pick(others.filter((f) => f !== first), `${seed}:b`)
     const friends = pick([1, 2], `${seed}:n`) === 1 ? [first] : [first, second]
     return {
       id: `past-${date}-${n}`, title: pick(PAST_TITLES, `${seed}:title`), date, start, end, status: 'completed', sample: true,
@@ -2084,8 +2085,10 @@ export async function getPerson(id) {
   const { ids: friendIds, common } = friendsOf(id)
   await people.load(friendIds.filter((x) => !people.get(x)))
   const friends = friendIds.map(publicPerson).sort((a, b) => a.name.localeCompare(b.name))
-  // The demo account's own profile lists its sample past outings as cards.
-  const pastSamples = id === me() && db.user?.demo ? samplePastSessions(id) : []
+  // Sample past outings as cards: on the demo account's own profile, and on a friend's. A stranger's are never sent, and a real account
+  // has none: it reads only the sessions it is in.
+  const seesSamples = !isReal() && (id === me() ? db.user?.demo : db.friends.includes(id))
+  const pastSamples = seesSamples ? samplePastSessions(id) : []
   return { ...publicPerson(id), sessions, activity, history, planned, friends, friendsInCommon: common, pastSamples }
 }
 

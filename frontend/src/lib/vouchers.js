@@ -51,18 +51,14 @@ export function voucherGroups(redemptions = [], now = new Date()) {
   return groups
 }
 
-// How many times each voucher in the list has been claimed, by its reward id, so a card can say whether it was claimed. A voucher
-// can be claimed again (each claim is a new code), so the count can be more than one.
-// How to call: claimCounts([{ rewardId: 'r-nylon' }, { rewardId: 'r-nylon' }]) -> { 'r-nylon': 2 }
-export function claimCounts(redemptions = []) {
-  const counts = {}
-  for (const r of redemptions) if (r?.rewardId) counts[r.rewardId] = (counts[r.rewardId] || 0) + 1
-  return counts
-}
-
-// The words on a voucher card for how many times it was claimed.
-// How to call: claimLabel(0) -> 'Not claimed'; claimLabel(1) -> 'Claimed'; claimLabel(3) -> 'Claimed 3 times'
-export function claimLabel(count) {
-  if (!(count > 0)) return 'Not claimed'
-  return count === 1 ? 'Claimed' : `Claimed ${count} times`
+// The lines of a voucher's details. The offers are samples, so the last line says so.
+// How to call: voucherTerms({ offer: 'One free coffee', cafe: 'Sample Coffee Bar' }) -> ['One free coffee at Sample Coffee Bar.', ...]
+export function voucherTerms(reward) {
+  return [
+    `${reward?.offer} at ${reward?.cafe}.`,
+    'Show the code at the counter when you order.',
+    `Valid for ${VOUCHER_VALID_DAYS} days after you claim it.`,
+    'One use only. Mark it as used once the café has taken the code.',
+    'A demo voucher: no café has agreed to this offer.',
+  ]
 }
