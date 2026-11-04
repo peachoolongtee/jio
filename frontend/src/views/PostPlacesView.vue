@@ -262,6 +262,8 @@ async function read() {
 </template>
 
 <style scoped>
+/* The same width as Saved places, so the two pages line up. */
+.posts { --wide-form-max-width: 1040px; }
 .posts__form {
   display: flex;
   flex-direction: column;

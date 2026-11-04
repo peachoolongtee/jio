@@ -86,7 +86,7 @@ async function remove() {
           <ChipButton radio :selected="!filter" data-testid="saved-filter" @click="chosen = ''">All</ChipButton>
           <ChipButton v-for="c in categories" :key="c" radio :selected="filter === c" data-testid="saved-filter" @click="chosen = c">{{ CATEGORY_LABELS[c] }}</ChipButton>
         </div>
-        <ul class="grid-3 saved__list" data-testid="saved-list">
+        <ul class="saved__list" data-testid="saved-list">
         <li v-for="place in shown" :key="place.id" class="card saved__place" data-testid="saved-place">
           <div class="saved__head">
             <CategoryIcon :category="place.categories[0]" :size="40" />
@@ -127,14 +127,19 @@ async function remove() {
 .saved__panel { padding: var(--spacing-lg); border: 1px solid var(--hairline); border-radius: var(--rounded-lg); background: var(--canvas); }
 @media (max-width: 743.98px) { .saved__panel { padding: var(--spacing-base) var(--spacing-md); } }
 .saved__filters { margin-right: 0; padding-right: 0; margin-bottom: var(--spacing-xs); }
-/* Each card is as tall as its own words, so no card has a gap inside it to match a taller neighbour. */
-.saved__list { align-items: start; }
-.saved__place { gap: var(--spacing-sm); padding: var(--spacing-base); }
+/* Wider than the usual form, so three cards a row have room, and the same width as "Places from a post", so the two pages line up. */
+.saved { --wide-form-max-width: 1040px; }
+/* One card a row on a phone, two on a tablet, three from a desktop. Cards in a row are the same height, with the button and link held at the bottom of each. */
+.saved__list { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--spacing-base); margin: 0; padding: 0; list-style: none; }
+@media (min-width: 744px) { .saved__list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1128px) { .saved__list { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+/* Less under the Remove link: its tap area already leaves room below the word. */
+.saved__place { height: 100%; gap: var(--spacing-md); padding: var(--spacing-lg) var(--spacing-lg) var(--spacing-md); }
 .saved__head { display: flex; align-items: center; gap: var(--spacing-md); }
 .saved__names { flex: 1 1 auto; min-width: 0; }
-.saved__address { align-items: flex-start; }
+.saved__address { align-items: flex-start; margin-top: var(--spacing-xs); }
 .saved__address :deep(svg) { flex-shrink: 0; margin-top: 2px; }
-.saved__actions { display: flex; flex-direction: column; align-items: flex-start; gap: var(--spacing-xxs); margin-top: auto; padding-top: var(--spacing-xs); }
+.saved__actions { display: flex; flex-direction: column; align-items: flex-start; gap: var(--spacing-xxs); margin-top: auto; }
 /* A pill's round end makes it look further in than the straight text above it, so it starts a little further out. */
 .saved__maps { margin-left: -2px; }
 .saved__links { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--spacing-base); }
