@@ -349,15 +349,20 @@ onMounted(() => {
   emit('view')
   // The map can start hidden (the List / Map switch on phones). Re-measure whenever its box changes.
   let lastWidth = el.value.clientWidth
+  let lastHeight = el.value.clientHeight
   observer = new ResizeObserver(() => {
     const width = el.value?.clientWidth || 0
+    const height = el.value?.clientHeight || 0
     map.invalidateSize()
-    // Shown for the first time (it was 0 wide): fit the view again now that it has a size.
-    if (!lastWidth && width) {
+    // Shown for the first time (it was 0 wide), or its box changed size by more than a little: fit the view again, so everyone stays in
+    // sight. Confirming a meeting spot changes the list beside the map, and the map's height with it; the view fitted to the old size
+    // could leave someone outside the new one (Darius, 4 November 2026).
+    if ((!lastWidth && width) || (width && (Math.abs(width - lastWidth) > 40 || Math.abs(height - lastHeight) > 40))) {
       fittedKey = ''
       draw()
     }
     lastWidth = width
+    lastHeight = height
   })
   observer.observe(el.value)
 })
