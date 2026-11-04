@@ -126,14 +126,15 @@ function pick(event) {
 <style scoped>
 /* A flat light grey card with the default grey edge, set apart from the white page (walkthrough, 1 November 2026). Hovered, a shade
    darker. The selected spot turns white with a 2px ink outline (the padding gives back the pixel so nothing moves). */
-.spot { display: flex; flex-direction: column; gap: var(--spacing-sm); min-width: 0; padding: var(--spacing-md) var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--surface-strong); cursor: pointer; transition: border-color var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out); }
-@media (hover: hover) { .spot:not(.is-selected):hover { border-color: var(--border-strong); background: var(--hairline-soft); } }
+.spot { display: flex; flex-direction: column; gap: var(--spacing-sm); min-width: 0; padding: var(--spacing-md) var(--spacing-base); border: 1px solid var(--border-strong); border-radius: var(--rounded-md); background: var(--canvas); cursor: pointer; transition: border-color var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out); }
+/* White, not grey (Darius, 4 November 2026): a firm grey border at rest, the bold ink outline when selected. */
+@media (hover: hover) { .spot:not(.is-selected):hover { border-color: var(--ink); background: var(--surface-soft); } }
 .spot.is-selected { padding: 11px calc(var(--spacing-base) - 1px); border: 2px solid var(--ink); background: var(--canvas); }
 .spot__top { display: flex; align-items: center; gap: var(--spacing-sm); min-width: 0; }
 .spot__head { display: flex; flex: 1 1 0; align-items: center; gap: var(--spacing-md); min-width: 0; min-height: var(--tap-min); margin: 0; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
 .spot__head:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 /* The number on the row is the number on its pin. Ink when selected, so the pair differs by more than colour. */
-.spot__num { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: var(--rounded-full); background: var(--canvas); color: var(--ink); font: var(--text-badge); font-weight: 700; }
+.spot__num { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--ink); font: var(--text-badge); font-weight: 700; }
 .spot.is-selected .spot__num { background: var(--selected); color: var(--on-selected); }
 /* The name and its times on one line; on a narrow phone the times wrap under the name. */
 .spot__text { display: flex; flex: 1 1 0; flex-wrap: wrap; align-items: baseline; gap: 2px var(--spacing-sm); min-width: 0; }
