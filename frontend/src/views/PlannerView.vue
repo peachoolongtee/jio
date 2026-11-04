@@ -75,7 +75,7 @@ import NotFoundView from './NotFoundView.vue'
 import { watchSessions } from '@/lib/api.js'
 import { CATEGORIES, CATEGORY_LABELS } from '@/lib/planner/slots.js'
 import { distanceText } from '@/lib/planner/format.js'
-import { ORDER_TABS, VOTED, confirmKey, confirmView, sourceIcon, sourceText, suggestedRows, votedRows } from '@/lib/confirmOrder.js'
+import { ORDER_TABS, VOTED, confirmKey, confirmView, sourceIcon, sourceText, suggestedRows, votedRows, rowProblem as problemOf } from '@/lib/confirmOrder.js'
 import { placeImage } from '@/lib/placeImages.js'
 import { walkFromText } from '@/lib/cardText.js'
 import { usePlaceDetail } from '@/lib/usePlaceDetail.js'
@@ -752,6 +752,12 @@ const order = computed(() => {
 })
 const suggesting = computed(() => confirmOpen.value && (!order.value || order.value.loading))
 const orderView = computed(() => confirmView({ voted: votedList.value, suggestion: order.value?.answer ?? null, picked: picked.value }))
+// What is wrong with a stop in the dialog, if anything: the place is closed for its time (by the venue's listed hours), or it ends after the
+// session does. A warning, not a block: the host can still confirm ("Confirm anyway") and change stops on the itinerary (Darius, 4 November
+// 2026: these showed only after confirming). How to call: rowProblem(row) -> 'Ends after 18:00' | 'Closed at this time' | ''
+const venueOfRow = (row) => winners.value.find((w) => w.option?.venue?.id === row.venueId)?.option?.venue || null
+const rowProblem = (row) => problemOf(row, venueOfRow(row), session.value?.end)
+const problemCount = computed(() => orderView.value.rows.filter((row) => rowProblem(row)).length)
 watch([confirmOpen, orderKey], ([open, key], [was, before]) => {
   if (!open) {
     staleNote.value = ''
@@ -1151,6 +1157,7 @@ async function keepDialog(e) {
             <span class="stack">
               <span class="caption-sm text-muted">{{ row.when }}</span>
               <span class="title-sm">{{ row.name }}</span>
+              <span v-if="rowProblem(row)" class="winners__warn caption-sm text-error" data-testid="confirm-warning"><AppIcon name="warning" :size="12" />{{ rowProblem(row) }}</span>
             </span>
           </li>
         </ul>
@@ -1168,7 +1175,8 @@ async function keepDialog(e) {
         <p v-if="shared" :class="staleNote ? 'caption-sm text-muted dialog-line' : 'sr-only'" role="status" data-testid="order-stale">{{ staleNote }}</p>
         <p v-if="confirmError" class="body-sm text-error dialog-line" role="alert" data-testid="confirm-error">{{ confirmError }}</p>
       </template>
-      <AppButton block :disabled="busy || !orderReady" @click="confirm">Confirm</AppButton>
+      <p v-if="problemCount" class="body-sm text-error dialog-line" data-testid="confirm-problems">{{ problemCount === 1 ? '1 stop has a problem.' : `${problemCount} stops have problems.` }} You can change stops on the itinerary after confirming.</p>
+      <AppButton block :disabled="busy || !orderReady" @click="confirm">{{ problemCount ? 'Confirm anyway' : 'Confirm' }}</AppButton>
       <AppButton block variant="secondary" @click="confirmOpen = false">Not yet</AppButton>
     </ModalDialog>
 
@@ -1243,6 +1251,7 @@ async function keepDialog(e) {
 .pin-card__photo { flex-shrink: 0; width: 56px; height: 56px; object-fit: cover; border-radius: var(--rounded-sm); }
 .pin-card__name { flex: 1 1 0; min-width: 0; }
 .winners { display: flex; flex-direction: column; gap: var(--spacing-sm); }
+.winners__warn { display: inline-flex; align-items: center; gap: var(--spacing-xxs); }
 .winners__row { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; gap: var(--spacing-md); }
 .add-results { display: flex; flex-direction: column; }
 .add-row { display: flex; align-items: center; gap: var(--spacing-md); min-height: 64px; }
