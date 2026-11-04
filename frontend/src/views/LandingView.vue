@@ -55,6 +55,7 @@ import MeetupList from '@/components/home/MeetupList.vue'
 import MeetupPins from '@/components/home/MeetupPins.vue'
 import AddFriends from '@/components/home/AddFriends.vue'
 import RainbowButton from '@/components/ui/RainbowButton.vue'
+import { usePostReader } from '@/lib/usePostReader.js'
 import * as api from '@/lib/api.js'
 import { MEETUP_RANGES, activeMeetups, needsMe, allMeetupsLabel, dayLabel, defaultRange, homeList, homeSelection, meetupsIn, pinName, pinnedMeetups, pinsFor, rangeCounts } from '@/lib/homeMeetups.js'
 import { visibleSessions } from '@/lib/sessionFilter.js'
@@ -71,6 +72,8 @@ import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
 import { usePlannerStore } from '@/stores/planner.js'
 
+// "Find places from a post" only where the server can read posts (lib/usePostReader.js).
+const offerPosts = usePostReader()
 const BUDGET = { min: 5, max: 60, step: 5 }
 const DISTANCE = { min: 1, max: 20, step: 1 }
 const PAGE = 12
@@ -600,7 +603,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
            caption: the name is the button's label and tooltip. -->
       <div class="home__tools">
         <AddFriends />
-        <RainbowButton label="Find places from a post" to="/places/from-post" icon="sparkles" data-testid="home-post-places" />
+        <RainbowButton v-if="offerPosts" label="Find places from a post" to="/places/from-post" icon="sparkles" data-testid="home-post-places" />
       </div>
       <RouterLink to="/profile" class="home__me" aria-label="Profile" title="Profile">
         <UserAvatar :name="auth.user?.name ?? ''" :src="auth.user?.photo" :person="auth.myId" :size="44" />
