@@ -209,7 +209,7 @@ async function signOut() {
           <UserAvatar class="hero__avatar" :name="person.name" :src="person.photo" :person="person.id" :size="104" labelled />
           <!-- Who they are, the four numbers and the one action, in one card whose border lights up under the pointer (Darius,
                4 November 2026). -->
-          <SpotlightCard class="hero__card" glow-color="red" custom-size>
+          <SpotlightCard class="hero__card spot-card" glow-color="red" custom-size>
           <div class="hero__grid">
             <div class="hero__who">
               <h1 class="hero__name" data-grid-avoid>{{ person.name }}<span v-if="isMe" class="hero__you caption">You</span></h1>
@@ -253,10 +253,13 @@ async function signOut() {
       </section>
 
       <div class="screen__body">
-        <section class="card graph-card rise" style="--i: 1" aria-labelledby="graph-head">
-          <h2 id="graph-head" class="sr-only">Meetup frequency</h2>
-          <MeetupGraph :history="person.history" :planned="person.planned" :selected="day" :pickable="seesSessions" @select="pickDay" />
-        </section>
+        <!-- The activity graph, in the same lit card as the header above, the same width (Darius, 4 November 2026). -->
+        <SpotlightCard class="graph-card spot-card rise" style="--i: 1" glow-color="red" custom-size>
+          <section class="graph-card__inner" aria-labelledby="graph-head">
+            <h2 id="graph-head" class="sr-only">Meetup frequency</h2>
+            <MeetupGraph :history="person.history" :planned="person.planned" :selected="day" :pickable="seesSessions" @select="pickDay" />
+          </section>
+        </SpotlightCard>
 
         <!-- The signed-in person or a friend: their sessions, once they have some. A stranger's are not listed. -->
         <section v-if="seesSessions && (!events.loaded || listed.length)" class="section" aria-labelledby="my-sessions" data-testid="profile-sessions">
@@ -365,10 +368,13 @@ async function signOut() {
 .hero__name { display: flex; align-items: center; gap: var(--spacing-sm); margin: 0; font: var(--text-display-xl); overflow-wrap: anywhere; }
 .hero__you { padding: 2px var(--spacing-sm); border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--muted); font-weight: 600; }
 .hero__side { display: flex; flex-direction: column; gap: var(--spacing-md); }
-/* The card round them: roomy inside, a little more on wide screens. The numbers' strip sits in it with no fill of its own. */
+/* The two lit cards (the header and the graph): white, with a hairline border at rest that lights up under the pointer. */
+/* A white card has nothing behind it to blur, so no backdrop blur. */
+.spot-card { --glow-backdrop: var(--canvas); --glow-border: var(--hairline); -webkit-backdrop-filter: none; backdrop-filter: none; }
+/* The header's card: roomy inside, a little more on wide screens. From 744px the header's column is indented further than the page
+   body, so the card reaches back out by that much and lines up with the graph's card under it. */
 .hero__card { padding: var(--spacing-lg); }
-@media (min-width: 744px) { .hero__card { padding: var(--spacing-lg) var(--spacing-xl); } }
-.hero__card .stats { background: transparent; }
+@media (min-width: 744px) { .hero__card { margin-right: calc(var(--spacing-lg) * -1); margin-left: calc(var(--spacing-lg) * -1); padding: var(--spacing-lg) var(--spacing-xl); } }
 
 /* Three numbers in a bordered strip, split by thin lines. */
 .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; padding: var(--spacing-md) 0; border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
@@ -397,6 +403,8 @@ async function signOut() {
 .friend-list__name { display: flex; align-items: center; gap: var(--spacing-xs); min-width: 0; }
 .friend-list__go { flex-shrink: 0; color: var(--muted); }
 
-.graph-card { overflow: hidden; padding: var(--spacing-base); }
+.graph-card { padding: var(--spacing-base); }
+/* The graph is clipped by its own box, not the card's, so the card's lit border and glow are not cut off. */
+.graph-card__inner { min-width: 0; overflow: hidden; border-radius: var(--rounded-md); }
 .profile__loading { padding-top: var(--spacing-xl); }
 </style>

@@ -4,6 +4,7 @@
 // scoped CSS, so it is written as one component with no Tailwind, TypeScript or shadcn, and no dependencies.
 //   <SpotlightCard glow-color="red" custom-size class="my-card">…</SpotlightCard>
 //   <SpotlightCard size="md">…</SpotlightCard>                     a fixed 3:4 card, 256 by 320
+// A solid card: give it --glow-backdrop (its fill) and --glow-border (its border at rest), e.g. white and the hairline.
 // glowColor: blue, purple, green, red or orange (the hue it starts from, and how far it moves across the screen). size: sm, md or lg, a
 // fixed 3:4 card, unless customSize, when the card is as big as its content (or width and height, or the class, say). The light follows
 // the pointer anywhere on the page, so it shows best with a mouse; on a touch screen the card keeps its soft frame. Two changes from the
@@ -65,10 +66,12 @@ const style = computed(() => {
 .glow {
   --radius: 14;
   --border: 3;
-  --backdrop: hsl(0 0% 60% / 0.12);
-  --backup-border: var(--backdrop);
+  /* A screen can give the card a fill and a resting border of its own: --glow-backdrop and --glow-border on the card's class (the
+     profile uses white and the hairline). By default it is see-through grey, as the original. */
+  --backdrop: var(--glow-backdrop, hsl(0 0% 60% / 0.12));
+  --backup-border: var(--glow-border, var(--backdrop));
   --size: 200;
-  --outer: 1;
+  --outer: var(--glow-outer, 1); /* --glow-outer: 0 on the card turns the soft halo outside the border off. */
   --border-size: calc(var(--border, 2) * 1px);
   --spotlight-size: calc(var(--size, 150) * 1px);
   --hue: calc(var(--base) + (var(--xp, 0) * var(--spread, 0)));
