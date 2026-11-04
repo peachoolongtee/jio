@@ -261,7 +261,9 @@ async function signOut() {
         </div>
 
         <!-- The signed-in person or a friend: their sessions, once they have some. A stranger's are not listed. -->
-        <section v-if="seesSessions && (!events.loaded || listed.length)" class="section" aria-labelledby="my-sessions" data-testid="profile-sessions">
+        <!-- In one white card with a bold ink border, title, chips, search and all, as the graph above it and as Rewards' card (Darius,
+             4 November 2026). -->
+        <section v-if="seesSessions && (!events.loaded || listed.length)" class="section ink-card sessions-card" aria-labelledby="my-sessions" data-testid="profile-sessions">
           <div class="section__head">
             <h2 id="my-sessions" class="display-sm">{{ sessionsTitle }}</h2>
           </div>
@@ -370,6 +372,9 @@ async function signOut() {
 /* The two lit cards (the header and the graph): white, with a hairline border at rest that lights up under the pointer. */
 /* The two cards (the header and the graph): white with a bold ink border, no glow (Darius, 4 November 2026). */
 .ink-card { border: 2px solid var(--ink); border-radius: var(--rounded-lg); background: var(--canvas); }
+/* The sessions' card: roomy inside, a little less on phones. */
+.sessions-card { padding: var(--spacing-lg); }
+@media (max-width: 743.98px) { .sessions-card { padding: var(--spacing-base) var(--spacing-md); } }
 /* The header's card: roomy inside, a little more on wide screens. From 744px the header's column is indented further than the page
    body, so the card reaches back out by that much and lines up with the graph's card under it. */
 .hero__card { padding: var(--spacing-lg); }
