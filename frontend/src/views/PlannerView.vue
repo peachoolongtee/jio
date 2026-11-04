@@ -140,6 +140,14 @@ function onFindFocusIn(event) {
   if (!findFocused.value && isInput(event.target)) findShut.value = false
   findFocused.value = true
 }
+// Close the search: the panel shut, the box empty and no longer focused. How to call: closeFind()
+function closeFind() {
+  findShut.value = true
+  findFocused.value = false
+  finding.value.query = ''
+  const input = findEl.value?.querySelector?.('input')
+  if (input && globalThis.document?.activeElement === input) input.blur()
+}
 // What a screen reader hears as the search works: that it is looking, then how many places came back.
 // How to call: findStatus.value -> '3 places found'
 const findStatus = computed(() => {
@@ -362,6 +370,8 @@ async function add(result) {
   try {
     await planner.addOption(props.id, result.slot.id, result.id)
     result.added = true
+    // Added: the search closes and the box empties, so the place shows in its section under it (Darius, 4 November 2026).
+    closeFind()
   } catch (e) {
     rowNote.value = { ...rowNote.value, [key]: e.message }
   } finally {
@@ -1178,6 +1188,11 @@ async function keepDialog(e) {
 .more-arrow:disabled { opacity: 0.5; cursor: progress; }
 /* The search at the top and what it found, in one column no wider than the cards. */
 .find { display: flex; flex-direction: column; gap: var(--spacing-xs); max-width: 560px; }
+/* The search box in the style of "Invite friends": a soft grey pill with no border, and a 2px ink ring on focus (Darius,
+   4 November 2026). */
+.find :deep(.field__input) { height: 44px; padding: 0 var(--spacing-md) 0 42px; border: 0; border-radius: var(--rounded-full); background: var(--surface-soft); font: var(--text-body-sm); }
+.find :deep(.field__input:focus) { padding: 0 var(--spacing-md) 0 42px; border: 0; box-shadow: 0 0 0 2px var(--ink); }
+.find :deep(.field__lead) { left: var(--spacing-md); }
 .find__filters { display: flex; flex-wrap: wrap; gap: 0 var(--spacing-sm); }
 .find__panel { display: flex; flex-direction: column; gap: var(--spacing-xs); }
 .find__caption { margin: 0; }
