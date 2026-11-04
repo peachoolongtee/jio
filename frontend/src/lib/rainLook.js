@@ -76,12 +76,13 @@ export const num = (n) => String(Math.round(n * 1000) / 1000)
 // (lib/weatherText.js): the chip names the two-hour forecast only when that is where the rain comes from, by `rainWindow`.
 //   live forecast, 2-hour area basis -> 'Rain likely · next 2 h'
 //   live forecast, any other basis   -> 'Rain likely' (the 24-hour forecast makes no claim about two hours)
-//   simulated forecast               -> 'Simulated rain' (the demo's, never the real forecast)
+//   simulated forecast               -> '' (the demo's: no chip on the map, Darius, 4 November 2026; the page's "Simulated forecast"
+//                                       note still says the weather is made up)
 //   unavailable, outside the window, or no block -> '' (nothing is known, so nothing is claimed)
 // How to call: rainChipText({ source: 'live', basis: 'area' }) -> 'Rain likely · next 2 h'
 export function rainChipText(block) {
   const kind = rainWindow(block)
-  if (kind === 'simulated') return 'Simulated rain'
+  if (kind === 'simulated') return ''
   if (kind === 'next2h') return 'Rain likely · next 2 h'
   return kind === 'live' ? 'Rain likely' : ''
 }

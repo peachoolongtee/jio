@@ -384,8 +384,8 @@ const pins = computed(() => {
 // Rain on the map: only when an outing is within two hours. With none, nothing is asked and nothing is drawn. The layer is on
 // the map (SingaporeMap `rain`); its words, and where the forecast came from, are under the greeting.
 const rain = useHomeRain({ meetups, now, simulated: computed(() => !!planner.conditions?.rain), ask: api.weatherAt })
-// The chip over the map's rain: "Rain likely · next 2 h" for the live two-hour forecast, "Rain likely" for another live one, "Simulated
-// rain" for the demo's, and none when the forecast's source is not known (lib/rainLook.js rainChipText). The words for a screen reader
+// The chip over the map's rain: "Rain likely · next 2 h" for the live two-hour forecast, "Rain likely" for another live one, and none
+// for the demo's simulated rain or when the forecast's source is not known (lib/rainLook.js rainChipText). The words for a screen reader
 // are the line under the greeting, worded by the same rule (lib/weatherText.js homeRainText).
 const rainChip = computed(() => (rain.view.value ? rainChipText(rain.view.value.block) : ''))
 // The chip sits just under the first place where rain is likely, at the map's own scale (the same centre and span as the pins, so
