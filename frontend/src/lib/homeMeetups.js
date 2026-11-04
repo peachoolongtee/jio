@@ -201,13 +201,18 @@ export function pinsFor(meetups) {
 // back inside. A row that overlaps another group's pin joins that group, until nothing overlaps. Returns each pin's move from its real
 // spot, in px; a pin with no neighbours stays where it is.
 // How to call: layoutPins([{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 10, y: 0 }]) -> Map { 'a' => { x: -24, y: 0 }, 'b' => { x: 24, y: 0 } }
-export function layoutPins(points, { width = 52, height = 66, fan = FAN_PX, maxX = Infinity } = {}) {
+// scatter (Darius, 4 November 2026): a group is not a straight row but a loose cluster, each pin a little up or down and a little off its
+// even spacing, by fixed amounts in list order (SCATTER), so it looks natural and never changes between draws. The sideways jitter is
+// never more than `fan - width` between neighbours, so pins still do not cover each other.
+const SCATTER = [{ x: 0, y: 0 }, { x: 6, y: 30 }, { x: -4, y: -20 }, { x: 5, y: 22 }, { x: -6, y: -32 }, { x: 4, y: 12 }, { x: -3, y: 36 }, { x: 6, y: -10 }]
+export function layoutPins(points, { width = 52, height = 66, fan = FAN_PX, maxX = Infinity, scatter = false } = {}) {
   let groups = points.map((p) => [p])
   const place = (group) => {
     if (group.length === 1) return [{ id: group[0].id, x: group[0].x, y: group[0].y }]
     const x = group.reduce((t, p) => t + p.x, 0) / group.length
     const y = group.reduce((t, p) => t + p.y, 0) / group.length
-    const spots = group.map((p, i) => ({ id: p.id, x: x + (i - (group.length - 1) / 2) * fan, y }))
+    const nudge = (i) => (scatter ? SCATTER[i % SCATTER.length] : { x: 0, y: 0 })
+    const spots = group.map((p, i) => ({ id: p.id, x: x + (i - (group.length - 1) / 2) * fan + nudge(i).x, y: y + nudge(i).y }))
     const low = Math.min(...spots.map((p) => p.x))
     const high = Math.max(...spots.map((p) => p.x))
     const shift = high > maxX ? maxX - high : low < -maxX ? -maxX - low : 0
