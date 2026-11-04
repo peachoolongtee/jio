@@ -105,6 +105,48 @@ describe('the Sessions list on your own profile', () => {
     expect(view.errors).toEqual([])
   })
 
+  // Someone else's profile for the demo account. How to call: const view = await drawPerson('darius')
+  async function drawPerson(id) {
+    await boot(null)
+    const { createPinia, setActivePinia } = await import('pinia')
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { useAuthStore } = await import('@/stores/auth.js')
+    const { DEMO_ACCOUNT } = await import('../../components/dev/demoAccount.js')
+    await useAuthStore().signUpAs(DEMO_ACCOUNT)
+    const stub = { render: () => null }
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/:any(.*)*', component: stub }] })
+    await router.push(`/people/${id}`)
+    const { default: ProfileView } = await import('@/views/ProfileView.vue')
+    const view = await mountScreen(ProfileView, { plugins: [pinia, router], props: { id } })
+    await until(() => view.has('[data-testid=graph-day]'))
+    return view
+  }
+
+  it('lists a friend\'s sessions, and a day picked on their graph narrows them (Faith, 4 November 2026)', async () => {
+    const view = await drawPerson('darius')
+    await until(() => view.has('[data-testid=profile-sessions]') && view.text('[data-testid=profile-sessions]').includes('Sample history'))
+    await view.click('[data-testid=graph-sample-day]')
+    await until(() => view.has('[data-testid=day-filter]'))
+    expect(view.text('[data-testid=profile-sessions]')).toContain('Sample history')
+    expect(view.has('[data-testid=sessions-empty]')).toBe(false)
+    expect(view.errors).toEqual([])
+  })
+
+  it('lists no sessions once they are a stranger, and brings them back when they are a friend again', async () => {
+    const view = await drawPerson('darius')
+    await until(() => view.has('[data-testid=profile-sessions]') && view.text('[data-testid=profile-sessions]').includes('Sample history'))
+    await view.click(view.all('button').find((b) => view.text(b) === 'Friends'))
+    await until(() => view.text().includes('Add friend') && !view.has('[data-testid=profile-sessions]'))
+    expect(view.text()).not.toContain('Sample history')
+    // The button stays off until the profile has been read again.
+    const add = () => view.all('button').find((b) => view.text(b).includes('Add friend'))
+    await until(() => add() && add().attrs.disabled == null)
+    await view.click(add())
+    await until(() => view.has('[data-testid=profile-sessions]') && view.text('[data-testid=profile-sessions]').includes('Sample history'))
+    expect(view.errors).toEqual([])
+  })
+
   it('shows the sample past outing cards for a day with only sample meetups, not an empty day', async () => {
     const view = await drawProfile()
     await view.click('[data-testid=graph-sample-day]')

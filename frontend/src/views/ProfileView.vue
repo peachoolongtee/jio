@@ -12,8 +12,9 @@
 //   friends cannot be read (lib/api.js friendsOf). The signed-in person's friends used to be a section of the page; the sheet replaced it,
 //   and a friend they have been out with has the count of outings together beside the name there.
 //   Then the meetup graph, and the signed-in person's sessions (in the demo, with sample past outings behind the graph's made-up bars).
-//   Someone else's profile lists none of their outings: their graph shows how often they go out, a day cannot be picked on it, and
-//   nothing is listed under it (Faith, 31 October 2026). The sessions have
+//   A friend's profile lists a friend's sessions the same way (Faith, 4 November 2026): in the sample world their sample outings too, and
+//   for a real account the sessions the two of them are in, the only ones it can read. A stranger's lists none: their graph shows how often
+//   they go out, a day cannot be picked on it, and nothing is listed under it. The sessions have
 //   time chips, All, Upcoming and Completed (lib/profileSessions.js), styled like the ones on Rewards, and a search box that
 //   narrows them by title or meeting area. Clicking a day on the graph shows only that day's sessions and picks All, so the day is never hidden by a chip; the day shows as a chip with a × above the
 //   list, and the × (or clicking the same day again) brings the whole list back (walkthrough, 30 October 2026). The signed-in
@@ -98,6 +99,16 @@ const person = computed(() => groups.profiles[personId.value])
 // The sessions listed on your own profile: all of them, unless the demo tour is on (lib/sessionFilter.js).
 // Your sessions, and in the demo the sample past outings behind the graph's made-up bars (cards that open nothing).
 const sessions = computed(() => [...visibleSessions(events.sessions), ...(isMe.value ? person.value?.pastSamples || [] : [])])
+// Whose sessions this page may list: your own and a friend's, never a stranger's.
+const seesSessions = computed(() => isMe.value || !!person.value?.isFriend)
+// The sessions listed here: yours, or the ones a friend joined with their sample outings.
+const listed = computed(() => {
+  if (isMe.value) return sessions.value
+  if (!seesSessions.value) return []
+  const theirs = sessions.value.filter((s) => (s.members || []).some((m) => m.id === personId.value && m.state === 'joined'))
+  return [...theirs, ...(person.value?.pastSamples || [])]
+})
+const sessionsTitle = computed(() => (isMe.value || auth.sampleWorld ? 'Sessions' : 'Sessions together'))
 // The time chip chosen, and the sessions it shows in its order. The clock moves a session to the top while it is live.
 const sessionFilter = ref('all')
 const now = useNow()
@@ -105,7 +116,7 @@ const now = useNow()
 const query = ref('')
 const day = ref('')
 const narrowing = computed(() => !!query.value.trim() || !!day.value)
-const shownSessions = computed(() => narrowSessions(profileSessions(sessions.value, sessionFilter.value, now.value), { query: query.value, day: day.value }, now.value))
+const shownSessions = computed(() => narrowSessions(profileSessions(listed.value, sessionFilter.value, now.value), { query: query.value, day: day.value }, now.value))
 const dayText = (d) => format(parseISO(d), 'EEE d MMM yyyy')
 const emptyText = computed(() => (narrowing.value ? narrowedEmptyText({ query: query.value, day: day.value }, dayText) : EMPTY_TEXT[sessionFilter.value]))
 // A day picked on the graph, or null when the same day was picked again. Picking a day shows All, so a past day is not hidden
@@ -120,8 +131,8 @@ async function pickDay(picked) {
   const still = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
   head?.scrollIntoView?.({ behavior: still ? 'auto' : 'smooth', block: 'start' })
 }
-// The day goes when another person's profile opens.
-watch(personId, () => { day.value = ''; query.value = '' })
+// The day goes when another person's profile opens, or when this person stops being a friend.
+watch([personId, seesSessions], () => { day.value = ''; query.value = '' })
 const nameOf = (id) => (id === auth.myId ? auth.user?.name ?? '' : groups.nameOf(id))
 const dateText = (d) => format(parseISO(d), 'd MMM yyyy')
 // Outings together: with each friend (beside their name in the Friends sheet), and with the person whose profile this is (the line under the name).
@@ -239,13 +250,13 @@ async function signOut() {
       <div class="screen__body">
         <section class="card graph-card rise" style="--i: 1" aria-labelledby="graph-head">
           <h2 id="graph-head" class="sr-only">Meetup frequency</h2>
-          <MeetupGraph :history="person.history" :planned="person.planned" :selected="day" :pickable="isMe" @select="pickDay" />
+          <MeetupGraph :history="person.history" :planned="person.planned" :selected="day" :pickable="seesSessions" @select="pickDay" />
         </section>
 
-        <!-- The signed-in person: their sessions, once they have some. -->
-        <section v-if="isMe && (!events.loaded || sessions.length)" class="section" aria-labelledby="my-sessions">
+        <!-- The signed-in person or a friend: their sessions, once they have some. A stranger's are not listed. -->
+        <section v-if="seesSessions && (!events.loaded || listed.length)" class="section" aria-labelledby="my-sessions" data-testid="profile-sessions">
           <div class="section__head">
-            <h2 id="my-sessions" class="display-sm">Sessions</h2>
+            <h2 id="my-sessions" class="display-sm">{{ sessionsTitle }}</h2>
           </div>
           <div v-if="!events.loaded" class="stack"><SkeletonRow v-for="n in 2" :key="n" :lines="3" /></div>
           <template v-else>
@@ -272,7 +283,6 @@ async function signOut() {
           </template>
         </section>
 
-        <!-- Someone else's outings are not listed: their graph shows how often they go out, and no more (Faith, 31 October 2026). -->
       </div>
     </template>
     <div v-else class="screen__body profile__loading"><SkeletonRow v-for="n in 3" :key="n" avatar /></div>
