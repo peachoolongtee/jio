@@ -7,14 +7,15 @@
 //     <template #map> <PlannerMap ... /> </template>
 //   </SplitView>
 // The layout changes with CSS only, so the list and the map keep their state when the window is resized.
-// mapFirst (desktop only, as Home): the map on the left and the list docked on the right as a full-height white panel, across the whole
-// width of the screen and down to its foot (Darius, 4 November 2026; Locate first). Phones keep the List / Map switch.
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+// mapFirst (desktop only): the map is the whole screen and the page floats over it: the header as a card at the top left, the list as
+// cards down the right, the button at the bottom right (Darius, 4 November 2026; Locate and the itinerary). The page's own rules are in
+// app.css ("Map-first pages"). Phones keep the List / Map switch.
+import { ref } from 'vue'
 import AppIcon from './AppIcon.vue'
 import SegmentTabs from './SegmentTabs.vue'
 
 const view = defineModel('view', { type: String, default: 'list' })
-const props = defineProps({
+defineProps({
   label: { type: String, required: true },
   // Desktop: give the list and the map equal widths, for lists that need the room (the itinerary).
   even: { type: Boolean, default: false },
@@ -22,31 +23,10 @@ const props = defineProps({
 })
 const expanded = ref(false)
 
-// Map first: how tall the two columns are, from where they start down to the screen's foot (a long title pushes them down).
-const root = ref(null)
-// …and where the screen's edges are from the page's column, so the two columns run exactly from edge to edge.
-const box = ref(null)
-function measure() {
-  if (!props.mapFirst || !root.value) return
-  const top = root.value.getBoundingClientRect().top + (globalThis.scrollY || 0)
-  // Where this would start without the pull to the edge: the column's left edge plus its padding.
-  const parent = root.value.parentElement
-  const column = parent?.getBoundingClientRect()
-  const pad = parent ? parseFloat(getComputedStyle(parent).paddingLeft) || 0 : 0
-  // The page's own width (it leaves room for a scrollbar on the right, as fixed bars do), so the panel ends where they do.
-  const width = globalThis.document?.documentElement.getBoundingClientRect().width || 0
-  box.value = { '--split-h': `calc(100dvh - ${Math.round(top)}px)`, '--split-ml': `${-Math.round((column?.left || 0) + pad)}px`, '--split-w': `${width}px` }
-}
-onMounted(() => {
-  nextTick(measure)
-  globalThis.addEventListener?.('resize', measure)
-})
-onBeforeUnmount(() => globalThis.removeEventListener?.('resize', measure))
-watch(() => props.mapFirst, () => nextTick(measure))
 </script>
 
 <template>
-  <div ref="root" class="split" :class="[`split--${view}`, { 'is-expanded': expanded, 'split--even': even, 'split--first': mapFirst }]" :style="mapFirst && box ? box : undefined">
+  <div class="split" :class="[`split--${view}`, { 'is-expanded': expanded, 'split--even': even, 'split--first': mapFirst }]">
     <SegmentTabs
       v-model="view"
       class="split__switch"
@@ -111,19 +91,18 @@ watch(() => props.mapFirst, () => nextTick(measure))
   .split__expand:hover { border-color: var(--ink); }
 }
 
-/* Map first (Option A, as Home): from 1128px two columns across the whole width of the screen, the map on the left and the list docked
-   on the right as a white panel, both down to the screen's foot (the height is measured from where this starts, --split-h). The panel
-   scrolls on its own; the page's footer sits at its foot (GroupDetailView), so it leaves room for it. "Expand map" sits beside the zoom
-   buttons, and expanded hides the panel. */
+/* Map first (from 1128px): the map is the whole screen, behind everything; the page lays the rest over it (app.css, "Map-first pages":
+   the header's card at the top left, the list's cards down the right, the footer's button at the bottom right). The list stays in the
+   page's column, above the map. The zoom buttons and "Expand map" sit at the bottom left, clear of the header's card; expanded hides
+   the list. */
 @media (min-width: 1128px) {
-  .split--first { display: grid; grid-template-columns: minmax(0, 1fr) var(--split-panel, 420px); gap: 0; height: var(--split-h, calc(100dvh - 220px)); min-height: 480px; width: var(--split-w, 100vw); margin-right: 0; margin-left: var(--split-ml, calc(50% - 50vw)); border-top: 1px solid var(--hairline); }
-  .split--first .split__map { position: relative; top: auto; grid-column: 1; grid-row: 1; display: block; height: 100%; min-height: 0; max-height: none; border: 0; border-radius: 0; }
-  .split--first .split__list { grid-column: 2; grid-row: 1; height: 100%; padding: var(--spacing-base) var(--spacing-base) var(--split-foot, 104px); overflow-y: auto; overscroll-behavior: contain; border-left: 1px solid var(--border-strong); background: var(--canvas); }
+  .split--first { display: block; }
+  .split--first .split__map { position: fixed; inset: 0; z-index: 0; display: block; height: auto; min-height: 0; max-height: none; border: 0; border-radius: 0; pointer-events: auto; }
+  .split--first .split__list { position: relative; z-index: 1; }
   .split--first .split__list > :last-child { flex-grow: 0; }
-  .split--first .split__list > :deep(*) { flex-shrink: 0; }
-  .split--first.is-expanded { grid-template-columns: minmax(0, 1fr); }
   .split--first.is-expanded .split__list { display: none; }
-  .split--first.is-expanded .split__map { height: 100%; }
-  .split--first .split__expand { right: auto; left: calc(var(--spacing-md) + 56px); }
+  .split--first.is-expanded .split__map { height: auto; }
+  .split--first .split__expand { top: auto; right: auto; bottom: var(--spacing-lg); left: calc(var(--spacing-lg) + 56px); }
+  .split--first .split__map :deep(.leaflet-top.leaflet-left) { top: auto; bottom: var(--spacing-lg); left: var(--spacing-sm); }
 }
 </style>

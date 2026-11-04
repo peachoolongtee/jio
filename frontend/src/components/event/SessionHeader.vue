@@ -70,14 +70,18 @@ async function cancelSession() {
         <span v-else-if="!$slots.actions" class="session-head__spacer" />
       </span>
     </div>
-    <!-- The steps come before the title, so they are in the same place on every session screen whatever the title's length. -->
-    <SessionSteps :session="session" />
-    <div class="screen__titles">
-      <h1 class="display-xl clamp-2">{{ title || session.title }}</h1>
-      <p class="session-head__meta">
-        <span class="body-sm text-muted tnum">{{ title ? session.title : dateLine(session) }}</span>
-        <CountdownChip :session="session" />
-      </p>
+    <!-- The steps come before the title, so they are in the same place on every session screen whatever the title's length. Both sit in
+         one box: a plain column here, and on a map-first page (Locate, the itinerary, from 1128px) a card floating at the top left of the
+         full-screen map, the title first (app.css). -->
+    <div class="session-head__card">
+      <SessionSteps :session="session" />
+      <div class="screen__titles">
+        <h1 class="display-xl clamp-2">{{ title || session.title }}</h1>
+        <p class="session-head__meta">
+          <span class="body-sm text-muted tnum">{{ title ? session.title : dateLine(session) }}</span>
+          <CountdownChip :session="session" />
+        </p>
+      </div>
     </div>
 
     <InviteDialog v-model:open="inviteOpen" :session="session" />
@@ -91,6 +95,7 @@ async function cancelSession() {
 </template>
 
 <style scoped>
+.session-head__card { display: flex; flex-direction: column; gap: var(--spacing-sm); min-width: 0; }
 .session-head__spacer { width: var(--tap-min); }
 .session-head__actions { display: flex; align-items: center; gap: var(--spacing-sm); }
 /* The narrowest phones: closer together, so Change plan, Invite and Hold to cancel all fit beside the back arrow. */

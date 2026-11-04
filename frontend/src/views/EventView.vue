@@ -239,6 +239,18 @@ const replaceStop = (stop) => router.push({ path: `/sessions/${props.id}/plan`, 
 const showWeather = computed(() => confirmed.value && !!itinerary.value)
 const check = computed(() => events.weatherChecks[props.id])
 // The shared clock: rain is drawn only while its forecast is current.
+// What the floating cards cover of the full-screen map from 1128px (app.css "Map-first pages"): the header's card at the top, the column of
+// cards on the right (520 px wide) and the buttons at the foot, so the map frames every stop in the rest. Nothing below 1128px.
+const mapCover = ref({})
+function syncCover() {
+  const wide = (globalThis.innerWidth || 0) >= 1128
+  mapCover.value = wide ? { top: 170, right: 520 + 48, bottom: 72 } : {}
+}
+onMounted(() => {
+  syncCover()
+  globalThis.addEventListener?.('resize', syncCover)
+})
+onBeforeUnmount(() => globalThis.removeEventListener?.('resize', syncCover))
 const now = useNow()
 // Are the stops on Singapore's today? A stop that day with no forecast was not held back by the forecast window, so its mark does not say so.
 const stopsToday = computed(() => !!session.value && dayOf(session.value, now.value) === singaporeDate(now.value))
@@ -559,7 +571,7 @@ async function endPlan() {
           </template>
 
           <template #map>
-            <PlannerMap :places="mapPlaces" :area="itinerary?.area" :rain="mapRain.places" :rain-label="mapRain.text" route fit-to="places" label="Itinerary map" :selected="selected" @select="selected = $event" />
+            <PlannerMap :cover="mapCover" :places="mapPlaces" :area="itinerary?.area" :rain="mapRain.places" :rain-label="mapRain.text" route fit-to="places" label="Itinerary map" :selected="selected" @select="selected = $event" />
             <CategoryKey :categories="mapPlaces.map((p) => p.category)" />
             <AppButton variant="secondary" small class="map-open" :to="`/sessions/${id}/map`">
               <AppIcon name="expand" />
@@ -680,11 +692,6 @@ async function endPlan() {
   .timeline :deep(.stop .title-md) { font: var(--text-display-sm); }
   .timeline :deep(.stop) { padding: var(--spacing-sm) 0; }
 }
-/* Map first (from 1128px): the timeline's panel is 520px, and the page's footer sits at its foot, its width (as Locate). */
-.itin-split { --split-panel: 520px; }
-@media (min-width: 1128px) {
-  .screen:has(.split--first) > .screen__footer { position: fixed; z-index: 20; right: 0; bottom: 0; left: auto; width: 520px; padding: var(--spacing-sm) var(--spacing-base) calc(var(--spacing-base) + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--hairline); border-left: 1px solid var(--border-strong); }
-  .screen:has(.split--first) > .screen__footer > :deep(.btn) { flex: 1 1 0; min-width: 0; }
-  .screen:has(.split--first) > .screen__body { padding-bottom: 0; }
-}
+/* Map first (from 1128px): the page floats over the full-screen map; its rules are in app.css ("Map-first pages"). */
+
 </style>

@@ -175,6 +175,18 @@ const spotDirections = computed(() => (settled.value ? directionsUrl({ name: set
 const next = computed(() => (session.value ? locateNext(session.value) : null))
 
 // Map pins: each person's start AREA, with their travel time to the spot shown (the confirmed one once settled).
+// What the floating cards cover of the full-screen map from 1128px (app.css "Map-first pages"): the header's card at the top, the column of
+// cards on the right (420 px wide) and the button at the foot, so the map frames everyone in the rest. Nothing below 1128px.
+const mapCover = ref({})
+function syncCover() {
+  const wide = (globalThis.innerWidth || 0) >= 1128
+  mapCover.value = wide ? { top: 170, right: 420 + 48, bottom: 72 } : {}
+}
+onMounted(() => {
+  syncCover()
+  globalThis.addEventListener?.('resize', syncCover)
+})
+onBeforeUnmount(() => globalThis.removeEventListener?.('resize', syncCover))
 const mapPeople = computed(() =>
   settled.value ? settled.value.people : active.value
     .filter((id) => session.value.locations?.[id]?.start)
@@ -519,7 +531,7 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
             <div v-if="session.remote && choosing && !isHost" class="leave"><LeaveSession :session-id="session.id" /></div>
           </template>
           <template #map>
-            <PlannerMap ref="mapRef" :people="mapPeople" :area="settled && !loading ? settled.area : null" :finding="loading" spokes :keep="settled ? [] : keepPoints" :fit-to="settled ? 'all' : mapFit" label="Meeting area map" @view="refreshPins" />
+            <PlannerMap ref="mapRef" :cover="mapCover" :people="mapPeople" :area="settled && !loading ? settled.area : null" :finding="loading" spokes :keep="settled ? [] : keepPoints" :fit-to="settled ? 'all' : mapFit" label="Meeting area map" @view="refreshPins" />
             <SpotPins v-if="!settled && spotList.length" ref="pinsRef" :spots="spotList" :session="session" :selected-id="shown || ''" :confirmed-id="confirmedId" :project="projectPoint" :names="nameOf" :my-id="myId" :is-host="isHost" @select="picked = $event" />
             <div v-if="loading" class="map-wait map-wait--finding title-sm" role="status">Finding the meeting point… {{ Math.round(loadPct) }}%</div>
             <!-- Confirming the meeting spot, once it has taken 600 ms: a spinner over the map only (the list view says it on the buttons). -->
@@ -603,13 +615,8 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
 /* The people under the spots: the same light grey card as the spots, so the two read as one set (walkthrough, 1 November 2026). */
 /* White with a thin grey border, not a grey fill; the bold ink outline is for things that are selected (Darius, 4 November 2026). */
 .people-card { border: 1px solid var(--border-strong); background: var(--canvas); }
-/* Map first (from 1128px): the page's footer sits at the foot of the docked panel on the right, the panel's width, so the map reaches the
-   screen's foot (Darius, 4 November 2026). */
-@media (min-width: 1128px) {
-  .screen:has(.split--first) > .screen__footer { position: fixed; z-index: 20; right: 0; bottom: 0; left: auto; width: 420px; justify-content: stretch; padding: var(--spacing-sm) var(--spacing-base) calc(var(--spacing-base) + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--hairline); border-left: 1px solid var(--border-strong); }
-  .screen:has(.split--first) > .screen__footer > :deep(.btn) { flex: 1 1 auto; }
-  .screen:has(.split--first) > .screen__body { padding-bottom: 0; }
-}
+/* Map first (from 1128px): the page floats over the full-screen map; its rules are in app.css ("Map-first pages"). */
+
 /* Inside the People card the route is not a card of its own: no border, a hairline under it, then the progress and the people. */
 .people-card .route { max-width: none; padding: 0 0 var(--spacing-sm); border: 0; border-bottom: 1px solid var(--hairline); border-radius: 0; background: none; }
 .people-card .route::before { left: calc(var(--spacing-base) + 5px); margin-top: calc(-15px - var(--spacing-sm) / 2); }
