@@ -824,6 +824,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 .home__filters { position: relative; z-index: 3; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--spacing-xs) var(--spacing-md); width: 100%; max-width: 960px; margin-top: var(--spacing-md); padding: 0 var(--gutter); }
 .home__filters .scroll-x { min-width: 0; flex: 0 1 auto; }
 /* List in the brand's pressed red, white text 4.89:1 (the brighter --primary would be 3.52:1, a known conflict in DESIGN.md). */
+.home__list-chip { --chip-on: var(--primary-active); }
 .home__list-chip :deep(.chip__pill) { border-color: var(--primary-active); background: var(--primary-active); color: var(--on-primary); }
 @media (hover: hover) { .home__list-chip:hover :deep(.chip__pill) { border-color: #c8093a; background: #c8093a; } }
 .home__range-count { margin-left: var(--spacing-xs); opacity: 0.7; }
