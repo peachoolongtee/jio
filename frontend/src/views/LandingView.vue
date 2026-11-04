@@ -140,8 +140,9 @@ const rangePicked = ref(null)
 // What a screen reader hears when a filter or the selected meetup changes (the status under the list).
 const announce = ref('')
 const range = computed(() => rangePicked.value ?? defaultRange(meetups.value, now.value))
-// The week chips Home shows: This week, Next week and All. After next week is inside All (Darius, 4 November 2026: fewer chips).
-const HOME_RANGES = MEETUP_RANGES.filter((r) => r.id !== 'later')
+// The week chips Home shows before Your turn: This week and Next week; All comes after Your turn. After next week is inside All (Darius,
+// 4 November 2026: fewer chips).
+const WEEK_RANGES = MEETUP_RANGES.filter((r) => r.id === 'week' || r.id === 'next')
 const counts = computed(() => rangeCounts(meetups.value, now.value))
 const inWeek = computed(() => meetupsIn(meetups.value, range.value, now.value))
 // "Your turn", a check chip after the week chips (as Rewards' "Can claim"): every meetup waiting on the person, whatever its week, so one
@@ -159,11 +160,12 @@ function pickRange(id) {
   const n = counts.value[id]
   announce.value = `Showing ${MEETUP_RANGES.find((r) => r.id === id).label.toLowerCase()}, ${n} ${n === 1 ? 'meetup' : 'meetups'}`
 }
-// How to call: toggleMine()
-function toggleMine() {
-  onlyMine.value = !onlyMine.value
+// Your turn, chosen like a week: only the meetups waiting on you. How to call: pickMine()
+function pickMine() {
+  if (onlyMine.value) return
+  onlyMine.value = true
   const n = allMine.value.length
-  announce.value = onlyMine.value ? `Showing only the ${n} ${n === 1 ? 'meetup' : 'meetups'} waiting for you` : `Showing ${MEETUP_RANGES.find((r) => r.id === range.value).label.toLowerCase()} again`
+  announce.value = `Showing only the ${n} ${n === 1 ? 'meetup' : 'meetups'} waiting for you`
 }
 // "Your meetups" lists a few (lib/homeMeetups.js homeList), and the selected one is one of them, so the card, the rows and the pins
 // agree and picking a pin changes nothing else on the map. "See all N meetups" opens Sessions when there are more, or finished ones.
@@ -585,13 +587,16 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
       <!-- Which meetups the map pins: the week chips, "Your turn" (every meetup waiting on you, whatever its week), and List, which shows
            them as a list under the map. Above the map, so they never cover a pin. -->
       <div v-if="events.loaded && hasMeetups" class="home__filters" data-testid="home-filters">
+        <!-- One choice of four, in this order (Darius, 4 November 2026): This week, Next week, Your turn (every meetup waiting on you,
+             whatever its week) and All. Your turn was a separate on/off chip; it already cleared the week and a week turned it off, so it
+             is one of the choices. -->
         <div v-if="meetups.length > 1" class="scroll-x home__ranges" role="radiogroup" v-radio-group aria-label="Show meetups for" data-testid="meetup-ranges">
-          <ChipButton v-for="r in HOME_RANGES" :key="r.id" radio :selected="!onlyMine && range === r.id" :disabled="!counts[r.id]" :aria-label="`${r.label}, ${counts[r.id]} ${counts[r.id] === 1 ? 'meetup' : 'meetups'}`" @click="pickRange(r.id)">{{ r.label }}<span class="home__range-count tnum" aria-hidden="true">{{ counts[r.id] }}</span></ChipButton>
+          <ChipButton v-for="r in WEEK_RANGES" :key="r.id" radio :selected="!onlyMine && range === r.id" :disabled="!counts[r.id]" :aria-label="`${r.label}, ${counts[r.id]} ${counts[r.id] === 1 ? 'meetup' : 'meetups'}`" @click="pickRange(r.id)">{{ r.label }}<span class="home__range-count tnum" aria-hidden="true">{{ counts[r.id] }}</span></ChipButton>
+          <ChipButton v-if="allMine.length" radio :selected="onlyMine" :aria-label="`Your turn, ${allMine.length} ${allMine.length === 1 ? 'meetup' : 'meetups'}`" data-testid="your-turn-filter" @click="pickMine">Your turn<span class="home__range-count tnum" aria-hidden="true">{{ allMine.length }}</span></ChipButton>
+          <ChipButton radio :selected="!onlyMine && range === 'all'" :aria-label="`All, ${counts.all} ${counts.all === 1 ? 'meetup' : 'meetups'}`" @click="pickRange('all')">All<span class="home__range-count tnum" aria-hidden="true">{{ counts.all }}</span></ChipButton>
         </div>
-        <div class="home__toggles">
-          <ChipButton v-if="allMine.length && meetups.length > 1" check :selected="onlyMine" :aria-label="`Your turn, ${allMine.length} ${allMine.length === 1 ? 'meetup' : 'meetups'}`" data-testid="your-turn-filter" @click="toggleMine">Your turn<span class="home__range-count tnum" aria-hidden="true">{{ allMine.length }}</span></ChipButton>
-          <ChipButton check :selected="listOpen && !selected" data-testid="home-list-toggle" @click="toggleList">List</ChipButton>
-        </div>
+        <!-- List: the brand red, so it reads as the way into the list rather than one more filter. -->
+        <ChipButton check class="home__list-chip" :selected="listOpen && !selected" data-testid="home-list-toggle" @click="toggleList">List</ChipButton>
       </div>
 
       <!-- The map, with the button where the routes meet, or a pin for each meetup. -->
@@ -818,7 +823,9 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
    front of the map's faded top, so they never sit over a pin. */
 .home__filters { position: relative; z-index: 3; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--spacing-xs) var(--spacing-md); width: 100%; max-width: 960px; margin-top: var(--spacing-md); padding: 0 var(--gutter); }
 .home__filters .scroll-x { min-width: 0; flex: 0 1 auto; }
-.home__toggles { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--spacing-xs); }
+/* List in the brand's pressed red, white text 4.89:1 (the brighter --primary would be 3.52:1, a known conflict in DESIGN.md). */
+.home__list-chip :deep(.chip__pill) { border-color: var(--primary-active); background: var(--primary-active); color: var(--on-primary); }
+@media (hover: hover) { .home__list-chip:hover :deep(.chip__pill) { border-color: #c8093a; background: #c8093a; } }
 .home__range-count { margin-left: var(--spacing-xs); opacity: 0.7; }
 /* The list, in the panel when List is on. */
 .home__list { display: flex; flex-direction: column; gap: var(--spacing-base); }
