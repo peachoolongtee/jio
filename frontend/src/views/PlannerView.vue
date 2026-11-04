@@ -1229,8 +1229,8 @@ async function keepDialog(e) {
 .empty-actions { display: flex; flex-wrap: wrap; gap: var(--spacing-sm); }
 .confirm-next { margin: 0 0 var(--spacing-sm); text-align: center; }
 /* Replace: the stop being replaced, above the places that could take its place. */
-/* White with a bold ink border, not a grey fill (Darius, 4 November 2026). */
-.replace { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-base); border: 2px solid var(--ink); border-radius: var(--rounded-md); background: var(--canvas); }
+/* White with a thin grey border, not a grey fill; the bold ink outline is for things that are selected (Darius, 4 November 2026). */
+.replace { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-base); border: 1px solid var(--border-strong); border-radius: var(--rounded-md); background: var(--canvas); }
 .replace p, .replace h2 { margin: 0; }
 .replace__now { display: flex; align-items: center; gap: var(--spacing-md); min-width: 0; }
 .replace__count { display: inline-flex; align-items: center; gap: var(--spacing-sm); min-width: 0; }

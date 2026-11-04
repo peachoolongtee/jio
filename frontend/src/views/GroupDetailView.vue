@@ -592,8 +592,8 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
 
 <style scoped>
 /* The people under the spots: the same light grey card as the spots, so the two read as one set (walkthrough, 1 November 2026). */
-/* White with a bold ink border, not a grey fill (Darius, 4 November 2026). */
-.people-card { border: 2px solid var(--ink); background: var(--canvas); }
+/* White with a thin grey border, not a grey fill; the bold ink outline is for things that are selected (Darius, 4 November 2026). */
+.people-card { border: 1px solid var(--border-strong); background: var(--canvas); }
 /* Inside the People card the route is not a card of its own: no border, a hairline under it, then the progress and the people. */
 .people-card .route { max-width: none; padding: 0 0 var(--spacing-sm); border: 0; border-bottom: 1px solid var(--hairline); border-radius: 0; background: none; }
 .people-card .route::before { left: calc(var(--spacing-base) + 5px); margin-top: calc(-15px - var(--spacing-sm) / 2); }

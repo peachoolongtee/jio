@@ -206,8 +206,8 @@ async function signOut() {
         </div>
         <div class="hero__body">
           <UserAvatar class="hero__avatar" :name="person.name" :src="person.photo" :person="person.id" :size="104" labelled />
-          <!-- Who they are, the four numbers and the one action, in one white card with a bold ink border (Darius, 4 November 2026; it
-               had a spotlight border for a while that day). -->
+          <!-- Who they are, the four numbers and the one action, in one white card with a thin grey border (Darius, 4 November 2026; it
+               had a spotlight border, then a bold ink one, that day). -->
           <div class="hero__card ink-card">
           <div class="hero__grid">
             <div class="hero__who">
@@ -252,7 +252,7 @@ async function signOut() {
       </section>
 
       <div class="screen__body">
-        <!-- The activity graph, in the same white card with a bold ink border as the header above, the same width (Darius, 4 November 2026). -->
+        <!-- The activity graph, in the same white card as the header above, the same width (Darius, 4 November 2026). -->
         <div class="graph-card ink-card rise" style="--i: 1">
           <section class="graph-card__inner" aria-labelledby="graph-head">
             <h2 id="graph-head" class="sr-only">Meetup frequency</h2>
@@ -261,7 +261,7 @@ async function signOut() {
         </div>
 
         <!-- The signed-in person or a friend: their sessions, once they have some. A stranger's are not listed. -->
-        <!-- In one white card with a bold ink border, title, chips, search and all, as the graph above it and as Rewards' card (Darius,
+        <!-- In one white card, title, chips, search and all, as the graph above it and as Rewards' card (Darius,
              4 November 2026). -->
         <section v-if="seesSessions && (!events.loaded || listed.length)" class="section ink-card sessions-card" aria-labelledby="my-sessions" data-testid="profile-sessions">
           <div class="section__head">
@@ -370,8 +370,9 @@ async function signOut() {
 .hero__you { padding: 2px var(--spacing-sm); border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--muted); font-weight: 600; }
 .hero__side { display: flex; flex-direction: column; gap: var(--spacing-md); }
 /* The two lit cards (the header and the graph): white, with a hairline border at rest that lights up under the pointer. */
-/* The two cards (the header and the graph): white with a bold ink border, no glow (Darius, 4 November 2026). */
-.ink-card { border: 2px solid var(--ink); border-radius: var(--rounded-lg); background: var(--canvas); }
+/* The profile's cards (the header, the graph and the sessions): white with a thin grey border, no glow. The bold ink outline is kept for
+   things that are selected (Darius, 4 November 2026). */
+.ink-card { border: 1px solid var(--border-strong); border-radius: var(--rounded-lg); background: var(--canvas); }
 /* The sessions' card: roomy inside, a little less on phones. */
 .sessions-card { padding: var(--spacing-lg); }
 @media (max-width: 743.98px) { .sessions-card { padding: var(--spacing-base) var(--spacing-md); } }

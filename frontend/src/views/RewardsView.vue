@@ -354,7 +354,7 @@ async function closeRedeemed() {
 @media (prefers-reduced-motion: reduce) { .pop-enter-active, .pop-leave-active { transition: none; } }
 /* One white card holds the switch and the list, with every voucher a card nested in it (Faith, 4 November 2026); the red streak runs
    round its border (Darius, 4 November 2026). */
-.rewards__card { position: relative; display: flex; flex-direction: column; gap: var(--spacing-lg); padding: var(--spacing-lg); border: 1px solid var(--hairline); border-radius: var(--rounded-lg); background: var(--canvas); }
+.rewards__card { position: relative; display: flex; flex-direction: column; gap: var(--spacing-lg); padding: var(--spacing-lg); border: 1px solid var(--border-strong); border-radius: var(--rounded-lg); background: var(--canvas); }
 @media (max-width: 743.98px) { .rewards__card { gap: var(--spacing-base); padding: var(--spacing-base) var(--spacing-md); } }
 .rewards__panel { margin: 0; }
 /* The switch: two halves of one pill. The current one is white with a bold ink rim; the other is muted on the soft track. */
