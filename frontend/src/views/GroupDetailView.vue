@@ -22,6 +22,7 @@
 //             (confirmed at once, no vote; Faith, 31 October 2026).
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import IconButton from '@/components/ui/IconButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
 import ProgressDonut from '@/components/ui/ProgressDonut.vue'
@@ -433,7 +434,12 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
                 <span class="area__pin" aria-hidden="true"><AppIcon name="pin" :size="20" /></span>
                 <div class="area__text">
                   <span class="caption-sm text-muted">Meeting spot</span>
-                  <h2 id="area-head" class="display-lg truncate">{{ settled.area.name }}</h2>
+                  <!-- The name, and beside it the swap button that changes the meeting spot (Darius, 4 November 2026: it was a "Change meeting
+                       spot" link under the card). -->
+                  <div class="area__name">
+                    <h2 id="area-head" class="display-lg truncate">{{ settled.area.name }}</h2>
+                    <IconButton v-if="canChangeSpot" label="Change meeting spot" class="area__swap" data-testid="change-spot" @click="openAgain('change')"><AppIcon name="swap" :size="18" /></IconButton>
+                  </div>
                   <span v-if="myTrip" class="caption-sm text-muted">{{ myTrip }}</span>
                 </div>
               </div>
@@ -441,7 +447,6 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
                 <AppButton variant="secondary" small class="area__go" :href="spotDirections" target="_blank" :aria-label="`Directions to ${settled.area.name}, opens Google Maps in a new tab`">
                   <AppIcon name="route" :size="16" />Directions
                 </AppButton>
-                <AppButton v-if="canChangeSpot" variant="tertiary" underline small data-testid="change-spot" @click="openAgain('change')">Change meeting spot</AppButton>
               </div>
             </section>
 
@@ -653,6 +658,10 @@ button.route__row:focus-visible { outline: 2px solid var(--ink); outline-offset:
 .area__pin { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); }
 .area__text { display: flex; flex-direction: column; min-width: 0; }
 .area__text h2 { margin: 0; }
+/* The spot's name with the swap button beside it. The arrows are mirrored to read left on top, right below. */
+.area__name { display: flex; align-items: center; gap: var(--spacing-sm); min-width: 0; }
+.area__swap { flex-shrink: 0; }
+.area__swap :deep(svg) { transform: scaleX(-1); }
 /* Settled: the name gets the card's full width, and Directions sits under it. Beside it, the button squeezed the name
    to a few letters in the list column and on a phone. */
 .area:not(.is-finding) { flex-direction: column; align-items: stretch; }
