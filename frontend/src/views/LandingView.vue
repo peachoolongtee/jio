@@ -155,17 +155,33 @@ const inRangeMeetups = computed(() => (onlyMine.value && allMine.value.length ? 
 // How to call: pickRange('next')
 function pickRange(id) {
   if (!counts.value[id]) return
+  const before = selected.value?.id || ''
   rangePicked.value = id
   onlyMine.value = false
+  keepThroughFilter(before)
   const n = counts.value[id]
   announce.value = `Showing ${MEETUP_RANGES.find((r) => r.id === id).label.toLowerCase()}, ${n} ${n === 1 ? 'meetup' : 'meetups'}`
 }
 // Your turn, chosen like a week: only the meetups waiting on you. How to call: pickMine()
 function pickMine() {
   if (onlyMine.value) return
+  const before = selected.value?.id || ''
   onlyMine.value = true
+  keepThroughFilter(before)
   const n = allMine.value.length
   announce.value = `Showing only the ${n} ${n === 1 ? 'meetup' : 'meetups'} waiting for you`
+}
+// A chip changes which meetups are listed and pinned, never whether the panel is open (the lead, 4 November 2026: toggling This week
+// and Next week sometimes opened it). So the meetup open before the change stays open while the new list still has it, and is let go
+// when it does not, so going back to the first chip does not open it again; and a meetup happening now no longer opens by itself
+// once a chip has been pressed (it does so only when Home opens).
+// How to call: keepThroughFilter(selected.value?.id || '') after the chip's change
+function keepThroughFilter(before) {
+  liveDismissed.value = true
+  const keep = !!before && shownMeetups.value.some((m) => m.id === before)
+  const query = Object.fromEntries(Object.entries(route.query).filter(([key]) => key !== 'meetup'))
+  if (keep) query.meetup = before
+  if ((route.query.meetup || '') !== (keep ? before : '')) router.replace({ query })
 }
 // "Your meetups" lists a few (lib/homeMeetups.js homeList), and the selected one is one of them, so the card, the rows and the pins
 // agree and picking a pin changes nothing else on the map. "See all N meetups" opens Sessions when there are more, or finished ones.
@@ -210,6 +226,7 @@ watch(
 // step through selections) and keep any other part of the address, such as an open place.
 // How to call: select('s3')
 async function select(id) {
+  collapsed.value = false
   if (id === selected.value?.id) return
   announce.value = `${meetups.value.find((m) => m.id === id)?.title || 'Meetup'} selected`
   await router.replace({ query: { ...route.query, meetup: id } })
@@ -220,6 +237,7 @@ async function select(id) {
 // Closing the card: nothing selected, the map alone again. Focus goes back to the selected pin, if a pin had it.
 // How to call: closeMeetup()
 function closeMeetup() {
+  collapsed.value = false
   if (!selected.value) {
     if (listOpen.value) announce.value = 'List closed'
     listOpen.value = false
@@ -244,7 +262,7 @@ function onStageClick(event) {
 // closes that card first, MeetupPins).
 // How to call: window.addEventListener('keydown', onKey)
 function onKey(event) {
-  if (event.key !== 'Escape' || event.defaultPrevented || !drawerOpen.value || openPlace.value || filterOpen.value) return
+  if (event.key !== 'Escape' || event.defaultPrevented || !panelShown.value || openPlace.value || filterOpen.value) return
   if (globalThis.document?.activeElement?.closest?.('.mwrap.is-open')) return
   closeMeetup()
 }
@@ -255,10 +273,28 @@ const panel = ref(null)
 const listOpen = ref(false)
 // The tall panel is open while a meetup is selected, or the list is.
 const drawerOpen = computed(() => events.loaded && hasMeetups.value && (!!selected.value || listOpen.value))
+// The panel can be tucked away without closing what it shows (the lead, 4 November 2026): its chevron hides it and a tab at the edge of
+// the screen brings it back, with the same meetup or list. Picking a pin or a row, List, or closing the meetup brings it out again.
+const collapsed = ref(false)
+const panelShown = computed(() => drawerOpen.value && !collapsed.value)
+// What the tab that brings the panel back says. How to call: tabLabel.value -> 'Show Chinatown makan crawl'
+const tabLabel = computed(() => `Show ${selected.value?.title || 'your meetups'}`)
+// Hide the panel, keeping what it shows. How to call: collapse()
+function collapse() {
+  collapsed.value = true
+  announce.value = 'Panel hidden'
+}
+// Bring the panel back, with focus on its chevron. How to call: await expand()
+async function expand() {
+  collapsed.value = false
+  announce.value = 'Panel shown'
+  await nextTick()
+  panel.value?.querySelector?.('.home__collapse')?.focus({ preventScroll: true })
+}
 // Below 1024px the panel is a sheet over the lower part of the screen, so when it opens (or Home opens with it, for a meetup happening
 // now) the page scrolls the map up into the room above it (the body leaves room to scroll, in the CSS), and the selected pin stays in sight.
 const stage = ref(null)
-watch(drawerOpen, async (open) => {
+watch(panelShown, async (open) => {
   if (!open || typeof matchMedia !== 'function' || !matchMedia('(max-width: 1023px)').matches) return
   await nextTick()
   // Two frames on, so a page that has just opened is not then put back at the top by the router (router/index.js scrollBehavior).
@@ -272,6 +308,7 @@ watch(drawerOpen, async (open) => {
 // while the list is open does the same. The chip closes the panel again, and so do its ×, Escape and the empty map. Off when Home opens.
 // How to call: toggleList()
 function toggleList() {
+  collapsed.value = false
   if (listOpen.value && !selected.value) return closeMeetup()
   listOpen.value = true
   if (selected.value) backToList()
@@ -554,7 +591,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 </script>
 
 <template>
-  <main class="screen home" :class="{ 'has-drawer': drawerOpen }" data-testid="landing-view">
+  <main class="screen home" :class="{ 'has-drawer': panelShown }" data-testid="landing-view">
     <!-- The band: a muted map of Singapore; the routes meet at the selected meetup (or under the main action, in the middle). -->
     <section class="hero" :class="{ 'has-meetup': hasMeetups, 'hero--full': fullMap }" aria-labelledby="home-hello">
       <!-- Finding people and adding them as friends (walkthrough, 30 October 2026), and under it finding places from a post, a round
@@ -623,11 +660,14 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
          left to make room; below 1024px it comes up from the bottom as a tall sheet, with the top of the map still showing over it. It is
          not a dialog: the pins stay usable, and picking another one changes what it shows. Its ×, Escape or the empty map closes it. -->
     <Transition name="drawer">
-      <aside v-if="drawerOpen" ref="panel" class="home__drawer" :aria-labelledby="selected ? 'home-detail-title' : 'home-meetups'" data-testid="home-panel">
+      <aside v-if="panelShown" ref="panel" class="home__drawer" :aria-labelledby="selected ? 'home-detail-title' : 'home-meetups'" data-testid="home-panel">
         <div class="home__drawer-head" :class="{ 'has-back': selected && listOpen }">
           <span class="home__grip" aria-hidden="true" />
           <button v-if="selected && listOpen" type="button" class="home__back" data-testid="home-panel-back" @click="backToList"><AppIcon name="back" :size="16" />All meetups</button>
-          <button type="button" class="hero__close" :aria-label="selected ? 'Close meetup' : 'Close list'" title="Close" data-testid="home-panel-close" @click="closeMeetup"><AppIcon name="close" :size="18" /></button>
+          <span class="home__drawer-tools">
+            <button type="button" class="hero__close home__collapse" aria-label="Hide panel" title="Hide panel" data-testid="home-panel-collapse" @click="collapse"><AppIcon name="chevron-down" :size="18" /></button>
+            <button type="button" class="hero__close" :aria-label="selected ? 'Close meetup' : 'Close list'" title="Close" data-testid="home-panel-close" @click="closeMeetup"><AppIcon name="close" :size="18" /></button>
+          </span>
         </div>
 
         <!-- The list: the meetups the chips choose; a row opens that meetup here. -->
@@ -675,6 +715,13 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
           </template>
         </section>
       </aside>
+    </Transition>
+    <!-- The panel tucked away: a tab at the edge of the screen brings it back with what it showed. -->
+    <Transition name="tab">
+      <button v-if="drawerOpen && collapsed" type="button" class="home__tab" :aria-label="tabLabel" :title="tabLabel" data-testid="home-panel-expand" @click="expand">
+        <AppIcon name="chevron-down" :size="18" class="home__tab-icon" />
+        <span class="home__tab-word truncate">{{ selected?.title || 'Your meetups' }}</span>
+      </button>
     </Transition>
 
     <div class="screen__body home__body">
@@ -874,7 +921,17 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 .home__drawer-head { position: sticky; top: calc(var(--spacing-xs) * -1); z-index: 2; display: flex; align-items: center; justify-content: center; min-height: var(--tap-min); margin: 0 calc(var(--gutter) * -1) calc(var(--spacing-lg) * -1); padding: 0 var(--gutter); }
 .home__drawer-head.has-back { margin-bottom: 0; }
 .home__grip { width: 40px; height: 4px; border-radius: var(--rounded-full); background: var(--border-strong); }
-.home__drawer .hero__close { position: absolute; top: var(--spacing-xxs); right: var(--gutter); }
+.home__drawer-tools { position: absolute; top: var(--spacing-xxs); right: var(--gutter); display: inline-flex; gap: var(--spacing-xs); }
+/* The chevron points the way the panel goes: down on a phone's sheet, right beside the desktop's map. */
+.home__collapse :deep(svg) { transition: transform var(--motion-fast) var(--ease-out); }
+/* The tab that brings a tucked-away panel back: a pill above the tab bar on a phone (on the left, clear of the demo tools' button), on the
+   right edge under the top bar on a desktop. */
+.home__tab { position: fixed; z-index: 22; left: var(--gutter); bottom: calc(var(--tabbar-real-height) + var(--spacing-base)); display: inline-flex; align-items: center; gap: var(--spacing-xs); max-width: min(280px, calc(100vw - 2 * var(--gutter))); min-height: var(--tap-min); padding: 0 var(--spacing-base) 0 var(--spacing-md); border: 1px solid color-mix(in srgb, var(--hairline) 70%, transparent); border-radius: var(--rounded-full); background: color-mix(in srgb, var(--canvas) 86%, transparent); -webkit-backdrop-filter: blur(14px) saturate(1.3); backdrop-filter: blur(14px) saturate(1.3); box-shadow: var(--shadow-float); color: var(--ink); font: var(--text-button-sm); cursor: pointer; }
+.home__tab-icon { flex-shrink: 0; transform: rotate(180deg); }
+@media (hover: hover) { .home__tab:hover { background: var(--canvas); border-color: var(--border-strong); } }
+.home__tab:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.tab-enter-active, .tab-leave-active { transition: opacity 200ms var(--ease-out), transform 260ms var(--ease-out); }
+.tab-enter-from, .tab-leave-to { opacity: 0; transform: translateY(8px); }
 /* Inside the panel the meetup's card has no frame of its own: the panel is the frame. */
 .home__drawer-card { padding: 0; border: 0; box-shadow: none; background: none; }
 .home__drawer-places { display: flex; flex-direction: column; gap: var(--spacing-base); padding-top: var(--spacing-lg); border-top: 1px solid var(--hairline); }
@@ -890,7 +947,10 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 @media (min-width: 1024px) {
   .home__drawer { top: var(--topbar-real-height); bottom: 0; left: auto; width: var(--drawer-w); max-height: none; padding: var(--spacing-md) var(--spacing-lg) var(--spacing-xl); border-width: 0 0 0 1px; border-radius: 0; box-shadow: -12px 0 40px rgb(0 0 0 / 0.08); }
   .home__drawer-head { justify-content: flex-end; margin-bottom: calc(var(--tap-min) * -1 - var(--spacing-lg)); background: none; pointer-events: none; }
-  .home__drawer-head .hero__close { position: static; pointer-events: auto; }
+  .home__drawer-head .home__drawer-tools { position: static; pointer-events: auto; }
+  .home__collapse :deep(svg) { transform: rotate(-90deg); }
+  .home__tab { top: calc(var(--topbar-real-height) + var(--spacing-base)); bottom: auto; left: auto; right: 0; padding-right: var(--spacing-md); border-right: 0; border-radius: var(--rounded-full) 0 0 var(--rounded-full); }
+  .home__tab-icon { transform: rotate(90deg); }
   .home__drawer-head.has-back { justify-content: space-between; }
   .home__drawer-head .home__back { position: static; margin-left: calc(var(--spacing-sm) * -1); pointer-events: auto; }
   .home__grip { display: none; }
