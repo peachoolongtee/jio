@@ -217,7 +217,7 @@ svg { display: block; flex-shrink: 0; }
 
 /* Map-first pages (Locate and the itinerary, SplitView mapFirst), from 1128px (Darius, 4 November 2026): the map is the whole screen and
    the page floats over it.
-   - Top left: the back button, and one card with the title, the date and the steps.
+   - Top: the back button on the left, one card with the title, the date and the steps in the middle.
    - Top right: Change plan, Invite and Hold to cancel.
    - Down the right edge: the page's body (its notices and the list's sections), each in a white card of its own, in a column that
      scrolls on its own. The column lets presses through to the map between its cards.
@@ -231,14 +231,16 @@ svg { display: block; flex-shrink: 0; }
   .screen:has(.split--first) > .session-head .screen__bar { display: contents; }
   .screen:has(.split--first) > .session-head .screen__bar > *, .screen:has(.split--first) > .session-head .session-head__card { pointer-events: auto; }
   .screen:has(.split--first) > .session-head .screen__bar > :first-child { order: 0; flex-shrink: 0; background: var(--canvas); box-shadow: var(--shadow-float); }
-  .screen:has(.split--first) > .session-head .session-head__card { order: 1; width: min(560px, calc(100vw - var(--map-panel) - var(--map-edge) * 3 - 56px)); padding: var(--spacing-sm) var(--spacing-base) var(--spacing-md); border-radius: var(--rounded-lg); background: var(--canvas); box-shadow: var(--shadow-float); gap: var(--spacing-sm); }
+  /* The card sits in the middle of the page's top (Darius, 4 November 2026), between the back button and the actions. */
+  .screen:has(.split--first) > .session-head .session-head__card { position: absolute; top: 0; left: 50%; transform: translateX(-50%); order: 1; width: min(560px, calc(100vw - 740px)); padding: var(--spacing-sm) var(--spacing-base) var(--spacing-md); border-radius: var(--rounded-lg); background: var(--canvas); box-shadow: var(--shadow-float); gap: var(--spacing-sm); }
   .screen:has(.split--first) > .session-head .screen__titles { order: -1; gap: 2px; }
-  .screen:has(.split--first) > .session-head .screen__titles h1 { margin: 0; font: var(--text-display-sm); }
+  .screen:has(.split--first) > .session-head .screen__titles h1 { margin: 0; font: var(--text-display-sm); -webkit-line-clamp: 1; line-clamp: 1; }
   .screen:has(.split--first) > .session-head .session-head__actions { order: 2; margin-left: auto; }
   .screen:has(.split--first) > .session-head .session-head__actions :is(.btn, .icon-btn, .hold) { box-shadow: var(--shadow-float); }
   .screen:has(.split--first) > .session-head .session-head__actions .icon-btn { background: var(--canvas); }
 
-  .screen:has(.split--first) > .screen__body { position: fixed; z-index: 10; top: calc(var(--map-edge) + var(--tap-min) + var(--spacing-sm)); right: var(--map-edge); bottom: calc(var(--map-edge) + var(--tap-min) + var(--spacing-base)); width: var(--map-panel); padding: 0 0 var(--spacing-xs); gap: var(--spacing-sm); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; pointer-events: none; }
+  /* The column starts under the middle card (about 120px tall, its title on one line). */
+  .screen:has(.split--first) > .screen__body { position: fixed; z-index: 10; top: calc(var(--map-edge) + 136px); right: var(--map-edge); bottom: calc(var(--map-edge) + var(--tap-min) + var(--spacing-base)); width: var(--map-panel); padding: 0 0 var(--spacing-xs); gap: var(--spacing-sm); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; pointer-events: none; }
   .screen:has(.split--first) > .screen__body::-webkit-scrollbar { display: none; }
   .screen:has(.split--first) > .screen__body > *, .screen:has(.split--first) .split__list > * { pointer-events: auto; }
   .screen:has(.split--first) .split--first { pointer-events: none; }
