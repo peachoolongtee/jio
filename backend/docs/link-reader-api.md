@@ -94,7 +94,7 @@ Each place has a `toSave` object. **Save that, not the whole place.** It holds t
 - `toSave.googlePlaceId` is `null` when there is no confident match. Let the person confirm `match` (then copy `match.placeId`) or save the place without one.
 - Group a person's saved places in lists. A place saved from two posts is one place (same `googlePlaceId`) with two sources.
 - `postKey` is the same for every spelling of a link to the same post (`tiktok:7690...`, `youtube:dQw4...`), so use it to find a post that has been read before.
-- Suggested tables (**not created: Ian owns the live database**): `saved_lists(id, owner, title)`, `saved_places(list_id, google_place_id, name, tip, post_key, post_url, post_date, read_on, status, opens_on, closes_on)`, `place_reports(user_id, google_place_id, kind, at)`. Row-level security so a person reads and writes only their own lists and reports.
+- **Saved places:** one list a person, in `saved_places` (`db/migrations/20261104000000_jio_saved_places.sql`), which also keeps the place's `locationHint`. The browser reads and writes its own rows directly. **Applied to the live project on 4 November 2026, in the SQL editor, so it is not in the migration history.** Not built: `place_reports(user_id, google_place_id, kind, at)`.
 
 ## Out-of-date places and reports
 

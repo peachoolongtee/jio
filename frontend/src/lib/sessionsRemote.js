@@ -1082,6 +1082,19 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     const answered = await ask(() => backend.addOption(sessionId, slotId, venueId), { wrong_status: WORDS.placesClosed })
     return answered?.added !== false
   }
+  // A member adds a saved place Jio does not know, as a copy. Resolves true when it was added.
+  // How to call: await addSavedOption('3b1f...', '9a2c...', savedCopy(place, pin))
+  async function addSavedOption(sessionId, slotId, saved) {
+    const answered = await ask(() => backend.addSavedOption(sessionId, slotId, saved), { wrong_status: WORDS.placesClosed })
+    return answered?.added !== false
+  }
+  // The saved places' copies kept with these options, in the sessions this person may read. They are not on the server's list of places.
+  // How to call: await savedOptionPlaces(['saved_7f3c']) -> [{ id: 'saved_7f3c', name: 'Nylon', ... }]
+  async function savedOptionPlaces(ids) {
+    who()
+    const rows = answer(await db().from('slot_options').select('venue_id, details').in('venue_id', ids), WORDS.notLoaded)
+    return rows.flatMap((row) => (row.details?.place ? [row.details.place] : []))
+  }
   // A member asks for more places in a category, saying how many they are looking at. Resolves the ids added.
   // How to call: const added = await moreOptions('3b1f...', '9a2c...', 3)
   async function moreOptions(sessionId, slotId, have) {
@@ -1332,5 +1345,5 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     }
   }
 
-  return { list, get, readPlan, readSlotVotes, suggestOrder, tripsHome, confirmPlan, replan, complete, setTravelMode, deleteStop, reorderStops, stopIds, stopSwap, stopChoices, changeStopPlace, keepRain, roam, propose, resolve, myLedger, create, update, cancel, start, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, changeMeetingPlace, optOut, rejoin, castVote, setRadius, dietary, setDietary, travelLean, removeSlot, restoreSlots, addOption, removeOption, moreOptions, swapOption, searchSlot, syncPlan, venues, setPrefs, restorePrefs, currentLink, makeLink, revoke, invitePerson, revokeInvitation, preview, join, invitations, decline, removeMember, watch }
+  return { addSavedOption, savedOptionPlaces, list, get, readPlan, readSlotVotes, suggestOrder, tripsHome, confirmPlan, replan, complete, setTravelMode, deleteStop, reorderStops, stopIds, stopSwap, stopChoices, changeStopPlace, keepRain, roam, propose, resolve, myLedger, create, update, cancel, start, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, changeMeetingPlace, optOut, rejoin, castVote, setRadius, dietary, setDietary, travelLean, removeSlot, restoreSlots, addOption, removeOption, moreOptions, swapOption, searchSlot, syncPlan, venues, setPrefs, restorePrefs, currentLink, makeLink, revoke, invitePerson, revokeInvitation, preview, join, invitations, decline, removeMember, watch }
 }

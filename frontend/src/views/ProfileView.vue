@@ -3,7 +3,7 @@
 //   The top: a banner in the person's own colour (the same as their avatar and map pin), their avatar overlapping
 //   it, name, @username and home area, and a strip of three numbers (meetups, season rank, JioCoins). Someone else's
 //   also has "Add friend" / "Friends" under the numbers (in the sample world only); the signed-in person's own has
-//   "Edit profile" there (/profile/edit), and nobody else's does. The signed-in person's own
+//   "Edit profile" (/profile/edit) and "Saved places" (/places/saved) there, and nobody else's does: saved places are private. The signed-in person's own
 //   has no create button: the navbar has one.
 //   Someone else's also has one line under the name, "3 outings together · last on 12 Oct 2026", when the two of them have been out
 //   together (lib/hangouts.js outingsWith: finished outings with both in them, as the invite page counts them); with none, no line.
@@ -241,10 +241,16 @@ async function signOut() {
                 <AppIcon :name="person.isFriend ? 'check' : 'plus'" />
                 {{ person.isFriend ? 'Friends' : 'Add friend' }}
               </AppButton>
-              <AppButton v-else-if="isMe" block variant="secondary" to="/profile/edit" data-testid="edit-profile">
-                <AppIcon name="edit" />
-                Edit profile
-              </AppButton>
+              <div v-else-if="isMe" class="own-actions">
+                <AppButton block variant="secondary" to="/profile/edit" data-testid="edit-profile">
+                  <AppIcon name="edit" />
+                  Edit profile
+                </AppButton>
+                <AppButton block variant="secondary" :to="{ path: '/places/saved', query: { from: 'profile' } }" data-testid="profile-saved">
+                  <AppIcon name="bookmark" />
+                  Saved places
+                </AppButton>
+              </div>
             </div>
           </div>
           </div>
@@ -344,6 +350,8 @@ async function signOut() {
 #my-sessions { scroll-margin-top: calc(var(--topbar-real-height) + var(--spacing-base)); }
 /* The day picked on the graph: an ink chip, like a selected one, whose × lets it go. 44px tall to tap. */
 .day-filter { margin: 0 0 var(--spacing-base); }
+/* Edit profile and Saved places share the row, and stack where the labels would not fit. */
+.own-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: var(--spacing-sm); }
 .day-chip { display: inline-flex; align-items: center; gap: var(--spacing-xs); min-height: var(--tap-min); padding: 0 var(--spacing-md); border: 0; border-radius: var(--rounded-full); background: var(--selected); color: var(--on-selected); cursor: pointer; }
 .day-chip:hover { background: var(--body); }
 .day-chip:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }

@@ -7,6 +7,7 @@
 // What it models, from the files:
 //   - the tables `sessions`, `session_members` and `invites`, with their defaults, check constraints, foreign keys to
 //     `profiles` and the unique indexes (one live link per session; one invitation per person per session);
+//   - `saved_places`: a person's saved places, read, kept and removed by that person alone;
 //   - stage 3: `session_member_places` (a member's exact place: only its owner reads it, and it is never published to live
 //     updates), `session_spots`, `spot_suggestions` and `spot_approvals` (members read them; only the server writes the first
 //     two, and a member inserts and deletes their own approval while joined and the session is locating);
@@ -84,6 +85,7 @@
 export const SERVICE = 'service'
 
 const PRIMARY_KEY = {
+  saved_places: ['id'],
   sessions: ['id'],
   session_members: ['session_id', 'user_id'],
   invites: ['token'],
@@ -111,7 +113,9 @@ const PLACE_COLUMNS = ['start_label', 'start_lat', 'start_lng', 'end_label', 'en
 const DAY_MS = 24 * 60 * 60 * 1000
 const OPEN = ['inviting', 'locating', 'voting']
 const MAX_JOINED = 30
+const SAVED_PLACE_COLUMNS = ['name', 'name_english', 'categories', 'tip', 'location_hint', 'google_place_id', 'post_key', 'post_url']
 const GRANTS = {
+  saved_places: { insert: SAVED_PLACE_COLUMNS, update: ['categories'], delete: true },
   sessions: { insert: ['host_id', 'title', 'date', 'start_time', 'end_time'], update: ['title', 'date', 'start_time', 'end_time', 'status', 'meet_by'] },
   invites: { insert: ['session_id', 'created_by', 'expires_at', 'invitee_id'], update: ['revoked'] },
   session_members: { insert: [], update: ['start_area_id', 'end_area_id', 'categories', 'stay_until'] },
@@ -147,6 +151,7 @@ const rlsRefused = (table) => new DbError('42501', `new row violates row-level s
 
 // The uuid columns, which Postgres refuses any other text for with 22P02 before it looks at a row.
 const UUID_COLUMNS = {
+  saved_places: ['id', 'user_id'],
   sessions: ['id', 'host_id'],
   session_members: ['session_id', 'user_id'],
   invites: ['session_id', 'created_by', 'invitee_id'],
@@ -208,7 +213,7 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
   // The private planner needs of each person, as `profile_private` holds them (home_area_id, dietary, budget_max_per_person,
   // needs_step_free). Nobody reads them as a table; only `session_member_needs()` does, for the service key.
   const privateNeeds = new Map(Object.entries(needs).map(([id, row]) => [id, structuredClone(row)]))
-  const tables = { sessions: [], session_members: [], invites: [], session_member_places: [], session_spots: [], spot_suggestions: [], spot_approvals: [], slots: [], slot_options: [], votes: [], stops: [], commute_ledger: [], stop_proposals: [], session_member_dietary: [], session_dietary_dropped: [] }
+  const tables = { saved_places: [], sessions: [], session_members: [], invites: [], session_member_places: [], session_spots: [], spot_suggestions: [], spot_approvals: [], slots: [], slot_options: [], votes: [], stops: [], commute_ledger: [], stop_proposals: [], session_member_dietary: [], session_dietary_dropped: [] }
   const subscribers = new Set()
   // The events of the statement being run, or null outside one.
   let queue = null
@@ -246,7 +251,7 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
     if (table === 'session_members') return isMember(as, row.session_id)
     // Spots, suggestions and approvals: every member reads them. A person's exact place: only that person.
     if (['session_spots', 'spot_suggestions', 'spot_approvals', 'slots'].includes(table)) return isMember(as, row.session_id)
-    if (table === 'session_member_places') return row.user_id === as
+    if (table === 'session_member_places' || table === 'saved_places') return row.user_id === as
     // Options and votes: a member of the slot's session reads them all (my_slot_ids()).
     if (table === 'slot_options' || table === 'votes') return inSlot(as, row.slot_id)
     // The itinerary, the ledger and the proposals: every member reads them (my_session_ids()); a person also reads their own ledger row
@@ -609,6 +614,7 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
     }
     for (const v of list) for (const [c, value] of Object.entries(v)) checkUuid(table, c, value)
     const made = list.map((v) => {
+      if (table === 'saved_places') return insertSavedPlace(as, v)
       if (table === 'sessions') return insertSession(as, v)
       if (table === 'invites') return insertInvite(as, v)
       if (table === 'session_member_places') return insertPlace(as, v)
@@ -626,6 +632,22 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
     // RETURNING applies the select policy to the new rows: one the person may not read fails the whole statement.
     if (made.some((r) => !self.canSee(as, table, r))) throw rlsRefused(table)
     return shape(op, made, table)
+  }
+
+  // A person keeps a place from a post, once: by its Google id, or with none by its name in any case (db/migrations/20261104000000).
+  // How to call: insertSavedPlace(uid, { name: 'Nylon', categories: ['eat'], google_place_id: 'abc' })
+  function insertSavedPlace(as, values) {
+    const categories = values.categories
+    const known = ['eat', 'drink', 'shop', 'activity']
+    if (!Array.isArray(categories) || !categories.length || new Set(categories).size !== categories.length || categories.some((c) => !known.includes(c))) {
+      throw new DbError('23514', 'new row for relation "saved_places" violates check constraint "saved_places_categories"')
+    }
+    const row = { id: crypto.randomUUID(), user_id: as, name_english: null, tip: null, location_hint: null, google_place_id: null, post_key: null, post_url: null, created_at: new Date().toISOString(), ...values }
+    const name = (r) => String(r.name).trim().toLowerCase()
+    const same = (r) => r.user_id === row.user_id && (row.google_place_id ? r.google_place_id === row.google_place_id : !r.google_place_id && name(r) === name(row))
+    if (tables.saved_places.some(same)) throw new DbError('23505', 'duplicate key value violates unique constraint "saved_places_one_by_google_idx"')
+    tables.saved_places.push(row)
+    return row
   }
 
   // A member keeps their own exact place, while joined and the session is open.

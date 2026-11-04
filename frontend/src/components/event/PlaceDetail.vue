@@ -102,7 +102,7 @@ onBeforeUnmount(() => {
           <header class="pd__head">
             <p class="pd__kind caption text-muted"><CategoryIcon :category="place.category" :size="24" /> {{ kind }}</p>
             <h2 :id="titleId" class="display-md pd__name">{{ place.name }}</h2>
-            <SampleNote />
+            <SampleNote v-if="!place.saved" />
             <div class="pd__facts">
               <RatingBadge v-if="place.rating != null" large :score="place.rating" />
               <PriceTier class="pd__price" :price="place.price" />
@@ -115,10 +115,10 @@ onBeforeUnmount(() => {
               <span class="pd__pin"><AppIcon name="pin" :size="18" /></span>
               <span class="pd__address-text">
                 <span class="caption text-muted">Address</span>
-                <span class="title-sm">{{ place.address || `${place.area}, Singapore` }}</span>
+                <span class="title-sm">{{ place.address || (place.saved ? 'No address saved' : `${place.area}, Singapore`) }}</span>
               </span>
             </div>
-            <div v-if="place.distanceKm != null || place.mrt" class="pd__distance">
+            <div v-if="!place.noPin && (place.distanceKm != null || place.mrt)" class="pd__distance">
               <span v-if="place.distanceKm != null" class="pd__chip"><AppIcon name="route" :size="14" /><span class="tnum">{{ place.distanceKm }} km</span> from {{ from }}</span>
               <span v-if="place.mrt" class="caption-sm text-muted">about {{ place.mrtWalk }} min walk from {{ place.mrt }} MRT</span>
             </div>
@@ -132,7 +132,7 @@ onBeforeUnmount(() => {
             <p :id="`${titleId}-navigate`" class="sr-only">Opens Google Maps in a new tab.</p>
           </div>
 
-          <section class="pd__reviews" :aria-labelledby="`${titleId}-reviews`">
+          <section v-if="!place.saved" class="pd__reviews" :aria-labelledby="`${titleId}-reviews`">
             <div class="pd__reviews-head">
               <h3 :id="`${titleId}-reviews`" class="title-md">Sample reviews</h3>
               <span v-if="reviews" class="caption text-muted">{{ reviews.length }} {{ reviews.length === 1 ? 'review' : 'reviews' }} · {{ friendCount }} from friends<template v-if="outingCount"> · {{ outingCount }} in this outing</template></span>

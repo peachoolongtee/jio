@@ -538,6 +538,19 @@ describe('the radius, and adding, searching, swapping and asking for more places
     expect(w.server.calls).toEqual([])
   })
 
+  it('shows B a saved place A adds, from the copy kept with its option, on the card and with no pin off the map', async () => {
+    const { w, sam, kim, id, slot } = await voting()
+    const place = { id: '7f3c2a10-0000-4000-8000-000000000001', name: 'Secret Supper Club', nameEnglish: null, categories: [slot.category], locationHint: null, googlePlaceId: 'g_one' }
+    await kim.api.addSavedOption(id, slot.id, place)
+    const venueId = `saved_${place.id}`
+    expect(w.server.calls.find((c) => c.route === 'addOption')?.body.saved).toMatchObject({ id: place.id, name: 'Secret Supper Club', lat: null, lng: null, googlePlaceId: 'g_one' })
+    const added = bySlot(await sam.api.getPlan(id), slot.category).options.find((o) => o.id === venueId)
+    expect(added.venue).toMatchObject({ name: 'Secret Supper Club', saved: true, noPin: true, price: null, rating: null })
+    expect(added.savedBy).toBeTruthy()
+    expect(added.addedBy).toBe(kim.id)
+    expect(w.server.calls.filter((c) => c.route === 'venues' && JSON.stringify(c.query).includes('saved_'))).toEqual([])
+  })
+
   it('shows B a place A adds from a search, with the votes it gets, and refuses a seventh, a place that does not fit and a repeat', async () => {
     const { w, sam, kim, id, slot } = await voting()
     const found = await kim.api.searchVenuesForSlot(id, slot.id, 'a')

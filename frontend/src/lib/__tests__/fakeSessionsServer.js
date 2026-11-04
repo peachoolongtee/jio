@@ -609,6 +609,18 @@ export function fakeSessionsServer(database) {
     async addOption(user, id, body, { slot: slotId }) {
       const { session } = load(user, id)
       const slot = voting(session, slotId)
+      // A saved place Jio does not know: a copy kept with the option, never ranked (backend/src/services/sessions.js, addSavedOption).
+      if (body.saved) {
+        const venueId = `saved_${body.saved.id}`
+        if (optionsOf(slot.id).some((o) => o.venue_id === venueId)) return { status: 200, body: { planVersion: session.plan_version, added: false } }
+        const loaded = { status: session.status, version: session.plan_version }
+        const place = { ...body.saved, id: venueId, ...(body.saved.lat == null ? { lat: 1.3, lng: 103.85, noPin: true } : {}) }
+        const version = await apply(id, loaded, async () => {
+          const answer = await write({ kind: 'insert', table: 'slot_options', values: { slot_id: slot.id, venue_id: venueId, source: 'member', added_by: user, rank: null, score: null, details: { place, reasons: [], warnings: [], approximate: false } } })
+          if (answer.error) throw new Error(answer.error.message)
+        }, () => ({}))
+        return { status: 201, body: { planVersion: version, added: true } }
+      }
       if (typeof body.venueId !== 'string' || !body.venueId || body.venueId.length > 160) refuse(400, 'invalid_input', 'Send a place id.')
       const have = optionsOf(slot.id)
       if (have.some((o) => o.venue_id === body.venueId)) return { status: 200, body: { planVersion: session.plan_version, added: false } }

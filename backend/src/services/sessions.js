@@ -62,7 +62,7 @@ import {
   suggestedAreaIds,
 } from './session-plan.js'
 import { dietaryView, effectiveNeeds, heldByOthers, MIN_MEMBERS_FOR_OTHERS, needsInEffect, needsOf, sameNeeds, without } from './session-dietary.js'
-import { categoryOfSlot, optionRow, optionsOf, roamReply } from './session-slots.js'
+import { categoryOfSlot, isSavedPlaceId, optionRow, optionsOf, roamReply, savedOptionRow, savedPlaceId } from './session-slots.js'
 import { createVoting, dateTimeOf, newAllowance, spend } from './session-voting.js'
 import { ROUTING_DEADLINE_MS } from './travel-times.js'
 
@@ -318,7 +318,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
   //   timedRows(draft.stops, layoutVenue(draft), startOf(draft.session, draft.stops))
   function layoutVenue(draft) {
     const area = areasById.get(draft.session.meeting_area_id)
-    return (venueId) => voting.venues.get(venueId) ?? (area ? { lat: area.lat, lng: area.lng } : undefined)
+    return (venueId) => voting.placeOf(draft, venueId) ?? (area ? { lat: area.lat, lng: area.lng } : undefined)
   }
   // When each voted stop of a draft was voted to start, by slot, for the plan to start at when its first stop goes.
   //
@@ -1523,6 +1523,39 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
     )
   }
 
+  // POST /api/sessions/:id/slots/:slotId/options with { saved }: a joined member adds a saved place Jio does not know, as a copy kept with the option
+  // (Faith, 4 November 2026). The planner does not rank it, so it always fits; it must be of the slot's own kind.
+  //
+  // How to call:
+  //   await sessions.addSavedOption({ client: req.supabase, id, userId: req.user.id, slotId, saved: { id: '7f3c', name: 'Nylon', category: 'drink', address: null, lat: null, lng: null, rough: false, googlePlaceId: null } })
+  //   // { planVersion, added: true }
+  function addSavedOption({ client, id, userId, slotId, saved }) {
+    userId = lower(userId)
+    const check = (state) => {
+      requireJoined(state, userId)
+      requireStatus(state, ['voting'], { what: 'add a place' })
+    }
+    return submit(
+      { client, id, userId },
+      {
+        check,
+        prepare: async (draft, ctx) => {
+          check(draft)
+          const slot = liveSlot(draft, slotId)
+          if (slot.category !== saved.category) throw refuse(422, 'venue_does_not_fit', `${saved.name} does not fit this slot.`)
+          const options = optionsOf(draft, slot.category)
+          if (options.some((o) => o.venue_id === savedPlaceId(saved))) return { ops: [], needs: 'none', answer: ({ version }) => ({ planVersion: version, added: false }) }
+          if (options.length >= OPTIONS_MAX) throw refuse(409, 'slot_full', `A slot holds up to ${OPTIONS_MAX} places.`)
+          requireMeetingArea(draft)
+          const centre = areasById.get(draft.session.meeting_area_id)
+          draft.options.push(savedOptionRow(saved, { addedBy: userId, centre, needs: await ctx.needs(draft) }))
+          draft.dirty.add(slot.category)
+          return { ops: [], needs: 'none', plan: {}, answer: ({ version }) => ({ planVersion: version, added: true }) }
+        },
+      },
+    )
+  }
+
   // DELETE /api/sessions/:id/slots/:slotId/options/:venueId: a joined member takes back a place they added themselves, while voting and
   // while nobody else has voted for it (Faith, 31 October 2026: the search's "Added" can be pressed again). Their own vote for it goes with
   // it. A place that is not an option any more is a no-op (`removed: false`).
@@ -1759,9 +1792,9 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
       // The same stops as the stored suggestion: nothing to work out, nothing to write, no AI call.
       const stored = state.session.order_suggestion
       if (stored?.basis === basis && suggestionFits(stops, stored)) return answerOf(stored)
-      if (stops.some((s) => !voting.venues.has(s.venueId))) return { status: 'none', why: 'unknown_place', basis, voted }
+      if (stops.some((s) => !voting.placeOf(draft, s.venueId))) return { status: 'none', why: 'unknown_place', basis, voted }
       if (stops.filter((s) => s.category !== 'eat').length < 2) return { status: 'none', why: 'one_movable', basis, voted }
-      const { candidates } = arrangeCandidates(arrangeInput(stops, (venueId) => voting.venues.get(venueId), draft.session))
+      const { candidates } = arrangeCandidates(arrangeInput(stops, (venueId) => voting.placeOf(draft, venueId), draft.session))
       const { options } = freshCandidates(candidates, [], { includeCurrent: true })
       if (options.length === 0) return { status: 'none', why: 'no_order_fits', basis, voted }
       // The AI never throws because it is down, slow or over budget: it falls back to the rules.
@@ -1992,8 +2025,10 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
         prepare: async (draft, ctx) => {
           check(draft)
           const row = stopOf(draft, stopId)
-          const venue = voting.venues.get(venueId)
+          const venue = voting.placeOf(draft, venueId)
           if (!venue) throw refuse(404, 'venue_not_found', 'That place is not one Jio knows.')
+          const copy = isSavedPlaceId(venueId)
+          if (copy && (category ?? row.category) !== venue.category) throw refuse(422, 'venue_does_not_fit', `${venue.name} does not fit this stop.`)
           const kind = category ?? row.category ?? venue.category
           if (row.venue_id === venueId && row.category === kind) return { ops: [], needs: 'none', answer: ({ version }) => ({ planVersion: version, changed: false }) }
           if (row.venue_id !== seenVenueId) throw refuse(409, 'stop_changed', 'That stop has changed. Look at the plan again.')
@@ -2002,13 +2037,14 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
           const startedAt = timedRows(draft.stops, layoutVenue(draft), startOf(draft.session, draft.stops)).timed[index].start
           const slot = { category: kind, start_minute: Math.min(1439, startedAt), duration_minutes: row.duration_minutes }
           requireMeetingArea(draft)
-          const ranking = await voting.rankSlot(draft, slot, [venueId], ctx, { last: index === draft.stops.length - 1 })
-          if (!ranking.current.has(venueId)) throw refuse(422, 'venue_does_not_fit', `${venue.name} does not fit this stop.`)
+          // A saved place's copy is not ranked: it is an option of the group's already.
+          const ranking = copy ? null : await voting.rankSlot(draft, slot, [venueId], ctx, { last: index === draft.stops.length - 1 })
+          if (!copy && !ranking.current.has(venueId)) throw refuse(422, 'venue_does_not_fit', `${venue.name} does not fit this stop.`)
           const result = withPlace(draft.stops, stopId, { venueId, category: kind, startedAt: Math.min(1439, startedAt) }, draft.session, layoutVenue(draft))
           // The new place is kept as an option of the stop's slot only when it is of the slot's own kind; for another kind the old place just
           // leaves the slot's options (a place of one kind is not a choice for another kind's slot).
           const slotKind = row.slot_id ? draft.slots.find((sl) => sl.id === row.slot_id)?.category : null
-          const kept = row.slot_id && kind === slotKind ? optionRow(kind, ranking.rows.get(venueId)) : null
+          const kept = row.slot_id && kind === slotKind ? (copy ? draft.options.find((o) => o.venue_id === venueId) : optionRow(kind, ranking.rows.get(venueId))) : null
           const stopOptions = !row.slot_id
             ? []
             : kept
@@ -2105,6 +2141,10 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
       const kept = optionRow(kind, ranking.rows.get(venueId))
       return { venueId, rank: kept.rank, score: kept.score, votes: votes.get(venueId) ?? 0, details: kept.details }
     })
+    // A saved place the group has is a choice too, though the planner never ranks it.
+    for (const o of optionsOf(draft, kind)) {
+      if (isSavedPlaceId(o.venue_id) && voted.includes(o.venue_id)) options.push({ venueId: o.venue_id, rank: null, score: null, votes: votes.get(o.venue_id) ?? 0, details: o.details })
+    }
     return { category: kind, options }
   }
 
@@ -2185,7 +2225,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
   async function homeMinutes(draft, allowance) {
     const people = ledgerPeople(draft.members)
     const last = draft.stops.at(-1)
-    const lastVenue = last ? voting.venues.get(last.venue_id) : null
+    const lastVenue = last ? voting.placeOf(draft, last.venue_id) : null
     const ends = people.map((m) => ({ id: lower(m.user_id), area: areasById.get(m.end_area_id) ?? areasById.get(m.start_area_id) })).filter((p) => p.area)
     if (!lastVenue || ends.length === 0) return { people, minutes: {}, approximate: false }
     const input = {
@@ -2391,6 +2431,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
     deleteSlot,
     restoreSlots,
     addOption,
+    addSavedOption,
     removeOption,
     addMoreOptions,
     swapOption,
