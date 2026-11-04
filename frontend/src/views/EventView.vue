@@ -461,7 +461,17 @@ async function endPlan() {
           <span class="photos-cta__go" aria-hidden="true"><span class="photos-cta__word">Review</span> <AppIcon name="arrow-right" :size="16" /></span>
         </RouterLink>
 
-        <!-- "Photos from the day" is on the finish and review page ("How was it?"), not here (Darius, 4 November 2026). -->
+        <!-- "Photos from the day" are added on the finish and review page ("How was it?"). A finished outing with photos keeps a way back to
+             them here, also once it is reviewed (Darius, 4 November 2026). -->
+        <RouterLink v-if="status === 'completed' && photoCount" :to="`/sessions/${id}/photos`" class="photos-cta" data-testid="photos-cta">
+          <span class="photos-cta__icon" aria-hidden="true"><AppIcon name="camera" :size="20" /></span>
+          <span class="photos-cta__text">
+            <span class="title-sm">Photos from the day</span>
+            <span class="caption-sm text-muted">{{ photoCount }} {{ photoCount === 1 ? 'photo' : 'photos' }}</span>
+          </span>
+          <span v-if="photos.length" class="photos-cta__strip" aria-hidden="true"><img v-for="p in photos.slice(0, 3)" :key="p.id" :src="p.src" alt="" loading="lazy" /></span>
+          <span class="photos-cta__go" aria-hidden="true"><span class="photos-cta__word">See all</span> <AppIcon name="arrow-right" :size="16" /></span>
+        </RouterLink>
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
 
         <!-- Where the suggested order came from, when the host confirmed it. Moving or deleting a stop by hand clears it. -->
