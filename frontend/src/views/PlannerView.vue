@@ -116,6 +116,9 @@ const staleNote = ref('')
 const confirmError = ref('')
 // The search at the top: what was typed, the places found (each with the slot of its own category), and whether it is asking.
 const finding = ref({ query: '', results: [], busy: false })
+// The places ticked to add, kept across searches until they are added: [result]. How to call: ticked.value -> [{ id, slot, ... }]
+const ticked = ref([])
+const addingPicked = ref(false)
 // The toggle at the top of the search's panel: only places that take CDC vouchers, in the suggestions and in what is found.
 const cdcOnly = ref(false)
 // The panel under the box (the toggle, then the suggestions or what was found) is open while the box or the panel has focus, or while
@@ -362,20 +365,46 @@ function canTakeBack(r) {
   const o = optionOf(r)
   return !!o && o.addedBy === auth.myId && !(o.voters || []).some((v) => v.id !== auth.myId)
 }
-async function add(result) {
-  const key = rowKey(result)
-  if (rowBusy.value) return
-  rowBusy.value = key
-  rowNote.value = { ...rowNote.value, [key]: '' }
+const isTicked = (r) => ticked.value.some((p) => rowKey(p) === rowKey(r))
+// A place can be ticked if it fits, is not a choice already, and its category has room for it with the others ticked for it.
+function canPick(r) {
+  if (r.unfit || r.added) return false
+  const slot = slots.value.find((s) => s.id === r.slot.id)
+  const tickedHere = ticked.value.filter((p) => p.slot.id === r.slot.id).length
+  return (slot?.options.length ?? 0) + tickedHere < 6
+}
+// How to call: togglePick(result)
+function togglePick(r) {
+  if (r.added || addingPicked.value) return
+  if (isTicked(r)) ticked.value = ticked.value.filter((p) => rowKey(p) !== rowKey(r))
+  else if (canPick(r)) ticked.value = [...ticked.value, r]
+}
+// When nothing is typed, only the first few suggestions (Darius, 4 November 2026); a search shows everything it found.
+const SUGGESTED_SHOWN = 5
+const shownResults = computed(() => (finding.value.query.trim() ? finding.value.results : finding.value.results.slice(0, SUGGESTED_SHOWN)))
+// Add every ticked place, one after another. All in: the ticks clear and the search closes. One that fails keeps its tick and says why
+// on its row (the ones before it are added), and the search stays open.
+// How to call: await addPicked()
+async function addPicked() {
+  if (addingPicked.value || !ticked.value.length) return
+  addingPicked.value = true
+  error.value = ''
   try {
-    await planner.addOption(props.id, result.slot.id, result.id)
-    result.added = true
-    // Added: the search closes and the box empties, so the place shows in its section under it (Darius, 4 November 2026).
+    for (const r of [...ticked.value]) {
+      const key = rowKey(r)
+      rowNote.value = { ...rowNote.value, [key]: '' }
+      try {
+        await planner.addOption(props.id, r.slot.id, r.id)
+        r.added = true
+        ticked.value = ticked.value.filter((p) => rowKey(p) !== key)
+      } catch (e) {
+        rowNote.value = { ...rowNote.value, [key]: e.message }
+        return
+      }
+    }
     closeFind()
-  } catch (e) {
-    rowNote.value = { ...rowNote.value, [key]: e.message }
   } finally {
-    rowBusy.value = ''
+    addingPicked.value = false
   }
 }
 async function takeBack(result) {
@@ -921,43 +950,33 @@ async function keepDialog(e) {
               <ChipButton check :selected="cdcOnly" data-testid="search-cdc" @click="cdcOnly = !cdcOnly">Search CDC vouchers only</ChipButton>
             </div>
             <p v-if="!finding.query.trim() && finding.results.length" class="caption text-muted find__caption">Suggested near {{ session.area.name }}</p>
+          <!-- Pick, then add (Darius, 4 November 2026, in the style of "Invite friends"): each place has a circle to tick, the ticks are kept
+               across searches, and one "Add" at the foot adds them all and closes the search. Until something is typed, a few suggestions.
+               A place already a choice shows ticked and fixed, with "Take back" when this person may still take it back. -->
           <ul v-if="finding.results.length" class="add-results" :aria-label="finding.query.trim() ? 'Places found' : 'Suggested places'">
-            <li v-for="r in finding.results" :key="rowKey(r)" class="add-row" :class="{ 'has-note': rowNote[rowKey(r)] }">
-              <CategoryIcon :category="r.category" :size="32" />
-              <span class="add-row__text">
-                <span class="title-sm truncate">{{ r.name }}</span>
-                <span v-if="r.unfit" class="caption-sm text-error">{{ unfitText(r, r.slot) }}</span>
-                <span v-else-if="!r.added && slotFull(r.slot)" class="caption-sm text-muted">{{ CATEGORY_LABELS[r.category] }} already has 6 places</span>
-                <span v-else class="caption-sm text-muted">{{ CATEGORY_LABELS[r.category] }} · about {{ r.walk }} min walk<template v-if="r.cdc"> · CDC vouchers</template></span>
-                <span v-if="rowNote[rowKey(r)]" class="add-row__note body-sm text-error" role="alert"><AppIcon name="warning" :size="16" />{{ rowNote[rowKey(r)] }}</span>
-              </span>
-              <!-- "Add", or "Added" with a tick once it is an option: an ink outline, not red (a toggled state is ink). "Added" can be pressed to
-                   take the place back when this person added it and nobody else voted for it; its one name says what a press does, and the
-                   reason it cannot be taken back is read out beside it, not in a tooltip. -->
-              <AppButton
-                v-if="r.added"
-                class="add-btn is-added"
-                variant="secondary"
-                small
-                :disabled="!canTakeBack(r)"
-                :aria-busy="rowBusy === rowKey(r) ? 'true' : undefined"
-                :aria-label="canTakeBack(r) ? `Take back ${r.name}` : `${r.name} is already a choice`"
-                :aria-describedby="canTakeBack(r) ? undefined : `${findPanelId}-${rowKey(r)}`"
-                :title="canTakeBack(r) ? 'Press to take it back' : undefined"
-                @click="takeBack(r)"
-              ><AppIcon name="check" :size="16" />Added</AppButton>
-              <AppButton
-                v-else
-                class="add-btn"
-                variant="secondary"
-                small
-                :disabled="!!r.unfit || slotFull(r.slot)"
-                :aria-busy="rowBusy === rowKey(r) ? 'true' : undefined"
-                :aria-describedby="slotFull(r.slot) ? `${findPanelId}-${rowKey(r)}` : undefined"
-                :aria-label="`Add ${r.name}`"
-                @click="add(r)"
-              >Add</AppButton>
-              <span v-if="r.added ? !canTakeBack(r) : slotFull(r.slot)" :id="`${findPanelId}-${rowKey(r)}`" class="sr-only">{{ r.added ? 'Already one of the places to vote on' : `${CATEGORY_LABELS[r.category]} already has 6 places` }}</span>
+            <li v-for="r in shownResults" :key="rowKey(r)" class="add-row" :class="{ 'has-note': rowNote[rowKey(r)], 'is-ticked': isTicked(r) }">
+              <button
+                type="button"
+                class="add-row__pick"
+                role="checkbox"
+                :aria-checked="r.added || isTicked(r) ? 'true' : 'false'"
+                :aria-disabled="r.added || (!isTicked(r) && !canPick(r)) ? 'true' : undefined"
+                :aria-label="r.added ? `${r.name}, already a choice` : r.name"
+                :data-testid="`pick-${r.id}`"
+                @click="togglePick(r)"
+              >
+                <CategoryIcon :category="r.category" :size="32" />
+                <span class="add-row__text">
+                  <span class="title-sm truncate">{{ r.name }}</span>
+                  <span v-if="r.unfit" class="caption-sm text-error">{{ unfitText(r, r.slot) }}</span>
+                  <span v-else-if="r.added" class="caption-sm text-muted">Added · {{ CATEGORY_LABELS[r.category] }}</span>
+                  <span v-else-if="!isTicked(r) && !canPick(r)" class="caption-sm text-muted">{{ CATEGORY_LABELS[r.category] }} already has 6 places</span>
+                  <span v-else class="caption-sm text-muted">{{ CATEGORY_LABELS[r.category] }} · about {{ r.walk }} min walk<template v-if="r.cdc"> · CDC vouchers</template></span>
+                  <span v-if="rowNote[rowKey(r)]" class="add-row__note body-sm text-error" role="alert"><AppIcon name="warning" :size="16" />{{ rowNote[rowKey(r)] }}</span>
+                </span>
+                <span class="add-row__tick" :class="{ 'is-on': r.added || isTicked(r), 'is-fixed': r.added }" aria-hidden="true"><AppIcon v-if="r.added || isTicked(r)" name="check" :size="14" /></span>
+              </button>
+              <AppButton v-if="r.added && canTakeBack(r)" variant="tertiary" underline small class="add-row__back" :aria-busy="rowBusy === rowKey(r) ? 'true' : undefined" :aria-label="`Take back ${r.name}`" @click="takeBack(r)">Take back</AppButton>
             </li>
           </ul>
           <p v-else-if="finding.query.trim() && !finding.busy" class="body-sm text-muted">No places{{ cdcOnly ? ' that take CDC vouchers' : '' }} match "{{ finding.query.trim() }}".</p>
@@ -966,6 +985,10 @@ async function keepDialog(e) {
             <span class="body-sm text-muted">No places{{ cdcOnly ? ' that take CDC vouchers' : '' }} to suggest within {{ suggestReach }} of {{ session.area.name }}. Type a name to search.</span>
             <AppButton v-if="canReachFurther" variant="tertiary" underline small :disabled="settingRadius" @click="setRadius(3000)">Look within 3 km</AppButton>
           </p>
+          <!-- One button adds every ticked place. -->
+          <div class="find__foot">
+            <AppButton block :disabled="!ticked.length || addingPicked" :aria-busy="addingPicked ? 'true' : undefined" data-testid="add-picked" @click="addPicked">{{ ticked.length > 1 ? `Add ${ticked.length} places` : 'Add' }}</AppButton>
+          </div>
           </div>
         </div>
 
@@ -1223,6 +1246,17 @@ async function keepDialog(e) {
 .add-row__note { display: flex; align-items: flex-start; gap: var(--spacing-xs); }
 .add-row__note :deep(svg) { flex-shrink: 0; margin-top: 2px; }
 /* One size for every row's button, whatever it says. */
+.find__foot { position: sticky; bottom: 0; padding: var(--spacing-sm) 0 var(--spacing-xs); background: var(--canvas); }
+/* A place to tick: the whole row is the button, its circle on the right, as on "Invite friends". */
+.add-row__pick { display: flex; flex: 1 1 0; align-items: center; gap: var(--spacing-md); min-width: 0; min-height: 64px; margin: 0; padding: var(--spacing-xs) 0; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.add-row__pick[aria-disabled="true"] { cursor: default; }
+.add-row__pick:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: var(--rounded-sm); }
+.add-row__tick { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 2px solid var(--border-strong); border-radius: var(--rounded-full); background: var(--canvas); color: var(--on-selected); }
+.add-row__tick.is-on { border-color: var(--selected); background: var(--selected); }
+.add-row__tick.is-fixed { border-color: var(--border-strong); background: var(--border-strong); }
+/* A place that cannot be ticked (its category is full, or it does not fit): a faded circle. */
+.add-row__pick[aria-disabled="true"] .add-row__tick:not(.is-fixed) { opacity: 0.4; }
+.add-row__back { flex-shrink: 0; }
 .add-btn.btn { flex-shrink: 0; min-width: 92px; justify-content: center; gap: var(--spacing-xs); }
 /* "Added": an ink outline with a tick, quieter than "Add" (a dark pill) and never red. Its disabled state (already a choice, or someone
    else voted for it) keeps the muted words at 5.4:1 on white, not the grey of a switched-off button. */
