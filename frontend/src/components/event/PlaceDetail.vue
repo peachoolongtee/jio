@@ -129,7 +129,7 @@ onBeforeUnmount(() => {
               <AppIcon name="route" />
               Navigate
             </AppButton>
-            <p :id="`${titleId}-navigate`" class="caption-sm text-muted">Opens Google Maps in a new tab.</p>
+            <p :id="`${titleId}-navigate`" class="sr-only">Opens Google Maps in a new tab.</p>
           </div>
 
           <section class="pd__reviews" :aria-labelledby="`${titleId}-reviews`">

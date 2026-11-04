@@ -380,7 +380,7 @@ const blurb = computed(() => {
   // Meetups on the map, none open: say what a pin does, once, plainly.
   if (!selected.value) return pins.value.length ? 'Choose a pin to see that meetup.' : 'Open List to see your meetups.'
   // Several going, one open: how to move on, in the line's place, so the greeting does not jump as the card opens.
-  if (meetups.value.length > 1) return 'Choose another pin, or close the card to see the whole map.'
+  if (meetups.value.length > 1) return ''
   if (area.value) return `Your group meets at ${area.value.name}. Here is what is nearby.`
   return 'Once everyone shares where they are starting, Jio works out the midpoint.'
 })

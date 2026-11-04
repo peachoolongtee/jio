@@ -564,15 +564,12 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
     >
       <template v-if="canWorkOut">
         <AppButton block variant="secondary" :disabled="busy" :aria-busy="busy ? 'true' : undefined" data-testid="choose-again-vote" @click="chooseAgain('vote')">Vote on new spots</AppButton>
-        <p class="caption-sm text-muted again__note">The 3 fairest spots and {{ settled?.area.name || 'this one' }}, for everyone to vote on.</p>
         <template v-if="againWhy === 'trip'">
           <AppButton block :disabled="busy" :aria-busy="busy ? 'true' : undefined" data-testid="choose-again-fairest" @click="chooseAgain('fairest')">Use the fairest spot</AppButton>
-          <p class="caption-sm text-muted again__note">Picks the new fairest spot now, with no vote.</p>
         </template>
       </template>
       <template v-if="againWhy === 'change'">
         <AppButton block :disabled="busy" :to="pickYourselfPath" data-testid="choose-again-pick" @click="againOpen = false">Pick the place yourself</AppButton>
-        <p class="caption-sm text-muted again__note">{{ canWorkOut ? 'Choose an area by name.' : 'Choose an area by name. New spots need at least two people to share where they start.' }}</p>
       </template>
       <p v-if="error" class="body-sm text-error again__note" role="alert">{{ error }}</p>
     </ModalDialog>

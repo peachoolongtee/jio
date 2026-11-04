@@ -253,7 +253,7 @@ const primaryText = computed(() => (busy.value ? (step.value === 'where' && here
       <template v-if="step === 'how'">
         <div class="head">
           <h2 ref="heading" tabindex="-1" class="display-sm">{{ change ? CHANGE_HEAD.title : 'How do you want to pick the meeting point?' }}</h2>
-          <p v-if="change" class="body-sm text-muted">{{ CHANGE_HEAD.text }}</p>
+          <p v-if="change && CHANGE_HEAD.text" class="body-sm text-muted">{{ CHANGE_HEAD.text }}</p>
         </div>
         <FocusFrame>
         <div class="choices choices--cards" role="radiogroup" v-radio-group aria-label="How to pick the meeting point">
@@ -261,7 +261,6 @@ const primaryText = computed(() => (busy.value ? (step.value === 'where' && here
             <template #title>{{ c.title }}</template>
             <template v-if="c.tag" #tag>{{ c.tag }}</template>
             <template #text>{{ c.text }}</template>
-            <template #meta>{{ c.meta }}</template>
           </ChoiceCard>
         </div>
         </FocusFrame>
