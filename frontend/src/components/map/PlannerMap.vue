@@ -48,6 +48,8 @@ const props = defineProps({
   // What the view fits to: 'all' (default), 'places' to frame the stops and the meeting area only, or 'keep' to frame the `keep`
   // points only (Locate on a phone: the meeting spots, so pins a few streets apart do not sit on top of each other).
   fitTo: { type: String, default: 'all' },
+  // Pixels on the right that something covers (a panel floating over the map, SplitView mapFirst): the view is framed in the rest.
+  padRight: { type: Number, default: 0 },
   zoomPosition: { type: String, default: 'topleft' },
   finding: { type: Boolean, default: false },
   radius: { type: Number, default: 0 },
@@ -201,7 +203,7 @@ function draw() {
   const key = frame.map((p) => p.join(',')).sort().join('|')
   if (key !== fittedKey) {
     fittedKey = key
-    if (frame.length > 1) map.fitBounds(L.latLngBounds(frame), { padding: [64, 64], maxZoom: 16, animate: !reducedMotion() })
+    if (frame.length > 1) map.fitBounds(L.latLngBounds(frame), { paddingTopLeft: [64, 64], paddingBottomRight: [64 + props.padRight, 64], maxZoom: 16, animate: !reducedMotion() })
     else if (frame.length === 1) map.setView(frame[0], 15, reducedMotion() ? { animate: false } : undefined)
     else map.setView(SINGAPORE, 11, reducedMotion() ? { animate: false } : undefined)
   }
@@ -379,6 +381,12 @@ onBeforeUnmount(() => {
 
 // The radius is not here: it draws no pin, and rebuilding every pin on each step of the slider was wasted work (drawRadius has its own watch).
 watch(() => [props.people, props.area, props.places, props.route, props.spokes, props.selected, props.finding, props.keep], draw, { deep: true })
+// The covered strip changed (the window was resized past the panel's breakpoint): frame the view again.
+watch(() => props.padRight, () => {
+  if (!map) return
+  fittedKey = ''
+  draw()
+})
 watch(() => [props.area?.lat, props.area?.lng, props.radius, props.finding], () => map && drawRadius())
 // Only a change of place redraws the rain, not a new array with the same places (a parent computes it again on every update).
 watch(() => props.rain.map((p) => `${p.lat},${p.lng}`).join('|'), drawRain)

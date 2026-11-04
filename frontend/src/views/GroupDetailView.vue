@@ -175,6 +175,18 @@ const spotDirections = computed(() => (settled.value ? directionsUrl({ name: set
 const next = computed(() => (session.value ? locateNext(session.value) : null))
 
 // Map pins: each person's start AREA, with their travel time to the spot shown (the confirmed one once settled).
+// The width the floating panel covers on the right of the map, from 1128px (SplitView mapFirst: 440px wide, at the content column's right
+// edge), so the map frames everyone in the part left uncovered. 0 below, where the list and the map take turns.
+const panelPad = ref(0)
+function syncPanelPad() {
+  const w = globalThis.innerWidth || 0
+  panelPad.value = w >= 1128 ? 440 + Math.max(32, (w - 1200) / 2) + 24 : 0
+}
+onMounted(() => {
+  syncPanelPad()
+  globalThis.addEventListener?.('resize', syncPanelPad)
+})
+onBeforeUnmount(() => globalThis.removeEventListener?.('resize', syncPanelPad))
 const mapPeople = computed(() =>
   settled.value ? settled.value.people : active.value
     .filter((id) => session.value.locations?.[id]?.start)
@@ -419,7 +431,8 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
         <BannerNote v-if="note" icon="info" dismissible @dismiss="note = ''">{{ note }}</BannerNote>
 
-        <SplitView v-model:view="view" label="Meeting area">
+        <!-- Map first (Darius, 4 November 2026): from 1128px the map fills the page and this list is a panel on its right. -->
+        <SplitView v-model:view="view" label="Meeting area" map-first>
           <template #list>
             <!-- While the planner works out the meeting point a segmented bar fills up. -->
             <section v-if="loading" class="area is-finding" aria-labelledby="area-head" role="status">
@@ -469,7 +482,7 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
               <template #actions><AppButton small variant="secondary" :disabled="busy" @click="rememberRejoin($event); rejoin()">Rejoin</AppButton></template>
             </BannerNote>
 
-            <section class="section card people-card" :class="{ 'is-tall': !spotList.length && !settled }" aria-label="People">
+            <section class="section card people-card" aria-label="People">
             <!-- Ian's own start and end, like a ride's pickup and drop-off: two rows joined by a dotted line. Each whole
                  row is the button for its own place, so it is clear which one you are changing. Only he sees the exact place.
                  At the top of the People card, over everyone's progress, so the column is one card beside the map (Darius,
@@ -517,7 +530,7 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
             <div v-if="session.remote && choosing && !isHost" class="leave"><LeaveSession :session-id="session.id" /></div>
           </template>
           <template #map>
-            <PlannerMap ref="mapRef" :people="mapPeople" :area="settled && !loading ? settled.area : null" :finding="loading" spokes :keep="settled ? [] : keepPoints" :fit-to="settled ? 'all' : mapFit" label="Meeting area map" @view="refreshPins" />
+            <PlannerMap ref="mapRef" :pad-right="panelPad" :people="mapPeople" :area="settled && !loading ? settled.area : null" :finding="loading" spokes :keep="settled ? [] : keepPoints" :fit-to="settled ? 'all' : mapFit" label="Meeting area map" @view="refreshPins" />
             <SpotPins v-if="!settled && spotList.length" ref="pinsRef" :spots="spotList" :session="session" :selected-id="shown || ''" :confirmed-id="confirmedId" :project="projectPoint" :names="nameOf" :my-id="myId" :is-host="isHost" @select="picked = $event" />
             <div v-if="loading" class="map-wait map-wait--finding title-sm" role="status">Finding the meeting point… {{ Math.round(loadPct) }}%</div>
             <!-- Confirming the meeting spot, once it has taken 600 ms: a spinner over the map only (the list view says it on the buttons). -->
@@ -604,9 +617,7 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
 /* Inside the People card the route is not a card of its own: no border, a hairline under it, then the progress and the people. */
 .people-card .route { max-width: none; padding: 0 0 var(--spacing-sm); border: 0; border-bottom: 1px solid var(--hairline); border-radius: 0; background: none; }
 .people-card .route::before { left: calc(var(--spacing-base) + 5px); margin-top: calc(-15px - var(--spacing-sm) / 2); }
-/* Desktop, where the map stands beside it and grows to the list's height: when the card is the whole column (no spots yet), a taller
-   card, so both are taller. With spots above it the list is tall already. */
-@media (min-width: 1128px) { .people-card.is-tall { min-height: min(640px, calc(100dvh - 260px)); } }
+/* (The taller card for a column with no spots is gone: from 1128px the map fills the page and this list floats on it.) */
 /* Inviting: a card like the invite page's. A header with a ring of who has joined out of everyone invited, and
    Invite; then who is in, each with a Host, Joined or Invited tag. */
 .lobby { gap: var(--spacing-lg); }
