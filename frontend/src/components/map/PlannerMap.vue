@@ -146,7 +146,12 @@ function viewInFree(point, zoom) {
 // maps from 1128px), and never out to zoom 10. How to call: syncMinZoom()
 function syncMinZoom() {
   if (!map || !el.value?.clientWidth) return
-  map.setMinZoom(Math.max(10, map.getBoundsZoom(BOUNDS, true)))
+  // Not map.setMinZoom: when the view is further out, that zooms in with an animation, and Leaflet drops any fit asked for while it runs,
+  // so a confirmed itinerary stayed zoomed out over the whole island (Darius, 4 November 2026). Here the step in is instant.
+  const floor = Math.max(10, map.getBoundsZoom(BOUNDS, true))
+  map.options.minZoom = floor
+  if (map.getZoom() < floor) map.setZoom(floor, { animate: false })
+  map.fire('zoomlevelschange')
 }
 
 function draw() {
