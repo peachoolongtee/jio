@@ -226,10 +226,12 @@ svg { display: block; flex-shrink: 0; }
      simulated forecast still says so), the map's colour key and "Expand map". Phones still show the two lines under their list.
    - The column shows a thin scroll bar, so a card cut off at its foot reads as more to scroll, not as a broken card.
    Phones and tablets keep the List / Map switch. */
+/* The tab that hides a map-first page's cards is only for that layout. */
+.session-head__panel { display: none; }
 @media (min-width: 1128px) {
   .screen:has(.split--first) { --map-panel: 420px; --map-edge: var(--spacing-lg); }
-  .screen:has(.itin-split), .screen:has(.roam-split) { --map-panel: 520px; }
-  .screen:has(.plan-split) { --map-panel: 560px; }
+  /* Vote, the itinerary and What next have more to show than Locate: a column 460px wide (Darius, 4 November 2026; it was 520 to 560). */
+  .screen:has(.itin-split), .screen:has(.roam-split), .screen:has(.plan-split) { --map-panel: 460px; }
   /* "What next?" keeps its sections in one wrapper (RoamPanel); it steps aside so each section is a card of its own. */
   .screen:has(.split--first) .roam-panel { display: contents; }
 
@@ -264,4 +266,20 @@ svg { display: block; flex-shrink: 0; }
   .screen:has(.split--first) > .screen__footer { position: fixed; z-index: 20; right: var(--map-edge); bottom: var(--map-edge); left: auto; width: var(--map-panel); flex-direction: row; align-items: center; justify-content: flex-end; gap: var(--spacing-sm); padding: 0; border: 0; background: transparent; }
   .screen:has(.split--first) > .screen__footer > .btn { flex: 1 1 0; min-width: 0; border-radius: var(--rounded-full); box-shadow: var(--shadow-float); }
   .screen:has(.split--first) > .screen__footer > :not(.btn) { padding: var(--spacing-sm) var(--spacing-base); border-radius: var(--rounded-full); background: var(--canvas); box-shadow: var(--shadow-float); }
+
+  /* Hiding the column (SessionHeader's tab): the cards slide off to the right and the tab moves to the edge, its chevron turned. The
+     footer's button stays, as the way on. */
+  /* The cards move, not the column: the full-screen map is inside the column, and moving it would move the map. */
+  .screen:has(.split--first) > .screen__body > :not(.split), .screen:has(.split--first) .roam-panel > :not(.split), .screen:has(.split--first) .split__list { transition: transform 360ms var(--ease-out), opacity 360ms var(--ease-out), visibility 0s linear 0s; }
+  .screen:has(.session-head.is-panel-hidden) > .screen__body > :not(.split), .screen:has(.session-head.is-panel-hidden) .roam-panel > :not(.split), .screen:has(.session-head.is-panel-hidden) .split__list { transform: translateX(calc(100% + var(--map-edge) * 2)); opacity: 0; visibility: hidden; transition: transform 360ms var(--ease-out), opacity 360ms var(--ease-out), visibility 0s linear 360ms; }
+  .screen:has(.session-head.is-panel-hidden) > .screen__body { overflow: hidden; }
+  .screen:has(.split--first) > .session-head .session-head__panel { position: fixed; top: calc(var(--map-edge) + 136px + var(--spacing-sm)); right: calc(var(--map-edge) + var(--map-panel) + var(--spacing-sm)); display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: var(--rounded-full); background: var(--canvas); color: var(--ink); box-shadow: var(--shadow-float); cursor: pointer; pointer-events: auto; transition: right 360ms var(--ease-out); }
+  .screen:has(.split--first) > .session-head .session-head__panel :is(svg, .icon) { transition: transform 360ms var(--ease-out); }
+  .screen:has(.split--first) > .session-head.is-panel-hidden .session-head__panel { right: var(--map-edge); }
+  .screen:has(.split--first) > .session-head.is-panel-hidden .session-head__panel :is(svg, .icon) { transform: rotate(180deg); }
+  .screen:has(.split--first) > .session-head .session-head__panel:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+  @media (hover: hover) { .screen:has(.split--first) > .session-head .session-head__panel:hover { background: var(--surface-soft, var(--canvas)); } }
+  @media (prefers-reduced-motion: reduce) {
+    .screen:has(.split--first) > .screen__body > :not(.split), .screen:has(.split--first) .roam-panel > :not(.split), .screen:has(.split--first) .split__list, .screen:has(.split--first) > .session-head .session-head__panel, .screen:has(.split--first) > .session-head .session-head__panel :is(svg, .icon) { transition: none; }
+  }
 }

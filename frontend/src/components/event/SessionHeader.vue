@@ -41,6 +41,8 @@ const auth = useAuthStore()
 const cancelOpen = ref(false)
 const inviteOpen = ref(false)
 const busy = ref(false)
+// The column of cards over a full-screen map, hidden by the tab beside it. Each page opens with it shown.
+const panelHidden = ref(false)
 
 const status = computed(() => props.session.status)
 const back = computed(() => (props.back ? { label: 'Back', to: props.back } : backFor(props.session, route.fullPath, props.session.hostId === auth.myId, exitFor())))
@@ -58,7 +60,7 @@ async function cancelSession() {
 </script>
 
 <template>
-  <header class="screen__header session-head">
+  <header class="screen__header session-head" :class="{ 'is-panel-hidden': panelHidden }">
     <div class="screen__bar">
       <IconButton :label="back.label" :to="back.to" @click.capture="goBackIfBehind($event, router, back.to)"><AppIcon name="back" /></IconButton>
       <span class="session-head__actions">
@@ -83,6 +85,12 @@ async function cancelSession() {
         </p>
       </div>
     </div>
+
+    <!-- On a map-first page from 1128px (Locate, Vote, the itinerary, What next), a tab at the side of the column of cards hides them, sliding
+         off to the right, and brings them back (Darius, 4 November 2026). Nowhere else is it shown (app.css "Map-first pages"). -->
+    <button type="button" class="session-head__panel" :aria-label="panelHidden ? 'Show details' : 'Hide details'" :title="panelHidden ? 'Show details' : 'Hide details'" :aria-expanded="panelHidden ? 'false' : 'true'" data-testid="map-panel-toggle" @click="panelHidden = !panelHidden">
+      <AppIcon name="chevron-right" :size="18" />
+    </button>
 
     <InviteDialog v-model:open="inviteOpen" :session="session" />
 
