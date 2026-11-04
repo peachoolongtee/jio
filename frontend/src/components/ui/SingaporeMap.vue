@@ -8,8 +8,8 @@
 // center: the place that sits in the middle of the box (Singapore's middle by default), so something laid over the
 // box's centre lines up with it. span: how much around it always shows; the map scales to fit that and fills the
 // rest of the box with whatever is beyond. Give the box a size.
-// rain: [{ lat, lng }] the places where rain is likely: each is a feathered blue wash with three layers of drops (far, middle,
-// near) over about one forecast area, "Layered drops" (lib/rainLook.js; DESIGN.md, "Weather"). Home draws it only for an outing
+// rain: [{ lat, lng }] the places where rain is likely: each is a feathered blue wash with slanted streaks of rain falling
+// through it, over about one forecast area (lib/rainLook.js; DESIGN.md, "Weather"). Home draws it only for an outing
 // within two hours; the words for it are on the page, and so is the chip, as the map is hidden from screen readers. It fades in
 // over 900 ms (`fadeRain` turns that off) and the drops fall; under reduced motion neither happens and the wash and drops stand still. It is under the routes
 // and the pins, and takes no pointer events.
@@ -18,7 +18,7 @@
 // Built after Aceternity's World Map, with Singapore from lib/singaporeDots.js instead of the world.
 import { computed, useId } from 'vue'
 import { DOT_STEP, NEARBY_DOTS, SINGAPORE_DOTS, project } from '@/lib/singaporeDots.js'
-import { DROPS_SHARE, FEATHER_STOPS, MAX_RAIN_PATCHES, RAIN_LAYERS, WASH_STOPS } from '@/lib/rainLook.js'
+import { DROPS_SHARE, FEATHER_STOPS, MAX_RAIN_PATCHES, WASH_STOPS, rainSeed, rainStreaks } from '@/lib/rainLook.js'
 
 const DOT = DOT_STEP * 0.42
 
@@ -66,7 +66,8 @@ const lines = computed(() =>
     return { a, b, d: curve(a, b) }
   }),
 )
-const patches = computed(() => props.rain.slice(0, MAX_RAIN_PATCHES).map((p, i) => ({ ...project(p.lat, p.lng), i })))
+// Each patch with its streaks, in map units (RAIN_K map units to a rain unit), picked by where it is so a redraw keeps them.
+const patches = computed(() => props.rain.slice(0, MAX_RAIN_PATCHES).map((p, i) => ({ ...project(p.lat, p.lng), i, rain: rainStreaks({ size: RAIN_R * 2, scale: RAIN_K, seed: rainSeed(p.lat, p.lng) }) })))
 
 // Every route ends at the same place, so draw the meeting point once.
 const meet = computed(() => (props.hideMeet ? null : lines.value[0]?.b || null))
@@ -79,16 +80,17 @@ const meet = computed(() => (props.hideMeet ? null : lines.value[0]?.b || null))
       <path class="sgmap__dots" :d="SINGAPORE_DOTS" :stroke-width="DOT" />
 
       <defs>
-        <!-- Rain: a wash and a white feather (both fade to nothing at the edge), and one tile of drops for each layer. -->
+        <!-- Rain: a wash and a white feather (both fade to nothing at the edge), and the streaks' fade from nothing at their top. -->
         <radialGradient :id="`${uid}-wash`">
           <stop v-for="[offset, opacity] in WASH_STOPS" :key="offset" :offset="offset" class="rain-wash" :stop-opacity="opacity" />
         </radialGradient>
         <radialGradient :id="`${uid}-feather`">
           <stop v-for="[offset, opacity] in FEATHER_STOPS" :key="offset" :offset="offset" class="rain-feather" :stop-opacity="opacity" />
         </radialGradient>
-        <pattern v-for="l in RAIN_LAYERS" :id="`${uid}-${l.name}`" :key="l.name" patternUnits="userSpaceOnUse" :width="l.tile[0]" :height="l.tile[1]" :patternTransform="`scale(${RAIN_K})`">
-          <path class="rain-drop" :stroke-width="l.width" :opacity="l.opacity" :d="l.d" />
-        </pattern>
+        <linearGradient :id="`${uid}-streak`" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" class="rain-streak-stop" stop-opacity="0" />
+          <stop offset="1" class="rain-streak-stop" stop-opacity="1" />
+        </linearGradient>
         <mask v-for="p in patches" :id="`${uid}-mask${p.i}`" :key="`m${p.i}`" maskUnits="userSpaceOnUse" :x="p.x - RAIN_R" :y="p.y - RAIN_R" :width="RAIN_R * 2" :height="RAIN_R * 2">
           <circle :cx="p.x" :cy="p.y" :r="DROPS_R" :fill="`url(#${uid}-feather)`" />
         </mask>
@@ -103,8 +105,10 @@ const meet = computed(() => (props.hideMeet ? null : lines.value[0]?.b || null))
         <g v-for="p in patches" :key="`p${p.i}`" :class="{ 'rain-in': fadeRain }" data-testid="map-rain-patch">
           <circle :cx="p.x" :cy="p.y" :r="RAIN_R" :fill="`url(#${uid}-wash)`" />
           <g :mask="`url(#${uid}-mask${p.i})`">
-            <!-- A layer starts one tile above the mask and falls one tile, so the drops never leave a gap at its top edge. -->
-            <rect v-for="l in RAIN_LAYERS" :key="l.name" :class="`rain-fall rain-fall--${l.name}`" :style="{ '--rain-h': `${l.travel * RAIN_K}px` }" :x="p.x - RAIN_R" :y="p.y - RAIN_R - l.travel * RAIN_K" :width="RAIN_R * 2" :height="RAIN_R * 2 + l.travel * RAIN_K" :fill="`url(#${uid}-${l.name})`" />
+            <!-- The streaks, slanted by the wind, each falling from just above the patch through it (lib/rainLook.js rainStreaks). -->
+            <g :transform="`translate(${p.x - RAIN_R} ${p.y - RAIN_R}) rotate(${p.rain.angle} ${RAIN_R} ${RAIN_R})`" :style="{ '--rain-travel': `${p.rain.travel}px` }">
+              <rect v-for="(d, k) in p.rain.drops" :key="k" class="rain-streak" :style="{ '--rain-s': `${d.seconds}s`, '--rain-d': `${d.delay}s`, '--rain-still': `${d.still}px` }" :x="d.x" :y="p.rain.top" :width="d.width" :height="d.length" :rx="d.width" :opacity="d.opacity" :fill="`url(#${uid}-streak)`" />
+            </g>
           </g>
         </g>
       </g>
