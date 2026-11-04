@@ -1,7 +1,8 @@
 <script setup>
-// A fine grid whose cells shade softly where the pointer passes and let it go a moment later. The lead found the old
-// spectrum too distracting (walkthrough, 30 October 2026), so a lit cell is a pale grey, now and then a faint wash of the
-// brand red, and no cell lights on its own (lib/gridPulse.js holds the colours and the defaults).
+// A fine grid that takes colour where the pointer passes and lets it go a moment later, with a few cells lighting
+// on their own so it is never dead. The spectrum runs down the field like a printed colour chart (yellow at the
+// top, through orange, red, magenta and blue, to green), so a sweep reveals one band of colour, not confetti (muted to grey
+// on 30 October 2026, brought back on 4 November 2026; lib/gridPulse.js holds the colours and the defaults).
 //   <main class="screen" style="position: relative"><GridPulse /> ...content above it... </main>
 // Place it inside a positioned container, under the content. Decoration only: hidden from screen readers,
 // transparent to the pointer (it listens on the window), drawn on one canvas that sleeps when nothing is lit,
@@ -12,7 +13,7 @@
 // ambient  how many cells light on their own each beat
 // maxLit   a lid, so a fast sweep cannot light the whole field at once
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { GRID_PULSE, cellPaint } from '@/lib/gridPulse.js'
+import { GRID_PULSE, spectrumPaint } from '@/lib/gridPulse.js'
 
 const props = defineProps({
   cell: { type: Number, default: GRID_PULSE.cell },
@@ -96,8 +97,6 @@ onMounted(() => {
     return FAINT + (1 - FAINT) * Math.min(1, nearest / (FADE * cell))
   }
 
-  // The brand red as the page has it, for the few cells that take it.
-  const red = getComputedStyle(el).getPropertyValue('--primary').trim() || '#ff385c'
 
   // One loop draws every lit cell; it runs only while something is lit.
   let frame = 0
@@ -141,7 +140,7 @@ onMounted(() => {
       const faded = 1 - easeIn(Math.min(1, (now - lit.until) / FADE_OUT))
       born = now - (1 - Math.sqrt(1 - faded)) * FADE_IN
     }
-    const paint = lit ?? cellPaint(Math.random(), red)
+    const paint = lit ?? spectrumPaint(row, rows, Math.random())
     cells.set(key, { col, row, colour: paint.colour, alpha: paint.alpha, dim: brightness(col, row), born, until: now + hold })
     wake()
   }
@@ -171,7 +170,7 @@ onMounted(() => {
     if (!pending) pending = requestAnimationFrame(paint)
   }
 
-  // Cells that light on their own (`ambient`, none by default). Paused out of sight.
+  // A few cells light on their own (`ambient`), so the grid is alive on arrival and on touch screens. Paused out of sight.
   let visible = true
   let beat = 0
   function drift() {
