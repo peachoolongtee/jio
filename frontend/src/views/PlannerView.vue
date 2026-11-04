@@ -6,11 +6,10 @@
 //   The plan is made from the categories people voted in, laid out in the session window.
 //   Step 7  "Confirm plan" once at least 2 people have voted.
 // The list and the map show the same places, and the map has a key to the categories of the places on it.
-// Search within (ticket #122): while voting, an "Auto distance" switch (on by default) and a slider from 100 m to 3 km that works once the
-// switch is off (Faith, 31 October 2026; it was one slider with Auto at its left end). The map draws the radius as a ring round the
-// meeting area as the slider moves, and once it rests the places follow it: places outside drop out with their votes, and each category
-// tops up again (lib/api.js setRadius). One line under the slider names every category short of places, with one "Widen to ..." far
-// enough for all of them.
+// Distance (ticket #122): while voting, "Distance from <area>", one row of chips, Auto (the default) then 100 m to 3 km (Darius, 4 November
+// 2026; it was an "Auto distance" switch and a slider). A tap saves it: the map draws the radius as a ring round the meeting area, and
+// the places follow it: places outside drop out with their votes, and each category tops up again (lib/api.js setRadius). One short line
+// under the chips says when places are few at that distance, with one "Widen to ..." far enough for every category.
 // Search: one box at the top finds places to add, in the category the filter shows or in every category (each place goes to its own
 // category's list). Clicking into it opens a panel: a "CDC vouchers only" toggle, then suggestions (the nearest places that fit) until
 // something is typed, then what was found; the toggle applies to both (Faith, 31 October 2026). Under each category a down arrow adds
@@ -22,7 +21,7 @@
 // that fit halal and vegetarian"), with no names and no count. Food places are filtered strictly; when fewer than 3 fit, a
 // line says so and offers "Show places we couldn't confirm", each then labelled on its card. "Only places that fit" goes back.
 // The person's own needs start from their profile, already selected, with no question first (Faith's walkthrough, 30 October 2026: the
-// "Confirm dietary needs" popup is gone). "Group dietary needs" under the radius holds the chips (DietaryChips), saved at each tap, so
+// "Confirm dietary needs" popup is gone). "Dietary needs" under the distance holds the chips (DietaryChips), saved at each tap, so
 // the needs can be changed at any time; a change is for this outing only, and the profile is left as it is. A
 // shared session shows none of this yet: its places are chosen by the server, which already filters them by the group's needs.
 // A shared session (one kept on the server, session.remote) reaches this page once the host has confirmed the meeting spot. It shows the
@@ -59,8 +58,6 @@ import ModalDialog from '@/components/ui/ModalDialog.vue'
 import ClashDialog from '@/components/group/ClashDialog.vue'
 import PriceTier from '@/components/ui/PriceTier.vue'
 import ProgressDonut from '@/components/ui/ProgressDonut.vue'
-import RangeSlider from '@/components/ui/RangeSlider.vue'
-import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import SegmentTabs from '@/components/ui/SegmentTabs.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import SplitView from '@/components/ui/SplitView.vue'
@@ -69,8 +66,7 @@ import SessionHeader from '@/components/event/SessionHeader.vue'
 import PlaceDetail from '@/components/event/PlaceDetail.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
 import ChangePlan from '@/components/event/ChangePlan.vue'
-import DietaryChips, { dietChips } from '@/components/event/DietaryChips.vue'
-import { DIETARY_OPTIONS } from '@/lib/signupRules.js'
+import DietaryChips from '@/components/event/DietaryChips.vue'
 import SuggestionCard from '@/components/event/SuggestionCard.vue'
 import WeatherSource from '@/components/weather/WeatherSource.vue'
 import CategoryKey from '@/components/map/CategoryKey.vue'
@@ -391,13 +387,9 @@ const suggestReach = computed(() => radiusLabel(radius.value ?? 3000))
 const canReachFurther = computed(() => canSetRadius.value && radius.value != null && radius.value < 3000)
 
 // ── Search radius ──
-// The choices, in metres; null is Auto (the planner starts at 500 m and looks further out until 3 places fit). The "Auto" switch is on
-// by default, and the slider (100 m to 3 km) works once it is off (Faith, 31 October 2026: one slider holding Auto at its left end was
-// confusing).
+// The choices, in metres; null is Auto (the planner starts at 500 m and looks further out until 3 places fit). One row of chips, Auto
+// first (Darius, 4 November 2026; it was an "Auto distance" switch and a slider).
 const RADII = [null, 100, 250, 500, 1000, 2000, 3000]
-const MANUAL_RADII = RADII.slice(1)
-// Where the slider lands when Auto is turned off.
-const MANUAL_START = 1000
 // How to call: radiusLabel(1000) -> '1 km'
 const radiusLabel = (m) => (m == null ? 'Auto' : m >= 1000 ? `${m / 1000} km` : `${m} m`)
 const radius = computed(() => plan.value?.radius ?? null)
@@ -440,44 +432,18 @@ async function setRadius(metres) {
 const radiusFor = (km) => RADII.find((m) => m != null && m >= km * 1000) ?? null
 // How far the places may be, in words: the chosen radius, or the planner's own limit of 3 km under Auto.
 const reachText = computed(() => radiusLabel(radius.value ?? 3000))
-// The slider runs over the distances. While it moves the map's ring follows it at once (`draftRadius`). The radius is saved and the places
-// follow only when it is let go: a pause during a drag used to save too, and each save ranks every slot again (one slow drag sent 76
-// requests). The short wait is for the arrow keys, which commit on each press.
-const RADIUS_SETTLE_MS = 300
+// The chip just tapped, shown as chosen (and the map's ring drawn at it) until the plan comes back with it saved.
 const draftRadius = ref(undefined)
 watch(radius, (saved) => {
   if (draftRadius.value === saved) draftRadius.value = undefined
 })
 const shownRadius = computed(() => (draftRadius.value !== undefined ? draftRadius.value : radius.value))
-const autoRadius = computed({
-  get: () => shownRadius.value == null,
-  // The switch shows its new place at once and keeps it while the radius is saved.
-  set: async (on) => {
-    clearTimeout(radiusTimer)
-    draftRadius.value = on ? null : MANUAL_START
-    await setRadius(draftRadius.value)
-  },
-})
-const radiusStep = computed({
-  // Under Auto the thumb rests at the far end, 3 km, the most Auto will look (the switch says "up to 3 km"); it used to sit at 1 km while
-  // the words said Auto.
-  get: () => (shownRadius.value == null ? MANUAL_RADII.length - 1 : Math.max(0, MANUAL_RADII.indexOf(shownRadius.value))),
-  set: (i) => {
-    draftRadius.value = MANUAL_RADII[i]
-    clearTimeout(radiusTimer)
-  },
-})
-let radiusTimer = 0
-// The slider was let go: save where it rests. How to call: <RangeSlider @commit="commitRadius" />
-function commitRadius() {
-  clearTimeout(radiusTimer)
-  const metres = draftRadius.value
-  if (metres === undefined) return
-  radiusTimer = setTimeout(() => setRadius(metres), RADIUS_SETTLE_MS)
+// A distance chip: it shows as chosen at once, and is saved (one request per tap). How to call: pickRadius(1000); pickRadius(null) for Auto
+function pickRadius(metres) {
+  if (settingRadius.value || metres === shownRadius.value) return
+  draftRadius.value = metres
+  setRadius(metres)
 }
-onBeforeUnmount(() => clearTimeout(radiusTimer))
-// The slider's words: "Auto" while the switch is on, else the distance. How to call: radiusStepText(2) -> 'Within 500 m'
-const radiusStepText = (i) => (autoRadius.value ? 'Auto' : `Within ${radiusLabel(MANUAL_RADII[i])}`)
 // One line for every category that is short of places within the radius, with one way to widen it: far enough for all of them (it was
 // a "Widen to" under each category). How to call: shortOfPlaces.value -> { labels: ['Drink', 'Shop'], to: 3000 }
 const shortOfPlaces = computed(() => {
@@ -527,8 +493,6 @@ async function showUnconfirmed(on) {
 
 // The "Confirm dietary needs" dialog is not on this page any more (the needs start from the profile, and the chips below change them);
 // DietaryConfirm.vue is kept for a later way in, and the page's code for it was removed on 1 November 2026.
-// A need's name for its tag. How to call: needLabel('halal') -> 'Halal'
-const needLabel = (need) => DIETARY_OPTIONS.find((o) => o.value === need)?.label ?? need
 // The change being saved, { mine, dropped }, or null. The tags and chips show it at once, while the places load behind them.
 const pendingDiet = ref(null)
 // Whether a chip change is being saved: the chips are off until it ends, so two taps never race.
@@ -536,10 +500,6 @@ const dietBusy = ref(false)
 // The person's own needs and the dropped ones as the page shows them: the change being saved, else the outing's.
 const shownMine = computed(() => pendingDiet.value?.mine ?? plan.value?.myDietary ?? [])
 const shownDropped = computed(() => pendingDiet.value?.dropped ?? plan.value?.dietDropped ?? [])
-// The tags under "Group dietary needs": the selected chips, in the chips' order.
-const shownNeeds = computed(() => (pendingDiet.value
-  ? dietChips({ mine: shownMine.value, others: plan.value?.othersDietary || [], dropped: shownDropped.value }).filter((c) => c.selected).map((c) => c.value)
-  : plan.value?.dietary || []))
 
 // Asks again for the outing's dietary needs, by reading the plan again. A failure shows on the line again, so nothing else is said.
 // How to call: await retryDiet()
@@ -936,7 +896,7 @@ async function keepDialog(e) {
             </ChipButton>
           </div>
           <span class="filter__rule" aria-hidden="true"></span>
-          <ChipButton check :selected="cdcView" title="Eat and Drink show only places that take CDC vouchers" data-testid="list-cdc" @click="cdcView = !cdcView">CDC vouchers in Eat and Drink</ChipButton>
+          <ChipButton check :selected="cdcView" title="Eat and Drink show only places that take CDC vouchers" aria-label="CDC-friendly: only places that take CDC vouchers in Eat and Drink" data-testid="list-cdc" @click="cdcView = !cdcView">CDC-friendly</ChipButton>
         </div>
 
         <!-- Search for a place to add, in the category the filter shows (or every category). -->
@@ -1004,12 +964,16 @@ async function keepDialog(e) {
           <span class="caption text-muted">Search within</span>
           <span class="body-sm">{{ radius == null ? 'Auto' : radiusLabel(radius) }} of {{ session.area.name }}, set by {{ hostName }}.</span>
         </div>
+        <!-- One row of choices (Darius, 4 November 2026: the "Auto distance" switch and the slider were confusing): Auto, or a distance.
+             A tap saves it. -->
         <div v-else-if="voting && slots.length" class="radius" data-testid="radius">
-          <ToggleSwitch v-model="autoRadius" class="radius__auto" label="Auto distance" :hint="autoRadius ? 'Jio looks further out until 3 places fit, up to 3 km. Turn off to choose.' : ''" :disabled="settingRadius" data-testid="radius-auto" />
-          <RangeSlider v-model="radiusStep" class="radius__slider" @commit="commitRadius" :label="`Search within, from ${session.area.name}`" :min="0" :max="MANUAL_RADII.length - 1" :step="1" :format="radiusStepText" :disabled="autoRadius" data-testid="radius-slider" />
-          <!-- Every category short of places, said once, with one way to widen far enough for all of them. -->
+          <span class="caption text-muted">Distance from {{ session.area.name }}</span>
+          <div class="scroll-x radius__chips" role="radiogroup" v-radio-group :aria-label="`Distance from ${session.area.name}`" :aria-busy="settingRadius ? 'true' : undefined" data-testid="radius-chips">
+            <ChipButton v-for="m in RADII" :key="m ?? 'auto'" radio :selected="shownRadius === m" :disabled="settingRadius" :title="m == null ? 'Jio looks further out until 3 places fit, up to 3 km' : undefined" @click="pickRadius(m)">{{ radiusLabel(m) }}</ChipButton>
+          </div>
+          <!-- Short of places at this distance: said once, with one way to widen far enough. -->
           <p v-if="shortOfPlaces" class="few-line" data-testid="radius-short">
-            <span class="caption-sm text-muted">Few places within {{ radiusLabel(radius) }} for {{ listJoin(shortOfPlaces.labels).replace(' or ', ' and ') }}.</span>
+            <span class="caption-sm text-muted">Few places within {{ radiusLabel(radius) }}.</span>
             <AppButton v-if="shortOfPlaces.to" variant="tertiary" underline small :disabled="settingRadius" data-testid="radius-widen" @click="setRadius(shortOfPlaces.to)">Widen to {{ radiusLabel(shortOfPlaces.to) }}</AppButton>
           </p>
         </div>
@@ -1023,11 +987,7 @@ async function keepDialog(e) {
           <AppButton variant="tertiary" underline small :disabled="loading" data-testid="diet-retry" @click="retryDiet">Try again</AppButton>
         </p>
         <div v-if="voting && plan?.myDietary" class="diet-edit" data-testid="diet-edit">
-          <div class="diet-edit__mine">
-            <span class="caption text-muted">Group dietary needs</span>
-            <InfoTag v-for="need in shownNeeds" :key="need" :tone="need === 'halal' ? 'halal' : 'veg'" data-testid="diet-mine">{{ needLabel(need) }}</InfoTag>
-            <span v-if="!shownNeeds.length" class="caption" data-testid="diet-mine">None</span>
-          </div>
+          <span class="caption text-muted">Dietary needs</span>
           <DietaryChips :mine="shownMine" :others="plan.othersDietary || []" :dropped="shownDropped" :can-drop="isHost" :busy="dietBusy" @change="saveDiet" />
         </div>
 
@@ -1192,20 +1152,20 @@ async function keepDialog(e) {
 <style scoped>
 /* Search within: a label, the chips, and one line on what the choice means. */
 /* The switch (its name and the line under it), then the slider with its own name: spaced so they read as two things. */
-.radius { display: flex; flex-direction: column; gap: var(--spacing-md); }
-.radius__auto :deep(.switch-row__text) { gap: var(--spacing-xs); }
+.radius { display: flex; flex-direction: column; gap: var(--spacing-sm); }
 .few-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-xs) var(--spacing-sm); margin: 0; }
 /* The filter: one row of chips, scrolling sideways on a phone. */
 .filter { display: flex; align-items: center; gap: var(--spacing-sm); }
 .filter__set { display: flex; gap: var(--spacing-sm); }
 .filter__rule { flex: 0 0 1px; align-self: stretch; margin-block: var(--spacing-sm); background: var(--hairline); }
 .filter__count { margin-left: var(--spacing-xs); opacity: 0.6; }
+/* Every chip in the row the same height, the ones with a category icon and the ones without (Darius, 4 November 2026). */
+.filter :deep(.chip__pill) { height: 40px; }
 .walk-from { margin: 0; }
 .diet-line { margin: 0; }
 /* "Group dietary needs": the same stack as "Search within" above it; the label and the selected needs share a line. */
 .diet-unavailable { display: flex; align-items: center; flex-wrap: wrap; gap: var(--spacing-xs); margin: 0; }
 .diet-edit { display: flex; flex-direction: column; gap: var(--spacing-xs); }
-.diet-edit__mine { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-xs) var(--spacing-sm); }
 .slot { display: flex; flex-direction: column; gap: var(--spacing-md); }
 .slot + .slot { padding-top: var(--spacing-lg); }
 .slot__head { display: flex; align-items: center; gap: var(--spacing-md); }
@@ -1223,8 +1183,6 @@ async function keepDialog(e) {
 .find__caption { margin: 0; }
 .find__note { display: flex; align-items: flex-start; gap: var(--spacing-xs); margin: 0; }
 .find__note :deep(svg) { flex-shrink: 0; margin-top: 2px; }
-.radius__auto { max-width: 560px; }
-.radius__slider { max-width: 560px; }
 .empty-wrap { padding-top: var(--spacing-lg); }
 .empty-actions { display: flex; flex-wrap: wrap; gap: var(--spacing-sm); }
 .confirm-next { margin: 0 0 var(--spacing-sm); text-align: center; }
