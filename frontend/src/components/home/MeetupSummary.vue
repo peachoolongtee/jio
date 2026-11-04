@@ -4,8 +4,10 @@
 // the popover on a map pin, so it is written once.
 //   <MeetupSummary :meetup="m" my-id="ian" :names="nameOf" title-id="home-detail-title" />
 //   <MeetupSummary :meetup="m" my-id="ian" :names="nameOf" compact />      the small one, for a popover
+// Order: where it stands (and whose turn), the title, the date with how soon it is, where, who, and Open meetup, a small round "next"
+// pill on the right (Darius, 4 November 2026).
 // compact: a smaller title (a paragraph, not a heading, cut with an ellipsis and carrying the whole title as its
-// tooltip), the date on one line, the people and next step on one row, and a small button. The full-size title wraps,
+// tooltip), and a smaller button. The full-size title wraps,
 // however long. titleId: the id of the title, for something that labels itself by it.
 // Only areas are shown, never a member's exact place.
 import { computed } from 'vue'
@@ -43,12 +45,14 @@ const peopleText = computed(() => {
 
 <template>
   <div class="sum" :class="{ 'sum--compact': compact }">
-    <!-- How soon it is. Its stage is said once, by MeetupStatus below ("Ready", not also "Confirmed"; walkthrough, 1 November 2026). -->
+    <!-- Where it stands and whose turn it is, first (Darius, 4 November 2026). Its stage is said once ("Ready", not also "Confirmed";
+         walkthrough, 1 November 2026). -->
     <div class="sum__top">
-      <CountdownChip :session="meetup" />
+      <MeetupStatus :status="status" />
     </div>
     <component :is="compact ? 'p' : 'h2'" :id="titleId || undefined" class="sum__title" :class="compact ? 'title-md truncate' : 'display-sm'" :title="compact ? meetup.title : undefined">{{ meetup.title }}</component>
-    <p class="body-sm text-muted tnum">{{ dateLine(meetup) }}</p>
+    <!-- The date, and how soon it is on the same line. -->
+    <p class="sum__when body-sm text-muted tnum"><span>{{ dateLine(meetup) }}</span><CountdownChip :session="meetup" /></p>
 
     <p class="sum__where" :class="{ 'is-finding': where.kind === 'finding' }">
       <AppIcon v-if="where.kind === 'area' || where.kind === 'spots' || where.kind === 'none'" name="pin" :size="16" />
@@ -65,10 +69,8 @@ const peopleText = computed(() => {
       <span class="text-muted">{{ peopleText }}</span>
     </p>
 
-    <div class="sum__next">
-      <MeetupStatus :status="status" />
-    </div>
-    <AppButton variant="secondary" block :small="compact" :to="step.to">Open meetup<span class="sr-only"> {{ meetup.title }}</span></AppButton>
+    <!-- Opens it at the step it is on: the round "next" pill with its arrow, as Next on the forms, on the right. -->
+    <AppButton next class="sum__open" :to="step.to">Open meetup<span class="sr-only"> {{ meetup.title }}</span></AppButton>
   </div>
 </template>
 
@@ -82,12 +84,14 @@ const peopleText = computed(() => {
 .sum__area { min-width: 0; overflow-wrap: anywhere; }
 .sum__status { color: var(--ink); font-weight: 600; }
 .sum__people { display: flex; align-items: center; gap: var(--spacing-sm); margin: 0; }
-.sum__next { display: flex; align-items: center; gap: var(--spacing-sm); margin: var(--spacing-sm) 0 var(--spacing-xs); padding-top: var(--spacing-md); border-top: 1px solid var(--hairline-soft); }
+.sum__when { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-xs) var(--spacing-sm); margin: 0; }
+/* Open meetup: smaller than the forms' Next, on the right. */
+.sum__open { align-self: flex-end; height: 40px; min-width: 0; margin-top: var(--spacing-sm); padding: 0 var(--spacing-md) 0 var(--spacing-base); font: var(--text-button-sm); }
 /* Compact: tighter, and the title sits on the status row's line. */
 .sum--compact { gap: var(--spacing-xs); }
 .sum--compact .sum__title { margin-top: var(--spacing-xxs); }
 .sum--compact .sum__where { margin-top: 0; }
-.sum--compact .sum__next { margin: var(--spacing-xs) 0; padding-top: var(--spacing-sm); }
+.sum--compact .sum__open { height: 36px; margin-top: var(--spacing-xs); }
 
 /* The midpoint is still to come: a soft Rausch pulse, quicker while the planner is working it out. */
 .meetup__pulse { position: relative; flex-shrink: 0; width: 10px; height: 10px; margin: 0 3px; border-radius: var(--rounded-full); background: var(--primary); }
