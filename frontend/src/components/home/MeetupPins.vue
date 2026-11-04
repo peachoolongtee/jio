@@ -33,6 +33,8 @@ const props = defineProps({
   selectedId: { type: String, default: '' },
   center: { type: Object, required: true },
   span: { type: Array, required: true },
+  // No popover on the selected pin, for a screen that already shows the selected meetup's card beside the map (Home).
+  quietSelected: { type: Boolean, default: false },
 })
 const emit = defineEmits(['select', 'drawn'])
 
@@ -108,6 +110,8 @@ watch(placed, (list) => {
 
 // ── The popover ──
 const openId = ref('')
+// The card on screen: the open one, unless it is the selected pin's and that one is kept quiet.
+const shownId = computed(() => (props.quietSelected && openId.value === props.selectedId ? '' : openId.value))
 const placement = ref(null)
 let hoverId = ''
 let focusId = ''
@@ -158,7 +162,7 @@ function onFocusOut(id, event) {
   settle()
 }
 function onKeydown(event) {
-  if (event.key !== 'Escape' || !openId.value) return
+  if (event.key !== 'Escape' || !shownId.value) return
   hide()
   // Back to the pin without reopening the card that focus would otherwise open.
   quiet = true
@@ -213,7 +217,7 @@ async function place(id) {
   placement.value = { side: spot.side, left: spot.left - tip.x, top: spot.top - tip.y, caret: spot.caret }
 }
 // Again when the pin's selection changes: a selected pin is bigger, so its card must clear it.
-watch([openId, () => props.selectedId], ([id]) => place(id))
+watch([shownId, () => props.selectedId], ([id]) => place(id))
 // A pin that goes away (the meetup finished) takes its card with it.
 watch(placed, (list) => { if (openId.value && !list.some((p) => p.id === openId.value)) hide() })
 const cardStyle = computed(() => (placement.value ? { left: `${placement.value.left}px`, top: `${placement.value.top}px`, '--caret': `${placement.value.caret}px` } : { visibility: 'hidden' }))
@@ -236,7 +240,7 @@ onBeforeUnmount(() => {
       v-for="pin in placed"
       :key="pin.id"
       class="mwrap"
-      :class="{ 'is-selected': pin.id === selectedId, 'is-open': pin.id === openId }"
+      :class="{ 'is-selected': pin.id === selectedId, 'is-open': pin.id === shownId }"
       :style="pin.style"
       @pointerenter="onEnter(pin.id, $event)"
       @pointerleave="onLeave(pin.id, $event)"
@@ -249,7 +253,7 @@ onBeforeUnmount(() => {
         class="mpin"
         :aria-label="pin.name"
         :aria-pressed="pin.id === selectedId"
-        :aria-describedby="pin.id === openId ? cardId(pin.id) : undefined"
+        :aria-describedby="pin.id === shownId ? cardId(pin.id) : undefined"
         @click="onPinClick(pin, $event)"
       >
         <span class="mpin__body">
@@ -264,7 +268,7 @@ onBeforeUnmount(() => {
         <span class="mpin__shadow" aria-hidden="true" />
       </button>
       <Transition name="mcard">
-        <div v-if="pin.id === openId" :id="cardId(pin.id)" class="mcard" :data-side="placement?.side" :style="cardStyle">
+        <div v-if="pin.id === shownId" :id="cardId(pin.id)" class="mcard" :data-side="placement?.side" :style="cardStyle">
           <MeetupSummary compact :meetup="byId[pin.id]" :my-id="myId" :names="names" />
         </div>
       </Transition>
