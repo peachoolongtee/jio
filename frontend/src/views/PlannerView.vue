@@ -944,104 +944,108 @@ async function keepDialog(e) {
       </template>
 
       <template v-else>
-        <ProgressDonut compact title="Votes" :people="donutPeople" done-label="Voted" />
-        <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
+        <!-- The votes, the kinds of place, the search, the distance and the dietary needs: one card over the full-screen map, each part
+             split from the next by a line (the lead, 4 November 2026: five cards were too many). On phones they stack as before. -->
+        <div class="plan-controls" data-testid="plan-controls">
+          <ProgressDonut compact title="Votes" :people="donutPeople" done-label="Voted" />
+          <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
 
-        <!-- One filter for the list and the map, and the CDC toggle for Eat and Drink. -->
-        <div class="filter scroll-x">
-          <div class="filter__set" role="radiogroup" v-radio-group aria-label="Show">
-            <ChipButton radio :selected="!filter" @click="filter = ''">All</ChipButton>
-            <ChipButton v-for="c in CATEGORIES" :key="c" radio :selected="filter === c" :aria-label="`${CATEGORY_LABELS[c]}, ${countOf(c)} places`" @click="filter = c">
-              <template #leading><CategoryIcon :category="c" :size="24" /></template>
-              {{ CATEGORY_LABELS[c] }}<span class="filter__count tnum">{{ countOf(c) }}</span>
-            </ChipButton>
-          </div>
-          <span class="filter__rule" aria-hidden="true"></span>
-          <ChipButton check :selected="cdcView" title="Eat and Drink show only places that take CDC vouchers" aria-label="CDC-friendly: only places that take CDC vouchers in Eat and Drink" data-testid="list-cdc" @click="cdcView = !cdcView">CDC-friendly</ChipButton>
-        </div>
-
-        <!-- Search for a place to add, in the category the filter shows (or every category). -->
-        <div v-if="voting && slots.length && !optedOut" ref="findEl" class="find" data-testid="place-search" @focusin="onFindFocusIn" @focusout="onFindFocusOut" @keydown.esc="onFindEscape">
-          <TextField v-model="finding.query" :label="filter ? `Search ${CATEGORY_LABELS[filter]} places` : 'Search places'" hide-label :placeholder="filter ? `Search ${CATEGORY_LABELS[filter]} places to add` : 'Search places to add'" type="search" inputmode="search" autocomplete="off" role="combobox" aria-autocomplete="list" :aria-expanded="findOpen ? 'true' : 'false'" :aria-controls="findPanelId">
-            <template #leading><AppIcon name="search" :size="18" /></template>
-          </TextField>
-          <!-- Open while the box is in use: the CDC toggle on top, then suggestions (nothing typed) or what was found. -->
-          <p class="sr-only" role="status" data-testid="search-status">{{ findStatus }}</p>
-          <div v-if="findOpen" :id="findPanelId" class="find__panel" data-testid="search-panel">
-            <div class="find__filters">
-              <ChipButton check :selected="cdcOnly" data-testid="search-cdc" @click="cdcOnly = !cdcOnly">Search CDC vouchers only</ChipButton>
+          <!-- One filter for the list and the map, and the CDC toggle for Eat and Drink. -->
+          <div class="filter scroll-x">
+            <div class="filter__set" role="radiogroup" v-radio-group aria-label="Show">
+              <ChipButton radio :selected="!filter" @click="filter = ''">All</ChipButton>
+              <ChipButton v-for="c in CATEGORIES" :key="c" radio :selected="filter === c" :aria-label="`${CATEGORY_LABELS[c]}, ${countOf(c)} places`" @click="filter = c">
+                <template #leading><CategoryIcon :category="c" :size="24" /></template>
+                {{ CATEGORY_LABELS[c] }}<span class="filter__count tnum">{{ countOf(c) }}</span>
+              </ChipButton>
             </div>
-            <p v-if="!finding.query.trim() && finding.results.length" class="caption text-muted find__caption">Suggested near {{ session.area.name }}</p>
-          <!-- Pick, then add (Darius, 4 November 2026, in the style of "Invite friends"): each place has a circle to tick, the ticks are kept
-               across searches, and one "Add" at the foot adds them all and closes the search. Until something is typed, a few suggestions.
-               Places already in the vote are not listed; one you added is taken back from its card ("Remove"). -->
-          <ul v-if="shownResults.length" class="add-results" :aria-label="finding.query.trim() ? 'Places found' : 'Suggested places'">
-            <li v-for="r in shownResults" :key="rowKey(r)" class="add-row" :class="{ 'has-note': rowNote[rowKey(r)], 'is-ticked': isTicked(r) }">
-              <button
-                type="button"
-                class="add-row__pick"
-                role="checkbox"
-                :aria-checked="isTicked(r) ? 'true' : 'false'"
-                :aria-disabled="!isTicked(r) && !canPick(r) ? 'true' : undefined"
-                :aria-label="r.name"
-                :data-testid="`pick-${r.id}`"
-                @click="togglePick(r)"
-              >
-                <CategoryIcon :category="r.category" :size="32" />
-                <span class="add-row__text">
-                  <span class="title-sm truncate">{{ r.name }}</span>
-                  <span v-if="r.unfit" class="caption-sm text-error">{{ unfitText(r, r.slot) }}</span>
-                  <span v-else-if="!isTicked(r) && !canPick(r)" class="caption-sm text-muted">{{ CATEGORY_LABELS[r.category] }} already has 6 places</span>
-                  <span v-else class="caption-sm text-muted">{{ CATEGORY_LABELS[r.category] }} · about {{ r.walk }} min walk<template v-if="r.cdc"> · CDC vouchers</template></span>
-                  <span v-if="rowNote[rowKey(r)]" class="add-row__note body-sm text-error" role="alert"><AppIcon name="warning" :size="16" />{{ rowNote[rowKey(r)] }}</span>
-                </span>
-                <span class="add-row__tick" :class="{ 'is-on': isTicked(r) }" aria-hidden="true"><AppIcon v-if="isTicked(r)" name="check" :size="14" /></span>
-              </button>
-            </li>
-          </ul>
-          <p v-else-if="finding.query.trim() && !finding.busy" class="body-sm text-muted">No new places{{ cdcOnly ? ' that take CDC vouchers' : '' }} match "{{ finding.query.trim() }}".</p>
-          <p v-if="finding.query.trim() && finding.googleDown && !finding.busy" class="caption-sm text-muted find__note" role="status" data-testid="google-down"><AppIcon name="info" :size="14" /><span>Google isn't answering right now, so only Jio's saved places were searched. <AppButton variant="tertiary" underline small data-testid="search-again" @click="findPlaces(finding.query)">Search again</AppButton></span></p>
-          <p v-else-if="!finding.busy" class="few-line" data-testid="suggest-none">
-            <span class="body-sm text-muted">No places{{ cdcOnly ? ' that take CDC vouchers' : '' }} to suggest within {{ suggestReach }} of {{ session.area.name }}. Type a name to search.</span>
-            <AppButton v-if="canReachFurther" variant="tertiary" underline small :disabled="settingRadius" @click="setRadius(3000)">Look within 3 km</AppButton>
-          </p>
-          <!-- One button adds every ticked place. -->
-          <div class="find__foot">
-            <AppButton block :disabled="!ticked.length || addingPicked" :aria-busy="addingPicked ? 'true' : undefined" data-testid="add-picked" @click="addPicked">{{ ticked.length > 1 ? `Add ${ticked.length} places` : 'Add' }}</AppButton>
+            <span class="filter__rule" aria-hidden="true"></span>
+            <ChipButton check :selected="cdcView" title="Eat and Drink show only places that take CDC vouchers" aria-label="CDC-friendly: only places that take CDC vouchers in Eat and Drink" data-testid="list-cdc" @click="cdcView = !cdcView">CDC-friendly</ChipButton>
           </div>
-          </div>
-        </div>
 
-        <!-- How far from the meeting area places may be. The map shows it as a ring. -->
-        <div v-if="voting && slots.length && !canSetRadius" class="radius" data-testid="radius-readonly">
-          <span class="caption text-muted">Search within</span>
-          <span class="body-sm">{{ radius == null ? 'Auto' : radiusLabel(radius) }} of {{ session.area.name }}, set by {{ hostName }}.</span>
-        </div>
-        <!-- One row of choices (Darius, 4 November 2026: the "Auto distance" switch and the slider were confusing): Auto, or a distance.
-             A tap saves it. -->
-        <div v-else-if="voting && slots.length" class="radius" data-testid="radius">
-          <span class="caption text-muted">Distance from {{ session.area.name }}</span>
-          <div class="scroll-x radius__chips" role="radiogroup" v-radio-group :aria-label="`Distance from ${session.area.name}`" :aria-busy="settingRadius ? 'true' : undefined" data-testid="radius-chips">
-            <ChipButton v-for="m in RADII" :key="m ?? 'auto'" radio :selected="shownRadius === m" :disabled="settingRadius" :title="m == null ? 'Jio looks further out until 3 places fit, up to 3 km' : undefined" @click="pickRadius(m)">{{ radiusLabel(m) }}</ChipButton>
+          <!-- Search for a place to add, in the category the filter shows (or every category). -->
+          <div v-if="voting && slots.length && !optedOut" ref="findEl" class="find" data-testid="place-search" @focusin="onFindFocusIn" @focusout="onFindFocusOut" @keydown.esc="onFindEscape">
+            <TextField v-model="finding.query" :label="filter ? `Search ${CATEGORY_LABELS[filter]} places` : 'Search places'" hide-label :placeholder="filter ? `Search ${CATEGORY_LABELS[filter]} places to add` : 'Search places to add'" type="search" inputmode="search" autocomplete="off" role="combobox" aria-autocomplete="list" :aria-expanded="findOpen ? 'true' : 'false'" :aria-controls="findPanelId">
+              <template #leading><AppIcon name="search" :size="18" /></template>
+            </TextField>
+            <!-- Open while the box is in use: the CDC toggle on top, then suggestions (nothing typed) or what was found. -->
+            <p class="sr-only" role="status" data-testid="search-status">{{ findStatus }}</p>
+            <div v-if="findOpen" :id="findPanelId" class="find__panel" data-testid="search-panel">
+              <div class="find__filters">
+                <ChipButton check :selected="cdcOnly" data-testid="search-cdc" @click="cdcOnly = !cdcOnly">Search CDC vouchers only</ChipButton>
+              </div>
+              <p v-if="!finding.query.trim() && finding.results.length" class="caption text-muted find__caption">Suggested near {{ session.area.name }}</p>
+            <!-- Pick, then add (Darius, 4 November 2026, in the style of "Invite friends"): each place has a circle to tick, the ticks are kept
+                 across searches, and one "Add" at the foot adds them all and closes the search. Until something is typed, a few suggestions.
+                 Places already in the vote are not listed; one you added is taken back from its card ("Remove"). -->
+            <ul v-if="shownResults.length" class="add-results" :aria-label="finding.query.trim() ? 'Places found' : 'Suggested places'">
+              <li v-for="r in shownResults" :key="rowKey(r)" class="add-row" :class="{ 'has-note': rowNote[rowKey(r)], 'is-ticked': isTicked(r) }">
+                <button
+                  type="button"
+                  class="add-row__pick"
+                  role="checkbox"
+                  :aria-checked="isTicked(r) ? 'true' : 'false'"
+                  :aria-disabled="!isTicked(r) && !canPick(r) ? 'true' : undefined"
+                  :aria-label="r.name"
+                  :data-testid="`pick-${r.id}`"
+                  @click="togglePick(r)"
+                >
+                  <CategoryIcon :category="r.category" :size="32" />
+                  <span class="add-row__text">
+                    <span class="title-sm truncate">{{ r.name }}</span>
+                    <span v-if="r.unfit" class="caption-sm text-error">{{ unfitText(r, r.slot) }}</span>
+                    <span v-else-if="!isTicked(r) && !canPick(r)" class="caption-sm text-muted">{{ CATEGORY_LABELS[r.category] }} already has 6 places</span>
+                    <span v-else class="caption-sm text-muted">{{ CATEGORY_LABELS[r.category] }} · about {{ r.walk }} min walk<template v-if="r.cdc"> · CDC vouchers</template></span>
+                    <span v-if="rowNote[rowKey(r)]" class="add-row__note body-sm text-error" role="alert"><AppIcon name="warning" :size="16" />{{ rowNote[rowKey(r)] }}</span>
+                  </span>
+                  <span class="add-row__tick" :class="{ 'is-on': isTicked(r) }" aria-hidden="true"><AppIcon v-if="isTicked(r)" name="check" :size="14" /></span>
+                </button>
+              </li>
+            </ul>
+            <p v-else-if="finding.query.trim() && !finding.busy" class="body-sm text-muted">No new places{{ cdcOnly ? ' that take CDC vouchers' : '' }} match "{{ finding.query.trim() }}".</p>
+            <p v-if="finding.query.trim() && finding.googleDown && !finding.busy" class="caption-sm text-muted find__note" role="status" data-testid="google-down"><AppIcon name="info" :size="14" /><span>Google isn't answering right now, so only Jio's saved places were searched. <AppButton variant="tertiary" underline small data-testid="search-again" @click="findPlaces(finding.query)">Search again</AppButton></span></p>
+            <p v-else-if="!finding.busy" class="few-line" data-testid="suggest-none">
+              <span class="body-sm text-muted">No places{{ cdcOnly ? ' that take CDC vouchers' : '' }} to suggest within {{ suggestReach }} of {{ session.area.name }}. Type a name to search.</span>
+              <AppButton v-if="canReachFurther" variant="tertiary" underline small :disabled="settingRadius" @click="setRadius(3000)">Look within 3 km</AppButton>
+            </p>
+            <!-- One button adds every ticked place. -->
+            <div class="find__foot">
+              <AppButton block :disabled="!ticked.length || addingPicked" :aria-busy="addingPicked ? 'true' : undefined" data-testid="add-picked" @click="addPicked">{{ ticked.length > 1 ? `Add ${ticked.length} places` : 'Add' }}</AppButton>
+            </div>
+            </div>
           </div>
-          <!-- Short of places at this distance: said once, with one way to widen far enough. -->
-          <p v-if="shortOfPlaces" class="few-line" data-testid="radius-short">
-            <span class="caption-sm text-muted">Few places within {{ radiusLabel(radius) }}.</span>
-            <AppButton v-if="shortOfPlaces.to" variant="tertiary" underline small :disabled="settingRadius" data-testid="radius-widen" @click="setRadius(shortOfPlaces.to)">Widen to {{ radiusLabel(shortOfPlaces.to) }}</AppButton>
-          </p>
-        </div>
 
-        <!-- The outing's dietary needs, laid out like "Search within": the label with the needs selected below as tags, then the
-             Halal, Vegetarian and Vegan chips the places are filtered by. A tap saves at once; taking off a need someone else has
-             is the host's alone, and asks first (DietaryChips). -->
-        <!-- The server could not say what the outing needs (a failure, or the limit): the last answer stays on the page, and this says so. -->
-        <p v-if="voting && plan?.dietUnavailable" class="diet-unavailable caption-sm text-muted" role="status" data-testid="diet-unavailable">
-          Couldn't load the group's dietary needs.
-          <AppButton variant="tertiary" underline small :disabled="loading" data-testid="diet-retry" @click="retryDiet">Try again</AppButton>
-        </p>
-        <div v-if="voting && plan?.myDietary" class="diet-edit" data-testid="diet-edit">
-          <span class="caption text-muted">Dietary needs</span>
-          <DietaryChips :mine="shownMine" :others="plan.othersDietary || []" :dropped="shownDropped" :can-drop="isHost" :busy="dietBusy" @change="saveDiet" />
+          <!-- How far from the meeting area places may be. The map shows it as a ring. -->
+          <div v-if="voting && slots.length && !canSetRadius" class="radius" data-testid="radius-readonly">
+            <span class="caption text-muted">Search within</span>
+            <span class="body-sm">{{ radius == null ? 'Auto' : radiusLabel(radius) }} of {{ session.area.name }}, set by {{ hostName }}.</span>
+          </div>
+          <!-- One row of choices (Darius, 4 November 2026: the "Auto distance" switch and the slider were confusing): Auto, or a distance.
+               A tap saves it. -->
+          <div v-else-if="voting && slots.length" class="radius" data-testid="radius">
+            <span class="caption text-muted">Distance from {{ session.area.name }}</span>
+            <div class="scroll-x radius__chips" role="radiogroup" v-radio-group :aria-label="`Distance from ${session.area.name}`" :aria-busy="settingRadius ? 'true' : undefined" data-testid="radius-chips">
+              <ChipButton v-for="m in RADII" :key="m ?? 'auto'" radio :selected="shownRadius === m" :disabled="settingRadius" :title="m == null ? 'Jio looks further out until 3 places fit, up to 3 km' : undefined" @click="pickRadius(m)">{{ radiusLabel(m) }}</ChipButton>
+            </div>
+            <!-- Short of places at this distance: said once, with one way to widen far enough. -->
+            <p v-if="shortOfPlaces" class="few-line" data-testid="radius-short">
+              <span class="caption-sm text-muted">Few places within {{ radiusLabel(radius) }}.</span>
+              <AppButton v-if="shortOfPlaces.to" variant="tertiary" underline small :disabled="settingRadius" data-testid="radius-widen" @click="setRadius(shortOfPlaces.to)">Widen to {{ radiusLabel(shortOfPlaces.to) }}</AppButton>
+            </p>
+          </div>
+
+          <!-- The outing's dietary needs, laid out like "Search within": the label with the needs selected below as tags, then the
+               Halal, Vegetarian and Vegan chips the places are filtered by. A tap saves at once; taking off a need someone else has
+               is the host's alone, and asks first (DietaryChips). -->
+          <!-- The server could not say what the outing needs (a failure, or the limit): the last answer stays on the page, and this says so. -->
+          <p v-if="voting && plan?.dietUnavailable" class="diet-unavailable caption-sm text-muted" role="status" data-testid="diet-unavailable">
+            Couldn't load the group's dietary needs.
+            <AppButton variant="tertiary" underline small :disabled="loading" data-testid="diet-retry" @click="retryDiet">Try again</AppButton>
+          </p>
+          <div v-if="voting && plan?.myDietary" class="diet-edit" data-testid="diet-edit">
+            <span class="caption text-muted">Dietary needs</span>
+            <DietaryChips :mine="shownMine" :others="plan.othersDietary || []" :dropped="shownDropped" :can-drop="isHost" :busy="dietBusy" @change="saveDiet" />
+          </div>
         </div>
 
         <SplitView v-model:view="view" class="plan-split" label="Places" map-first>
@@ -1210,6 +1214,13 @@ async function keepDialog(e) {
 /* Search within: a label, the chips, and one line on what the choice means. */
 /* The switch (its name and the line under it), then the slider with its own name: spaced so they read as two things. */
 .radius { display: flex; flex-direction: column; gap: var(--spacing-sm); }
+/* Vote's controls in one card on the full-screen map (app.css makes each child of the page body a card): the parts stack with a line
+   between them. Below 1128px there is no card, and the parts keep the page's own spacing. */
+.plan-controls { display: flex; flex-direction: column; gap: var(--spacing-lg); min-width: 0; }
+@media (min-width: 1128px) {
+  .plan-controls { gap: var(--spacing-md); }
+  .plan-controls > :not(:first-child) { padding-top: var(--spacing-md); border-top: 1px solid var(--hairline); }
+}
 .few-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-xs) var(--spacing-sm); margin: 0; }
 /* The filter: one row of chips, scrolling sideways on a phone. */
 .filter { display: flex; align-items: center; gap: var(--spacing-sm); }
