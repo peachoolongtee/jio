@@ -296,7 +296,7 @@ These carry information on maps, keys, stripes and avatars. None of them is used
 | `--cat-eat-bg`, `--cat-drink-bg`, `--cat-shop-bg`, `--cat-activity-bg` | `color-mix(in srgb, <fg> 12%, var(--canvas))` | The pale circle behind a category icon (`CategoryIcon`). `--cat-drink-bg` is also used once in `RewardsView`. |
 | `--person-1` to `--person-8` | `#2563eb`, `#7c3aed`, `#0d9488`, `#c026d3`, `#ea580c`, `#4d7c0f`, `#0891b2`, `#a16207` | One colour per person, the same on their avatar, map pin and profile banner. Chosen by `personIndex(id)` in `frontend/src/lib/people.js`. |
 | `--rain-wash` | `#4f7aa6` | The tint over a rainy area on a map, drawn at 10 to 40% opacity and feathered to nothing at its edge. See "Weather". |
-| `--rain-streak` | `#6f9bc8` | The drops of the rain, at 0.38, 0.6 and 0.85 opacity for the far, middle and near layer. Decoration: no text sits on it, so no contrast ratio applies. |
+| `--rain-streak` | `#6f9bc8` | The streaks of the rain, each fading in from nothing at its top to 0.45 to 0.95 opacity. Decoration: no text sits on it, so no contrast ratio applies. |
 | `--rain-text` | `#2a4866` | Text and icon of the rain chip, on white: 9.5:1. |
 | `--scale-good` | `#157a38` | The good end of the travel scale. Reached only through `--travel-short`. 4.5:1 or more on white, `--surface-soft`, `--surface-strong` and `--hairline-soft` (it was `#15803d`, 4.48:1 on the light grey cards; changed on 1 Nov 2026). |
 | `--scale-middle` | `#b7791f` | Amber as a fill. Reached through `--travel-medium` and read by `lib/confetti.js`. |
@@ -775,7 +775,7 @@ A global rule in `app.css` covers every CSS animation and transition under `pref
 | `sgmap-comet` | `SingaporeMap` | 3.2s `cubic-bezier(0.45, 0, 0.25, 1)`, endless | After a route is drawn. | Switched off in the component's reduced-motion block. |
 | `sgmap-pop` | `SingaporeMap` | 400ms `--ease-out` | A route's start ring appears. | Shown at once. |
 | `rain-in` | `styles/rain.css` (`SingaporeMap`, `PlannerMap`) | 900ms `--ease-out`, opacity only | The rain first appears on a map. | `animation: none`; the rain is simply there. |
-| `rain-fall` | `styles/rain.css` | Linear, endless, transform only: far 1.7s and 12px, middle 1.1s and 20px, near 0.65s and 34px | Rain is drawn. | `animation: none`; the drops stand still. |
+| `rain-streak` | `styles/rain.css` | Linear, endless, transform only: each streak falls through its patch in 0.55 to 1.1s, from its own point in the fall | Rain is drawn. | `animation: none`; each streak stands still at its own point in the patch. |
 | `rain-chip-in` | `RainChip` | 600ms `--ease-out` after 200ms, opacity and 4px rise | The chip appears. | `animation: none`. |
 | `pm-comet` | `PlannerMap` | 3s `cubic-bezier(0.45, 0, 0.25, 1)`, endless | `spokes` is set. | Component reduced-motion block. |
 | `pm-pulse` | `PlannerMap` | 1.8s ease-out, endless | `finding` is set. | `animation: none`. |
@@ -812,7 +812,7 @@ Curves and durations written in place where a token holds the same value: `200ms
 
 ## Weather
 
-How a forecast looks on a map, called "Layered drops". Words for the weather (the marks on a stop, the banners, the source line) are in `lib/weatherText.js` and are unchanged; this is the picture on a map and the chip that names it. The shapes and numbers are in `frontend/src/lib/rainLook.js`, the animation and reduced-motion rules in `frontend/src/styles/rain.css`.
+How a forecast looks on a map, once called "Layered drops". Words for the weather (the marks on a stop, the banners, the source line) are in `lib/weatherText.js` and are unchanged; this is the picture on a map and the chip that names it. The shapes and numbers are in `frontend/src/lib/rainLook.js`, the animation and reduced-motion rules in `frontend/src/styles/rain.css`.
 
 **Tokens.** Three, in `tokens.css`, a blue-slate cooler than `--ink` so rain reads as weather and not as a shadow. They are information colours: they never mark an action. The app has no dark theme, so they have one value.
 
@@ -822,7 +822,7 @@ How a forecast looks on a map, called "Layered drops". Words for the weather (th
 | `--rain-streak` | `#6f9bc8` | The drops. |
 | `--rain-text` | `#2a4866` | Chip text and icon, 9.5:1 on white. |
 
-**The layers.** One patch of rain is a feathered wash (a radial gradient that ends in nothing, so there is no hard circle) and three layers of drops clipped by a feathered mask that stops a little inside the wash (66 of 72 of its radius). Each layer is a pattern that repeats, not a set of nodes: three rectangles for each patch. Far drops are short and faint (0.8 stroke, 0.38 opacity, falling 12px in 1.7s), middle drops are 1 stroke at 0.6 (20px in 1.1s), near drops are long and strongest (1.5 stroke at 0.85, 34px in 0.65s). A layer falls by exactly one tile of its pattern, so the loop has no seam. The layer fades in over 900ms (`--ease-out`) when the rain first appears. It lies under the routes, the meeting point, the pins and every marker, and it takes no pointer events. The map's tiles and attribution are not touched.
+**The streaks.** One patch of rain is a feathered wash (a radial gradient that ends in nothing, so there is no hard circle) and slanted streaks of rain clipped by a feathered mask that stops a little inside the wash (66 of 72 of its radius). Since 4 November 2026 the streaks follow the "rain background" component Darius chose (it was three repeating layers of drops): thin rounded streaks 1.2 to 2.2 units wide and ten times as long, each fading in from nothing at its top, at its own place, strength (0.45 to 0.95) and speed (0.55 to 1.1s through the patch), all slanted 10 degrees by the wind. A patch has one streak for every 1,100 square units, between 40 and 140, picked by a seed from where it is (`rainSeed`), so the same place always draws the same rain. There is no lightning and no thunder. The numbers are `RAIN_STREAKS` in `lib/rainLook.js`. The layer fades in over 900ms (`--ease-out`) when the rain first appears. It lies under the routes, the meeting point, the pins and every marker, and it takes no pointer events. The map's tiles and attribution are not touched.
 
 **The chip.** White, 32px tall, fully rounded, `--shadow-float`, a cloud-rain icon (`AppIcon` `rain`) and one line in `--text-caption` in `--rain-text`. It is information, not a button: no pointer events, no tap target, not focusable. Its words come from `rainChipText`, by where the forecast came from:
 

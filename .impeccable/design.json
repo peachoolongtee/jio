@@ -906,7 +906,7 @@
           "travelPx": 34
         }
       ],
-      "composition": "A feathered radial wash and the three layers of drops clipped by a feathered mask that ends at 66/72 of the wash radius. Patterns, not nodes: three rectangles for each patch. Under the routes, pins and markers; no pointer events; tiles and attribution untouched.",
+      "composition": "A feathered radial wash and slanted streaks (each fading in from its top, with its own place, strength and speed) clipped by a feathered mask that ends at 66/72 of the wash radius. 40 to 140 streaks a patch, seeded by its place. Under the routes, pins and markers; no pointer events; tiles and attribution untouched.",
       "chip": {
         "component": "RainChip",
         "shadow": "shadow-float",
@@ -936,7 +936,7 @@
       },
       "motion": {
         "rain-in": "900ms ease-out, opacity only, once when the rain first appears",
-        "rain-fall": "linear and endless, transform only; one tile of the pattern each loop",
+        "rain-streak": "linear and endless, transform only; each streak falls through the patch in 0.55 to 1.1s",
         "rain-chip-in": "600ms ease-out after 200ms, opacity and a 4px rise",
         "reducedMotion": "No falling and no fade: the wash and the drops are drawn still, so the meaning is not lost."
       },
@@ -1074,7 +1074,7 @@
       },
       {
         "name": "The Rain Look Rule",
-        "body": "Rain on a map is the blue wash and three layers of drops of `--rain-wash` and `--rain-streak`, under everything else on the map, with a white `RainChip` that says where the forecast came from. It is information, never an action, and the chip says \"next 2 h\" only for the live two-hour forecast. Under reduced motion it stands still.",
+        "body": "Rain on a map is the blue wash and slanted streaks of `--rain-wash` and `--rain-streak`, under everything else on the map, with a white `RainChip` that says where the forecast came from. It is information, never an action, and the chip says \"next 2 h\" only for the live two-hour forecast. Under reduced motion it stands still.",
         "section": "motion"
       }
     ],

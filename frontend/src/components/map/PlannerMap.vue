@@ -13,7 +13,7 @@
 // keep       extra points ({ lat, lng }) the view must also show, drawn by something laid over the map (the Locate
 //            screen's spot pins). Emits `view` whenever the map moves or resizes; project(lat, lng) says where a
 //            point is, in px from the map's top-left (call it through the component's ref).
-// rain       [{ lat, lng }] the places where rain is likely: the same "Layered drops" as Home's map (lib/rainLook.js, DESIGN.md
+// rain       [{ lat, lng }] the places where rain is likely: the same rain as Home's map (a wash and slanted streaks) (lib/rainLook.js, DESIGN.md
 //            "Weather"), a feathered blue wash with three layers of drops over each, in a Leaflet pane of its own under the
 //            route and the markers and above the tiles. It moves and zooms with the map (a Leaflet marker in that pane; it
 //            scales with the zoom glide and is sized again when the zoom ends), takes no pointer events and leaves the tiles
@@ -32,7 +32,7 @@ import { CATEGORY_LABELS } from '@/lib/planner/slots.js'
 import { personIndex } from '@/lib/people.js'
 import { retireMap } from './retireMap.js'
 import RainChip from '../weather/RainChip.vue'
-import { nextRainUid, rainPatchSvg } from '@/lib/rainLook.js'
+import { nextRainUid, rainPatchSvg, rainSeed } from '@/lib/rainLook.js'
 
 // People who asked for less motion get a map that jumps to its new view instead of gliding there.
 const reducedMotion = () => !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
@@ -244,16 +244,16 @@ function rainSize(lat, zoom) {
   const metresPerPixel = (156543.03 * Math.cos((lat * Math.PI) / 180)) / 2 ** zoom
   return Math.round(Math.min(RAIN_MAX, Math.max(RAIN_MIN, (RAIN_M * 2) / metresPerPixel)))
 }
-// The icon for a patch of that size. How to call: rainIcon(392, true)
-function rainIcon(size, fade) {
-  return L.divIcon({ className: 'pm-rain', html: rainPatchSvg({ size, uid: nextRainUid(), fade }), iconSize: [size, size], iconAnchor: [size / 2, size / 2] })
+// The icon for a patch of that size, its streaks picked by where it is. How to call: rainIcon(392, true, { lat: 1.35, lng: 103.85 })
+function rainIcon(size, fade, at) {
+  return L.divIcon({ className: 'pm-rain', html: rainPatchSvg({ size, uid: nextRainUid(), fade, seed: rainSeed(at.lat, at.lng) }), iconSize: [size, size], iconAnchor: [size / 2, size / 2] })
 }
 // Draw the rain again for the current places. How to call: drawRain()
 function drawRain() {
   if (!map) return
   layers.rain.clearLayers()
   rainMarkers = props.rain.map((p) => {
-    const marker = L.marker([p.lat, p.lng], { icon: rainIcon(rainSize(p.lat, map.getZoom()), true), pane: 'rain', interactive: false, keyboard: false })
+    const marker = L.marker([p.lat, p.lng], { icon: rainIcon(rainSize(p.lat, map.getZoom()), true, p), pane: 'rain', interactive: false, keyboard: false })
     marker.addTo(layers.rain)
     return marker
   })
@@ -274,7 +274,7 @@ function sizeRain() {
   if (!map) return
   rainMarkers.forEach((marker) => {
     const size = rainSize(marker.getLatLng().lat, map.getZoom())
-    if (marker.options.icon.options.iconSize[0] !== size) marker.setIcon(rainIcon(size, false))
+    if (marker.options.icon.options.iconSize[0] !== size) marker.setIcon(rainIcon(size, false, marker.getLatLng()))
     else {
       // A glide that ended at the same size (a clamped one): put the patch back as it was.
       const svg = marker.getElement()?.firstElementChild
