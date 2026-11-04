@@ -136,8 +136,9 @@ function pick(event) {
 /* White, not grey (Darius, 4 November 2026): a firm grey border at rest, the bold ink outline when selected. */
 @media (hover: hover) { .spot:not(.is-selected):hover { border-color: var(--ink); background: var(--surface-soft); } }
 .spot { position: relative; }
-/* Selected: a soft red border with the red streak running over it (the streak is hidden under reduced motion; the border stays). */
-.spot.is-selected { padding: 11px calc(var(--spacing-base) - 1px); border: 2px solid var(--primary-disabled); background: var(--canvas); }
+/* Selected: the bold ink border, with a red streak running round over it, as the Rewards card (the streak is hidden under reduced
+   motion; the ink border still marks the selection). */
+.spot.is-selected { padding: 11px calc(var(--spacing-base) - 1px); border: 2px solid var(--ink); background: var(--canvas); }
 .spot .spot__trail { inset: -2px; }
 .spot__top { display: flex; align-items: center; gap: var(--spacing-sm); min-width: 0; }
 .spot__head { display: flex; flex: 1 1 0; align-items: center; gap: var(--spacing-md); min-width: 0; min-height: var(--tap-min); margin: 0; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
