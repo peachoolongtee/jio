@@ -72,7 +72,6 @@ import SplitView from '@/components/ui/SplitView.vue'
 import ToastMessage from '@/components/ui/ToastMessage.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
-import ChangePlan from '@/components/event/ChangePlan.vue'
 import ProposedStops from '@/components/event/ProposedStops.vue'
 import RoamPanel from '@/components/event/RoamPanel.vue'
 import StopCard from '@/components/event/StopCard.vue'
@@ -409,7 +408,6 @@ async function endPlan() {
 
     <div class="screen__body">
       <SessionNotices :session="session" />
-      <ChangePlan :session="session" />
       <WeatherSource v-if="showWeather" :block="weatherBlock" banner />
       <RainBanners v-if="today && itinerary" :session="session" :itinerary="itinerary" :my-id="myId" />
 

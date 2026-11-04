@@ -65,7 +65,6 @@ import TextField from '@/components/ui/TextField.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import PlaceDetail from '@/components/event/PlaceDetail.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
-import ChangePlan from '@/components/event/ChangePlan.vue'
 import DietaryChips from '@/components/event/DietaryChips.vue'
 import SuggestionCard from '@/components/event/SuggestionCard.vue'
 import WeatherSource from '@/components/weather/WeatherSource.vue'
@@ -820,12 +819,11 @@ async function keepDialog(e) {
 <template>
   <NotFoundView v-if="missing" />
   <main v-else-if="session" class="screen" data-testid="planner-view">
-    <SessionHeader :session="session" />
+    <SessionHeader :session="session" :change-plan="!replaceMode" />
 
     <div class="screen__body">
       <p class="sr-only" role="status">{{ loadingSaid }}</p>
       <SessionNotices :session="session" />
-      <ChangePlan v-if="!replaceMode" :session="session" />
       <BannerNote v-if="planError" tone="error" icon="warning" role="alert" data-testid="plan-error">
         {{ planError }}
         <template #actions>

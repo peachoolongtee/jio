@@ -17,6 +17,7 @@ import ModalDialog from '../ui/ModalDialog.vue'
 import CountdownChip from '../ui/CountdownChip.vue'
 import SessionSteps, { backFor } from './SessionSteps.vue'
 import InviteDialog from '../group/InviteDialog.vue'
+import ChangePlan from './ChangePlan.vue'
 import { CANCEL_OUTING, dateLine } from '@/lib/session.js'
 import { exitFor, goBackIfBehind } from '@/lib/stepNav.js'
 import { useAuthStore } from '@/stores/auth.js'
@@ -28,6 +29,9 @@ const props = defineProps({
   title: { type: String, default: '' },
   // Where the back arrow goes. Leave it out and it follows the steps (backFor).
   back: { type: String, default: '' },
+  // "Change plan" beside Hold to cancel, on every session page where it applies (Darius, 4 November 2026); ChangePlan itself decides when
+  // (the host, while voting or confirmed). False hides it, as on the Vote page while one stop is being replaced.
+  changePlan: { type: Boolean, default: true },
 })
 
 const route = useRoute()
@@ -60,8 +64,9 @@ async function cancelSession() {
       <span class="session-head__actions">
         <!-- Screen-specific icon actions, for example Map and Edit on the itinerary. -->
         <slot name="actions" />
+        <ChangePlan v-if="changePlan" class="session-head__change" :session="session" />
         <IconButton v-if="canInvite" label="Invite friends" @click="inviteOpen = true"><AppIcon name="user-plus" /></IconButton>
-        <HoldButton v-if="canCancel" :label="CANCEL_OUTING.hold" :action="CANCEL_OUTING.action" @done="cancelOpen = true" />
+        <HoldButton v-if="canCancel" :label="CANCEL_OUTING.hold" short="Cancel" :action="CANCEL_OUTING.action" @done="cancelOpen = true" />
         <span v-else-if="!$slots.actions" class="session-head__spacer" />
       </span>
     </div>
@@ -88,5 +93,7 @@ async function cancelSession() {
 <style scoped>
 .session-head__spacer { width: var(--tap-min); }
 .session-head__actions { display: flex; align-items: center; gap: var(--spacing-sm); }
+/* The narrowest phones: closer together, so Change plan, Invite and Hold to cancel all fit beside the back arrow. */
+@media (max-width: 359.98px) { .session-head__actions { gap: var(--spacing-xxs); } }
 .session-head__meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-sm); }
 </style>
