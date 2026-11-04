@@ -7,25 +7,46 @@
 //     <template #map> <PlannerMap ... /> </template>
 //   </SplitView>
 // The layout changes with CSS only, so the list and the map keep their state when the window is resized.
-// mapFirst (desktop only): the map runs the width of the screen and fills its height under the page's header, and the list is a panel
-// floating on its right, as on Home (Darius, 4 November 2026; Locate first). The map should leave the panel's width free when it
-// frames its points (PlannerMap padRight). Phones keep the List / Map switch.
-import { ref } from 'vue'
+// mapFirst (desktop only, as Home): the map on the left and the list docked on the right as a full-height white panel, across the whole
+// width of the screen and down to its foot (Darius, 4 November 2026; Locate first). Phones keep the List / Map switch.
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import SegmentTabs from './SegmentTabs.vue'
 
 const view = defineModel('view', { type: String, default: 'list' })
-defineProps({
+const props = defineProps({
   label: { type: String, required: true },
   // Desktop: give the list and the map equal widths, for lists that need the room (the itinerary).
   even: { type: Boolean, default: false },
   mapFirst: { type: Boolean, default: false },
 })
 const expanded = ref(false)
+
+// Map first: how tall the two columns are, from where they start down to the screen's foot (a long title pushes them down).
+const root = ref(null)
+// …and where the screen's edges are from the page's column, so the two columns run exactly from edge to edge.
+const box = ref(null)
+function measure() {
+  if (!props.mapFirst || !root.value) return
+  const top = root.value.getBoundingClientRect().top + (globalThis.scrollY || 0)
+  // Where this would start without the pull to the edge: the column's left edge plus its padding.
+  const parent = root.value.parentElement
+  const column = parent?.getBoundingClientRect()
+  const pad = parent ? parseFloat(getComputedStyle(parent).paddingLeft) || 0 : 0
+  // The page's own width (it leaves room for a scrollbar on the right, as fixed bars do), so the panel ends where they do.
+  const width = globalThis.document?.documentElement.getBoundingClientRect().width || 0
+  box.value = { '--split-h': `calc(100dvh - ${Math.round(top)}px)`, '--split-ml': `${-Math.round((column?.left || 0) + pad)}px`, '--split-w': `${width}px` }
+}
+onMounted(() => {
+  nextTick(measure)
+  globalThis.addEventListener?.('resize', measure)
+})
+onBeforeUnmount(() => globalThis.removeEventListener?.('resize', measure))
+watch(() => props.mapFirst, () => nextTick(measure))
 </script>
 
 <template>
-  <div class="split" :class="[`split--${view}`, { 'is-expanded': expanded, 'split--even': even, 'split--first': mapFirst }]">
+  <div ref="root" class="split" :class="[`split--${view}`, { 'is-expanded': expanded, 'split--even': even, 'split--first': mapFirst }]" :style="mapFirst && box ? box : undefined">
     <SegmentTabs
       v-model="view"
       class="split__switch"
@@ -90,37 +111,19 @@ const expanded = ref(false)
   .split__expand:hover { border-color: var(--ink); }
 }
 
-/* Map first: the map is the page, edge to edge and down to the screen's foot; the list floats on its right in a white panel that
-   scrolls on its own. "Expand map" sits beside the zoom buttons, and expanded hides the panel. */
+/* Map first (Option A, as Home): from 1128px two columns across the whole width of the screen, the map on the left and the list docked
+   on the right as a white panel, both down to the screen's foot (the height is measured from where this starts, --split-h). The panel
+   scrolls on its own; the page's footer sits at its foot (GroupDetailView), so it leaves room for it. "Expand map" sits beside the zoom
+   buttons, and expanded hides the panel. */
 @media (min-width: 1128px) {
-  .split--first { position: relative; display: block; margin-right: calc(50% - 50vw); margin-left: calc(50% - 50vw); }
-  /* The screen less the page's header (back, steps, title: about 220px) and its sticky footer (about 90px), so the map ends where the
-     footer starts. */
-  .split--first .split__map { position: relative; top: auto; display: block; height: calc(100dvh - 310px); min-height: 420px; max-height: none; border-width: 1px 0; border-radius: 0; }
-  .split--first.is-expanded .split__map { height: calc(100dvh - 310px); }
-  /* The panel has no border of its own: the list's cards float on the map, and the column scrolls inside the map's height. */
-  .split--first .split__list {
-    position: absolute;
-    z-index: 600;
-    top: var(--spacing-lg);
-    right: max(var(--gutter), calc((100vw - var(--content-max-width)) / 2));
-    width: 440px;
-    max-height: calc(100% - var(--spacing-lg) * 2);
-    padding: var(--spacing-sm);
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    scrollbar-width: none;
-    border-radius: var(--rounded-lg);
-    /* Frosted glass, as Home's panel, so a heading between the cards stays readable over the streets. */
-    background: color-mix(in srgb, var(--canvas) 72%, transparent);
-    -webkit-backdrop-filter: blur(14px) saturate(1.3);
-    backdrop-filter: blur(14px) saturate(1.3);
-  }
-  .split--first .split__list::-webkit-scrollbar { display: none; }
-  .split--first .split__list > :deep(*) { flex-shrink: 0; }
-  .split--first .split__list > :deep(.card), .split--first .split__list > :deep(section) { box-shadow: var(--shadow-float); }
+  .split--first { display: grid; grid-template-columns: minmax(0, 1fr) var(--split-panel, 420px); gap: 0; height: var(--split-h, calc(100dvh - 220px)); min-height: 480px; width: var(--split-w, 100vw); margin-right: 0; margin-left: var(--split-ml, calc(50% - 50vw)); border-top: 1px solid var(--hairline); }
+  .split--first .split__map { position: relative; top: auto; grid-column: 1; grid-row: 1; display: block; height: 100%; min-height: 0; max-height: none; border: 0; border-radius: 0; }
+  .split--first .split__list { grid-column: 2; grid-row: 1; height: 100%; padding: var(--spacing-base) var(--spacing-base) var(--split-foot, 104px); overflow-y: auto; overscroll-behavior: contain; border-left: 1px solid var(--border-strong); background: var(--canvas); }
   .split--first .split__list > :last-child { flex-grow: 0; }
+  .split--first .split__list > :deep(*) { flex-shrink: 0; }
+  .split--first.is-expanded { grid-template-columns: minmax(0, 1fr); }
   .split--first.is-expanded .split__list { display: none; }
+  .split--first.is-expanded .split__map { height: 100%; }
   .split--first .split__expand { right: auto; left: calc(var(--spacing-md) + 56px); }
 }
 </style>
