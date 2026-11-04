@@ -64,6 +64,8 @@ const TILES = 'https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png'
 const ATTRIBUTION = '<a href="https://www.onemap.gov.sg/" target="_blank" rel="noopener noreferrer">OneMap</a> &copy; contributors &#124; <a href="https://www.sla.gov.sg/" target="_blank" rel="noopener noreferrer">Singapore Land Authority</a>'
 const BOUNDS = [[1.13, 103.55], [1.5, 104.13]]
 const SINGAPORE = [1.3521, 103.8198]
+// The main island, framed when there is nothing on the map yet.
+const ISLAND = [[1.24, 103.61], [1.47, 104.03]]
 
 const el = ref(null)
 let map = null
@@ -130,6 +132,21 @@ function arc(from, to, steps = 32) {
     points.push([u * u * from.lat + 2 * u * t * c.lat + t * t * to.lat, u * u * from.lng + 2 * u * t * c.lng + t * t * to.lng])
   }
   return points
+}
+
+// Centres a point in the part of the map the floating cards leave free (cover), at a zoom. How to call: viewInFree([1.3, 103.8], 15)
+function viewInFree(point, zoom) {
+  const c = props.cover || {}
+  const z = Math.max(zoom, map.getMinZoom())
+  const shifted = map.project(point, z).add([((c.right || 0) - (c.left || 0)) / 2, ((c.bottom || 0) - (c.top || 0)) / 2])
+  map.setView(map.unproject(shifted, z), z, reducedMotion() ? { animate: false } : undefined)
+}
+
+// The furthest out the map may zoom: no further than its tiles fill the box, so no grey shows round them on a big screen (the full-screen
+// maps from 1128px), and never out to zoom 10. How to call: syncMinZoom()
+function syncMinZoom() {
+  if (!map || !el.value?.clientWidth) return
+  map.setMinZoom(Math.max(10, map.getBoundsZoom(BOUNDS, true)))
 }
 
 function draw() {
@@ -206,8 +223,9 @@ function draw() {
     fittedKey = key
     const c = props.cover || {}
     if (frame.length > 1) map.fitBounds(L.latLngBounds(frame), { paddingTopLeft: [64 + (c.left || 0), 64 + (c.top || 0)], paddingBottomRight: [64 + (c.right || 0), 64 + (c.bottom || 0)], maxZoom: 16, animate: !reducedMotion() })
-    else if (frame.length === 1) map.setView(frame[0], 15, reducedMotion() ? { animate: false } : undefined)
-    else map.setView(SINGAPORE, 11, reducedMotion() ? { animate: false } : undefined)
+    else if (frame.length === 1) viewInFree(frame[0], 15)
+    // Nothing to show yet: the main island, in the part of the map the cards leave free (never zoomed out past the map's edges).
+    else map.fitBounds(L.latLngBounds(ISLAND), { paddingTopLeft: [16 + (c.left || 0), 16 + (c.top || 0)], paddingBottomRight: [16 + (c.right || 0), 16 + (c.bottom || 0)], animate: !reducedMotion() })
   }
 }
 
@@ -341,6 +359,7 @@ onMounted(() => {
   map = L.map(el.value, { center: SINGAPORE, zoom: 11, minZoom: 10, maxZoom: 18, zoomSnap: 0.25, zoomControl: false, maxBounds: BOUNDS, zoomAnimation: !reducedMotion(), fadeAnimation: !reducedMotion(), markerZoomAnimation: !reducedMotion() })
   L.control.zoom({ position: props.zoomPosition }).addTo(map)
   L.tileLayer(TILES, { attribution: ATTRIBUTION, minZoom: 10, minNativeZoom: 11, maxZoom: 19, bounds: BOUNDS }).addTo(map)
+  syncMinZoom()
   // The rain has a pane between the tiles (200) and the route (400), so it lies on the map and under everything drawn on it.
   map.createPane('rain').style.zIndex = 350
   layers = { rain: L.layerGroup().addTo(map), base: L.layerGroup().addTo(map), radius: L.layerGroup().addTo(map) }
@@ -358,6 +377,7 @@ onMounted(() => {
     const width = el.value?.clientWidth || 0
     const height = el.value?.clientHeight || 0
     map.invalidateSize()
+    syncMinZoom()
     // Shown for the first time (it was 0 wide), or its box changed size by more than a little: fit the view again, so everyone stays in
     // sight. Confirming a meeting spot changes the list beside the map, and the map's height with it; the view fitted to the old size
     // could leave someone outside the new one (Darius, 4 November 2026).
