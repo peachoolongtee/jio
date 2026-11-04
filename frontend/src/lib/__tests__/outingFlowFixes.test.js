@@ -175,7 +175,8 @@ describe('"What next?" in place of the empty timeline', () => {
     expect(finish.attrs.class).toContain('btn--secondary')
   })
 
-  it('keeps the Photos row and a main "Finish outing" once there is a stop', async () => {
+  // The Photos row is on "How was it?" now, not the itinerary (Darius, 4 November 2026).
+  it('keeps a main "Finish outing" once there is a stop, and leaves the photos to "How was it?"', async () => {
     const { text, id } = await confirmedSave()
     const save = JSON.parse(text)
     // The confirmed outing's day, so the plan is under way.
@@ -184,7 +185,7 @@ describe('"What next?" in place of the empty timeline', () => {
     const t = await appFor(api)
     const view = await draw(t, `/sessions/${id}/itinerary`, 'EventView', { id })
     await until(() => !!press(view, 'Finish and review'))
-    expect(view.text()).toContain('Photos from the day')
+    expect(view.text()).not.toContain('Photos from the day')
     expect(press(view, 'Finish and review').attrs.class).toContain('btn--primary')
     expect(view.all('h2').filter((h2) => view.text(h2) === 'What next?')).toHaveLength(0)
   })

@@ -69,7 +69,7 @@ test.describe('Dietary needs and replacing a stop', () => {
   // keeps its start time and the next stop starts when the new stop ends plus the travel time to it.
   // Starting state: the demo account with the showcase. "Dessert run after the gym" is confirmed for Saturday 7 November with two
   // stops (an Eat stop at 19:00 for an hour, then an Activity); Ian is the host.
-  // Steps: open it from Home; press "Edit itinerary"; "Replace stop" on the first stop; on the page of other places that fit,
+  // Steps: open it from Home; "Replace stop" on the first stop (always there for the host: the edit mode is gone); on the page of other places that fit,
   // press "Use ... instead" on the first one.
   // Checked at the end: back on the itinerary, the first stop has the new place's name (not the old one) and still starts at 19:00;
   // the second stop is unchanged, and starts at 19:00 plus the first stop's length plus the travel time now shown between them.
@@ -90,8 +90,7 @@ test.describe('Dietary needs and replacing a stop', () => {
     expect(firstStart, 'the first stop shows its start and length').not.toBeNull()
     expect(firstStart[1]).toBe('19:00')
 
-    // 1. Edit, then Replace on the first stop. The page of other places opens for that one stop.
-    await page.getByRole('button', { name: 'Edit itinerary' }).click()
+    // 1. Replace on the first stop. The page of other places opens for that one stop.
     await page.getByRole('button', { name: `Replace stop: ${oldName}` }).click()
     await expect(page.getByRole('heading', { level: 2, name: oldName })).toBeVisible()
     await expect(page.getByText('Replacing', { exact: true })).toBeVisible()

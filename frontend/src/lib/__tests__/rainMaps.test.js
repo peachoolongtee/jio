@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from './miniDom.js'
 import RainChip from '../../components/weather/RainChip.vue'
-import { MAX_RAIN_PATCHES, itineraryRain, nextRainUid, rainChipText, rainPatchSvg, rainSpots } from '../rainLook.js'
+import { MAX_RAIN_PATCHES, RAIN_STREAKS, itineraryRain, nextRainUid, rainChipText, rainPatchSvg, rainSpots } from '../rainLook.js'
 import { homeRainText } from '../weatherText.js'
 import { rainView } from '../homeRain.js'
 
@@ -30,6 +30,12 @@ vi.mock('leaflet', () => {
         zoom,
         createPane: (name) => { const pane = { name, style: {} }; calls.panes.push(pane); return pane },
         getZoom: () => zoom.value,
+        // The map's furthest-out zoom (syncMinZoom) and the shifted centre for the floating cards (viewInFree, 4 November 2026).
+        getMinZoom: () => 10,
+        setMinZoom: () => {},
+        getBoundsZoom: () => 11,
+        project: () => ({ add: () => ({}) }),
+        unproject: () => [1.3, 103.8],
         getBounds: () => ({ pad: () => ({ contains: () => true }) }),
         fitBounds: () => {},
         setView: () => {},
@@ -77,8 +83,9 @@ describe('the words on the rain chip', () => {
     expect(rainChipText({ ...live, basis: 'mixed' })).toBe('Rain likely')
   })
 
-  it('says the rain is simulated when it is the demo\'s', () => {
-    expect(rainChipText({ source: 'simulated', basis: 'simulated' })).toBe('Simulated rain')
+  // The demo's simulated rain has no chip on the map (Darius, 4 November 2026); the page's "Simulated forecast" note still says so.
+  it('shows no chip for the demo\'s simulated rain', () => {
+    expect(rainChipText({ source: 'simulated', basis: 'simulated' })).toBe('')
   })
 
   it('leaves the chip out when nothing is known about where the forecast came from', () => {
@@ -93,17 +100,18 @@ describe('the words on the rain chip', () => {
 
   it('reads Home\'s answer: the block of the planner\'s reply decides the words', () => {
     expect(rainChipText(rainView([outing], answer(live), DURING).block)).toBe('Rain likely · next 2 h')
-    expect(rainChipText(rainView([outing], answer({ source: 'simulated' }), DURING).block)).toBe('Simulated rain')
+    expect(rainChipText(rainView([outing], answer({ source: 'simulated' }), DURING).block)).toBe('')
     expect(rainView([outing], answer(undefined), DURING)).toBeNull()
   })
 
-  // Home's only words for a screen reader are the line; the chip is hidden from it. They must never disagree about the source.
+  // Home's only words for a screen reader are the line; the chip is hidden from it. They must never disagree about the source. The
+  // demo's simulated rain has no chip at all, and its line still says it is simulated.
   it('is worded the same way by Home\'s line and by the chip, for every source', () => {
     const cases = [
       ['live, two hours', live, { chip: 'Rain likely · next 2 h', line: 'Rain likely around Bishan in the next two hours' }],
       ['live, 24 hours', { ...live, basis: 'regional' }, { chip: 'Rain likely', line: 'Rain likely around Bishan' }],
       ['live, mixed', { ...live, basis: 'mixed' }, { chip: 'Rain likely', line: 'Rain likely around Bishan' }],
-      ['simulated', { source: 'simulated', basis: 'simulated' }, { chip: 'Simulated rain', line: 'Simulated rain around Bishan' }],
+      ['simulated', { source: 'simulated', basis: 'simulated' }, { chip: '', line: 'Simulated rain around Bishan' }],
     ]
     for (const [name, block, words] of cases) {
       const view = rainView([outing], answer(block), DURING)
@@ -112,7 +120,8 @@ describe('the words on the rain chip', () => {
       expect(homeRainText(['Bishan'], block), name).toBe(words.line)
       // "two hours" is claimed by both or by neither.
       expect(/next 2 h/.test(rainChipText(block)), name).toBe(/two hours/.test(view.text))
-      expect(/imulated/.test(rainChipText(block)), name).toBe(/imulated/.test(view.text))
+      // A chip never claims rain is real when the line says it is simulated (the simulated rain has no chip at all).
+      if (rainChipText(block)) expect(/imulated/.test(rainChipText(block)), name).toBe(/imulated/.test(view.text))
     }
     // With nothing known about the source there is no chip, no line and no rain.
     for (const block of [null, { source: 'unavailable', reason: 'unavailable' }, { source: 'none', reason: 'outside_window' }]) {
@@ -175,10 +184,10 @@ describe('the rain of an itinerary', () => {
     expect(itineraryRain(stops, own, live, AFTER).places.length).toBeGreaterThan(0)
   })
 
-  it('says "Simulated rain" for the demo\'s forecast, and never lets it run out', () => {
+  it('draws the demo\'s simulated rain with no chip, and never lets it run out', () => {
     const rain = itineraryRain([stop('a', 1.3, 103.8)], () => ({ rainLikely: true, source: 'simulated' }), { source: 'simulated', basis: 'simulated' }, new Date('2031-01-01T00:00:00Z'))
     expect(rain.places).toHaveLength(1)
-    expect(rain.text).toBe('Simulated rain')
+    expect(rain.text).toBe('')
   })
 
   it('keeps places more than 150 m apart and skips points that are not places', () => {
@@ -191,14 +200,18 @@ describe('the rain of an itinerary', () => {
 describe('one patch of rain as markup', () => {
   const svg = rainPatchSvg({ size: 240, uid: 'u1', fade: true })
 
-  it('has a feathered wash, a feathered mask and three layers of drops, each on a pattern of its own', () => {
+  // Slanted streaks that fade in (4 November 2026), in place of the three patterned layers of drops.
+  it('has a feathered wash, a feathered mask and slanted streaks that fall inside it', () => {
     expect(svg).toContain('<radialGradient id="u1-wash">')
     expect(svg).toContain('<mask id="u1-mask"')
-    for (const name of ['far', 'mid', 'near']) {
-      expect(svg).toContain(`<pattern id="u1-${name}"`)
-      expect(svg).toContain(`class="rain-fall rain-fall--${name}"`)
-    }
-    expect(svg.match(/<rect /g)).toHaveLength(3)
+    expect(svg).toContain('<linearGradient id="u1-streak"')
+    expect(svg).toContain(`<g class="rain-wind" style="--rain-travel:`)
+    expect(svg).toContain(`transform="rotate(${RAIN_STREAKS.angle} 120 120)"`)
+    const streaks = svg.match(/<rect class="rain-streak"/g) || []
+    expect(streaks.length).toBeGreaterThanOrEqual(RAIN_STREAKS.min)
+    expect(streaks.length).toBeLessThanOrEqual(RAIN_STREAKS.max)
+    // The same seed draws the same streaks, so a redraw or a zoom does not reshuffle them.
+    expect(rainPatchSvg({ size: 240, uid: 'u1', fade: true })).toBe(svg)
     // The drops stay inside the wash, so they fade out before the tint does.
     expect(svg).toContain('r="110" fill="url(#u1-feather)"')
     expect(svg).toContain('r="120" fill="url(#u1-wash)"')
@@ -255,7 +268,7 @@ describe('the session map\'s rain', () => {
     for (const marker of rainMarkers()) {
       expect(marker.options.interactive).toBe(false)
       expect(marker.options.keyboard).toBe(false)
-      expect(marker.icon.html).toContain('rain-fall--near')
+      expect(marker.icon.html).toContain('class="rain-streak"')
       expect(marker.icon.html).toContain('rain-in')
     }
     // The other markers stay in Leaflet's own marker pane.

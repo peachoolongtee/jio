@@ -92,26 +92,36 @@ describe('the search box', () => {
     const { view } = await votingPage()
     box(view).dispatch('focusin')
     await until(() => view.has('[data-testid=search-cdc]'))
-    expect(view.text('[data-testid=list-cdc]')).toBe('CDC vouchers in Eat and Drink')
+    // The chip beside the filter reads "CDC-friendly" (4 November 2026); its name starts with those words and says what it filters.
+    expect(view.text('[data-testid=list-cdc]')).toBe('CDC-friendly')
+    const name = view.one('[data-testid=list-cdc]').attrs['aria-label'] || ''
+    expect(name.startsWith('CDC-friendly')).toBe(true)
+    expect(name).toContain('Eat and Drink')
     expect(view.text('[data-testid=search-cdc]')).toBe('Search CDC vouchers only')
   })
 })
 
 describe('"Added"', () => {
-  it('is an ink outline with a tick and no red, with no pressed state on a button whose name is an action', async () => {
+  // A place in the search is picked, then added (Darius, 4 November 2026): each row is a checkbox named by the place, ticked in ink,
+  // and one "Add" at the foot adds the ticked ones. The "Added" button now belongs to the saved places only.
+  it('is a checkbox named by the place, ticked in ink with no red, and "Add" at the foot counts the ticks', async () => {
     const { view } = await votingPage()
     const { VENUES } = await import('../mock/venues.js')
     const fresh = VENUES.filter((v) => v.category === 'eat')[5]
     planner.searchSlot.mockImplementation(async ({ slot }) => (slot.category === 'eat' ? [{ id: fresh.id, name: fresh.name, area: fresh.area, category: 'eat', walk: 4, unfit: '', verify: [], dietUnknown: [], cdc: false }] : []))
     box(view).dispatch('focusin')
     await until(() => view.has('[data-testid=search-panel]') && view.text('[data-testid=search-panel]').includes(fresh.name))
-    const button = () => view.all('button').find((b) => /^(Add|Take back) /.test(b.attrs['aria-label'] || '') && (b.attrs['aria-label'] || '').includes(fresh.name))
-    await view.click(button())
-    await until(() => button()?.attrs['aria-label'] === `Take back ${fresh.name}`)
-    expect(view.text(button())).toBe('Added')
-    expect(button().attrs['aria-pressed']).toBeUndefined()
-    expect(button().attrs.class).toContain('is-added')
-    expect(button().attrs.class).not.toContain('btn--primary')
+    const pick = () => view.one(`[data-testid="pick-${fresh.id}"]`)
+    expect(pick().attrs.role).toBe('checkbox')
+    expect(pick().attrs['aria-label']).toBe(fresh.name)
+    expect(pick().attrs['aria-checked']).toBe('false')
+    expect(view.one('[data-testid=add-picked]').attrs.disabled).toBeDefined()
+    await view.click(pick())
+    expect(pick().attrs['aria-checked']).toBe('true')
+    expect(pick().closest('li').attrs.class).toContain('is-ticked')
+    expect(pick().attrs.class).not.toContain('btn--primary')
+    expect(view.text('[data-testid=add-picked]')).toBe('Add')
+    expect(view.one('[data-testid=add-picked]').attrs.disabled).toBeUndefined()
   })
 
   it('draws its off state in the muted ink, which is 4.5:1 on white, not the grey of a switched-off button', () => {

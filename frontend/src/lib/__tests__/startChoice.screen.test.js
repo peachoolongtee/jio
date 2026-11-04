@@ -81,13 +81,13 @@ describe('the host\'s choice screen', () => {
     const [fair, known] = view.all('button').filter((b) => b.attrs.role === 'radio')
     expect(view.text(fair)).toContain('Find the fairest spot')
     expect(view.text(fair)).toContain('Default')
-    expect(view.text(fair)).toContain('Best when people start from different places')
     expect(view.text(known)).toContain('We already know where')
-    expect(view.text(known)).toContain('Best when the group has already agreed on an area')
-    // Each card is named by its title and described by the rest.
+    // The "Best when…" lines were removed as saying what the card already says (Darius, 4 November 2026).
+    expect(view.text(fair)).not.toContain('Best when')
+    // Each card is named by its title and described by its text.
     for (const card of [fair, known]) {
       expect(card.attrs['aria-labelledby']).toMatch(/-title$/)
-      expect(card.attrs['aria-describedby']).toMatch(/-text.*-meta$/)
+      expect(card.attrs['aria-describedby']).toMatch(/-text$/)
     }
     expect(fair.attrs['aria-checked']).toBe('true')
     expect(known.attrs['aria-checked']).toBe('false')

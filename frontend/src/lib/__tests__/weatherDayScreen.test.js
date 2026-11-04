@@ -561,11 +561,13 @@ describe('the rain on the itinerary\'s map', () => {
     expect(mapSeen.rainLabel).toBe('')
   })
 
-  it('says "Simulated rain" for the demo\'s forecast, which does not run out', async () => {
+  // The demo's simulated rain has no chip on the map (Darius, 4 November 2026); the rain itself is still drawn, and never runs out.
+  it('draws the demo\'s simulated rain with no chip, and it does not run out', async () => {
     conditions.rain = true
     api.checkStopWeather.mockImplementation(async () => ({ checkedAt: Date.now(), stops: { eat: wx('showers', SIM), activity: wx('showers', SIM) }, weather: SIM }))
     await open({ session: session({ isToday: true }), itinerary: itinerary({ weather: SIM, stops: stops([wx('showers', SIM), wx('showers', SIM)]) }) })
-    expect(mapSeen.rainLabel).toBe('Simulated rain')
+    expect(mapSeen.rainLabel).toBe('')
+    expect(mapSeen.rain.length).toBeGreaterThan(0)
     await vi.advanceTimersByTimeAsync(5 * 60 * MIN)
     expect(mapSeen.rain.length).toBeGreaterThan(0)
   })
@@ -599,7 +601,8 @@ describe('the rain on the full-screen map', () => {
 
   it('says it is simulated in the source line when the rain is the demo\'s', async () => {
     const page = await openMap({ itinerary: itinerary({ weather: SIM, stops: stops([wx('showers', SIM), wx('showers', SIM)]) }) })
-    expect(mapSeen.rainLabel).toBe('Simulated rain')
+    // No chip on the map for the demo's rain; the source line still says the forecast is simulated.
+    expect(mapSeen.rainLabel).toBe('')
     expect(page.text()).toContain('Simulated forecast')
   })
 

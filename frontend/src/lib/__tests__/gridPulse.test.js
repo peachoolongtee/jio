@@ -4,10 +4,12 @@ import { describe, expect, it } from 'vitest'
 import { GRID_PULSE, cellPaint } from '../gridPulse.js'
 
 describe('the grid behind Leaderboard, Rewards and Profile', () => {
-  it('lights nothing by itself and keeps the trail short', () => {
-    expect(GRID_PULSE.ambient).toBe(0)
-    expect(GRID_PULSE.reach).toBeLessThan(2)
-    expect(GRID_PULSE.maxLit).toBeLessThanOrEqual(40)
+  // The livelier pulse was brought back by Darius on 4 November 2026: a few cells light by themselves, within a cap.
+  it('lights only a few cells by itself, and caps how many are lit at once', () => {
+    expect(GRID_PULSE.ambient).toBeGreaterThan(0)
+    expect(GRID_PULSE.ambient).toBeLessThanOrEqual(2)
+    expect(GRID_PULSE.reach).toBeLessThan(3)
+    expect(GRID_PULSE.maxLit).toBeLessThanOrEqual(180)
   })
 
   it('paints a cell a pale grey, or now and then the brand red at a faint strength', () => {

@@ -23,9 +23,11 @@ describe('the rain on the maps, in its stylesheets', () => {
   it('moves only by transform and opacity, and both animations are switched off under reduced motion', () => {
     const keyframes = RAIN.match(/@keyframes [\w-]+ \{[^\n]*\}/g)
     expect(keyframes).toHaveLength(2)
-    for (const frame of keyframes) expect(frame).toMatch(/^@keyframes [\w-]+ \{ (from \{ opacity: 0; \} to \{ opacity: 1; \}|to \{ transform: translateY\(var\(--rain-h, 0px\)\); \}) \}$/)
+    for (const frame of keyframes) expect(frame).toMatch(/^@keyframes [\w-]+ \{ (from \{ opacity: 0; \} to \{ opacity: 1; \}|from \{ transform: translateY\(0\); \} to \{ transform: translateY\(var\(--rain-travel, 0px\)\); \}) \}$/)
     const reduced = RAIN.slice(RAIN.indexOf('@media (prefers-reduced-motion: reduce)'))
-    expect(reduced).toMatch(/\.rain-in, \.rain-fall \{ animation: none; \}/)
+    // Under reduced motion the fade and the fall stop, and each streak stands still at its own point in the patch.
+    expect(reduced).toMatch(/\.rain-in \{ animation: none; \}/)
+    expect(reduced).toMatch(/\.rain-streak \{ animation: none; transform: translateY\(var\(--rain-still, 0px\)\); \}/)
     expect(CHIP.slice(CHIP.indexOf('@media (prefers-reduced-motion: reduce)'))).toMatch(/\.rain-chip-in \{ animation: none; \}/)
   })
 
@@ -46,11 +48,19 @@ describe('the rain on the maps, in its stylesheets', () => {
     expect(TOKENS).toMatch(/--rain-text: #2a4866;/)
   })
 
-  it('loops each layer by exactly one tile of its pattern, so there is no seam', async () => {
-    const { RAIN_LAYERS } = await import('../rainLook.js')
-    for (const layer of RAIN_LAYERS) expect(layer.travel).toBe(layer.tile[1])
-    expect(RAIN_LAYERS.map((l) => [l.name, l.seconds, l.travel])).toEqual([['far', 1.7, 12], ['mid', 1.1, 20], ['near', 0.65, 34]])
-    for (const [name, seconds] of [['far', '1.7s'], ['mid', '1.1s'], ['near', '0.65s']]) expect(RAIN).toContain(`.rain-fall--${name} { --rain-s: ${seconds}; }`)
+  // The streaks (4 November 2026) replaced the three patterned layers: each falls through the whole patch, from above its top to below
+  // its bottom, so it never pops in or out inside the rain.
+  it('lets every streak fall from above the patch to below it, at a speed within the look\'s range', async () => {
+    const { RAIN_STREAKS, rainStreaks } = await import('../rainLook.js')
+    const rain = rainStreaks({ size: 240, seed: 7 })
+    expect(Number(rain.top)).toBeLessThan(0)
+    expect(Number(rain.travel)).toBeGreaterThan(240)
+    for (const d of rain.drops) {
+      expect(Number(d.seconds)).toBeGreaterThanOrEqual(RAIN_STREAKS.seconds[0])
+      expect(Number(d.seconds)).toBeLessThanOrEqual(RAIN_STREAKS.seconds[1])
+      expect(Number(d.delay)).toBeLessThanOrEqual(0)
+    }
+    expect(RAIN).toContain('animation: rain-streak var(--rain-s, 1s) linear var(--rain-d, 0s) infinite')
   })
 })
 

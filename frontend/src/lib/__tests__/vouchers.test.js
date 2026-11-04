@@ -173,11 +173,12 @@ describe('the Rewards screen', () => {
     await until(() => view.has('[data-testid=my-vouchers]') || view.text().includes('No vouchers yet'))
   }
 
-  it('shows a used voucher greyed under Your vouchers, and offers it again on its card', async () => {
+  it('shows a used voucher greyed under Your vouchers, and offers it again on its card with Claim (Darius, 4 November 2026: no "Claim again")', async () => {
     const { view } = await drawRewards((save) => {
       save.redemptions = [{ id: 'v90', rewardId: 'r-nylon', code: 'JIO-USED-0001', at: new Date('2026-10-28T12:00:00+08:00').getTime(), validUntil: '2026-11-27', usedAt: new Date('2026-10-30T12:00:00+08:00').getTime() }]
     })
-    expect(view.text(cardOf(view, 'SGD 3 off any coffee'))).toContain('Claim again')
+    expect(view.text(cardOf(view, 'SGD 3 off any coffee'))).toContain('Claim')
+    expect(view.text(cardOf(view, 'SGD 3 off any coffee'))).not.toContain('Claim again')
     expect(view.text(cardOf(view, 'SGD 3 off any coffee'))).not.toContain('JIO-USED-0001')
     await showMine(view)
     const row = view.one('[data-testid=voucher-used]')
@@ -190,10 +191,10 @@ describe('the Rewards screen', () => {
     const { view } = await drawRewards(claims)
     expect(view.has('[data-testid=voucher-card]')).toBe(true)
     expect(view.has('[data-testid=my-vouchers]')).toBe(false)
-    expect(view.all('button').some((b) => view.text(b) === 'Your vouchers (1)')).toBe(true)
+    expect(view.all('button').some((b) => b.attrs['aria-label'] === 'Your vouchers, 1 ready to use')).toBe(true)
     await showMine(view)
     expect(view.has('[data-testid=voucher-card]')).toBe(false)
-    await view.click(view.all('button').find((b) => view.text(b) === 'Café vouchers'))
+    await view.click(view.all('button').find((b) => view.text(b) === 'Vouchers'))
     await until(() => view.has('[data-testid=voucher-card]'))
   })
 
@@ -321,9 +322,10 @@ describe('the Rewards screen', () => {
     await until(() => view.has('[data-testid=voucher-used]'))
     expect(view.text('[data-testid=voucher-used]')).toContain('Used on 30 Oct 2026')
     // Its card offers it again.
-    await view.click(view.all('button').find((b) => view.text(b) === 'Café vouchers'))
+    await view.click(view.all('button').find((b) => view.text(b) === 'Vouchers'))
     await until(() => view.has('[data-testid=voucher-card]'))
-    expect(view.text(cardOf(view, 'SGD 3 off any coffee'))).toContain('Claim again')
+    expect(view.text(cardOf(view, 'SGD 3 off any coffee'))).toContain('Claim')
+    expect(view.text(cardOf(view, 'SGD 3 off any coffee'))).not.toContain('Claim again')
     expect(stored(api.storage).redemptions[0].usedAt).toBe(new Date('2026-10-30T10:00:00+08:00').getTime())
     expect(view.errors).toEqual([])
   })
@@ -361,7 +363,7 @@ describe('the Rewards screen', () => {
     expect(view.text(cardOf(view, 'One free cupcake'))).toContain('Claimed')
     // The Claim button is gone with the claim, so focus has somewhere to be.
     await until(() => view.focused()?.id === 'vouchers-head')
-    expect(view.all('button').some((b) => view.text(b) === 'Your vouchers (2)')).toBe(true)
+    expect(view.all('button').some((b) => b.attrs['aria-label'] === 'Your vouchers, 2 ready to use')).toBe(true)
     await showMine(view)
     expect(view.all('[data-testid=voucher-usable]').some((r) => view.text(r).includes('One free cupcake'))).toBe(true)
     expect(view.errors).toEqual([])

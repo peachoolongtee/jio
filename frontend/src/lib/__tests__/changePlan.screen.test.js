@@ -169,10 +169,13 @@ describe('choosing the spot again after a changed start (Faith, 31 October 2026)
     await view.click(view.one('[data-testid=change-spot]'))
     await until(() => view.has('[data-testid=choose-again-pick]'))
     expect(view.has('[data-testid=choose-again-vote]')).toBe(true)
-    expect(view.has('[data-testid=choose-again-fairest]')).toBe(true)
+    // From the swap button nobody's trip changed, so "Use the fairest spot" is not offered (Darius, 4 November 2026).
+    expect(view.has('[data-testid=choose-again-fairest]')).toBe(false)
     // "Pick the place yourself" opens the area step, marked as coming from here.
     expect(view.one('[data-testid=choose-again-pick]').attrs.href).toBe(`/sessions/${id}/change-place?where=1&from=locate`)
-    await view.click(view.one('[data-testid=choose-again-keep]'))
+    // Keeping the spot is the dialog's × now, not a "Keep" button.
+    expect(view.has('[data-testid=choose-again-keep]')).toBe(false)
+    await view.click(view.one('[data-testid=modal-close]'))
     await until(() => !view.has('[data-testid=choose-again-pick]'))
     expect(row(w, id)).toMatchObject({ status: 'voting', meeting_area_id: had })
     expect(w.server.calls.map((c) => c.route)).not.toContain('changeMeetingPlace')

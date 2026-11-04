@@ -11,7 +11,8 @@ import { test, expect, signInDemo, createSession, inviteAndStart, openDemoTools 
 async function searchAndPick(page, text, resultName) {
   await page.getByRole('button', { name: /^Starting from/ }).click()
   const sheet = page.getByRole('dialog', { name: 'Where you start' })
-  await expect(sheet.getByText('Friends see the area name only')).toBeVisible()
+  // The sheet's line under its choices was dropped (Darius, 4 November 2026); the test below checks what the group sees instead.
+  await expect(sheet).toBeVisible()
   await sheet.getByRole('textbox', { name: 'Place or postal code' }).fill(text)
   // The address search runs about 300 ms after the last key, so the result appears a moment later.
   await sheet.getByRole('list', { name: 'Results' }).getByRole('button', { name: resultName }).click()
@@ -40,7 +41,11 @@ test.describe('Meeting area and place search', () => {
     const people = page.getByRole('region', { name: 'People', exact: true })
     await expect(people.getByRole('link', { name: /^Ian \(host\)\s+City Hall/ })).toBeVisible()
     await expect(people.getByRole('region', { name: 'Locations: 1 of 3' })).toBeVisible()
-    await expect(people).not.toContainText('Supreme Court')
+    // Ian's own rows ("Your locations") sit at the top of the People card since 4 November 2026 and show him his exact place; the rest
+    // of the card, what the group sees, has the area only.
+    await expect(people.getByRole('group', { name: 'Your locations' })).toContainText('Supreme Court Building')
+    const groupSees = people.locator(':scope > :not([aria-label="Your locations"])')
+    expect((await groupSees.allInnerTexts()).join(' ')).not.toContain('Supreme Court')
     await expect(page.getByRole('region', { name: 'Meeting area map' })).not.toContainText('Supreme Court')
   })
 

@@ -119,8 +119,9 @@ describe('finishing an outing of one person', () => {
   })
 })
 
-describe('the radius slider', () => {
-  // Voting, on a page with the slider (Faith's walkthrough, 30 October 2026: it replaced a row of chips).
+describe('the distance chips', () => {
+  // Voting, on a page with the distance chips: Auto, then 100 m to 3 km (Darius, 4 November 2026: they replaced the slider of Faith's
+  // walkthrough of 30 October 2026).
   async function votingPage() {
     const t = await setUp()
     const { id } = await t.api.createSession({ title: 'Saturday', date: '2026-10-17', start: '16:00', end: '20:00' })
@@ -130,63 +131,39 @@ describe('the radius slider', () => {
     await t.api.setLocation(id, 'jonathan', 'start', { areaId: 'jurong-east' })
     await t.api.useMeetingArea(id)
     const view = await draw(t, `/sessions/${id}/plan`, 'PlannerView', { id })
-    await until(() => view.has('input[type=range]'))
+    await until(() => view.has('[data-testid=radius]'))
     return { ...t, id, view }
   }
-  const slider = (view) => view.one('input[type=range]')
+  // The distance chip with these words. How to call: chip(view, '2 km')
+  const chip = (view, label) => view.all('[role=radio]').find((b) => view.text(b) === label)
 
-  it('starts on Auto with the slider off; turned off, the slider runs from 100 m to 3 km and saves only where it comes to rest', async () => {
+  it('starts on Auto; a chip saves its distance with one request, and Auto goes back to no limit', async () => {
     const { view, api, id } = await votingPage()
-    const auto = () => view.one('[role=switch]')
-    // Auto is on, and the slider waits for it (Faith, 31 October 2026).
-    expect(auto().attrs['aria-checked']).toBe('true')
-    expect(slider(view).attrs.disabled).toBeDefined()
-    expect(slider(view).attrs.min).toBe('0')
-    expect(slider(view).attrs.max).toBe('5')
-    expect(slider(view).attrs['aria-valuetext']).toBe('Auto')
-    // Turned off: 1 km to start with, saved at once.
-    await view.click(auto())
-    await until(async () => (await api.getSession(id)).radius === 1000)
-    expect(auto().attrs['aria-checked']).toBe('false')
-    expect(slider(view).attrs.disabled).toBeUndefined()
-    expect(slider(view).attrs['aria-valuetext']).toBe('Within 1 km')
+    expect(chip(view, 'Auto').attrs['aria-checked']).toBe('true')
     const calls = () => planner.rankSlot.mock.calls.filter(([args]) => args.radiusMeters).map(([args]) => args.radiusMeters)
     const before = calls().length
-    // Dragged through 250 m to 2 km, with a pause on the way: the words follow at once, nothing is asked for until it is let go, and
-    // then only 2 km.
-    view.type('input[type=range]', '1')
-    await view.tick()
-    expect(slider(view).attrs['aria-valuetext']).toBe('Within 250 m')
-    await new Promise((resolve) => setTimeout(resolve, 600))
-    expect(calls()).not.toContain(250)
-    view.type('input[type=range]', '4')
-    await view.tick()
-    expect(slider(view).attrs['aria-valuetext']).toBe('Within 2 km')
-    slider(view).dispatch('change')
+    await view.click(chip(view, '2 km'))
+    await until(async () => (await api.getSession(id)).radius === 2000)
     await until(() => calls().slice(before).includes(2000))
-    expect(calls().slice(before)).not.toContain(250)
-    await new Promise((resolve) => setTimeout(resolve, 50))
-    expect((await api.getSession(id)).radius).toBe(2000)
-    // On again: back to Auto.
-    await view.click(auto())
+    expect(calls().slice(before).filter((m) => m !== 2000)).toEqual([])
+    await until(() => chip(view, '2 km').attrs['aria-checked'] === 'true')
+    await until(() => !chip(view, 'Auto').attrs['aria-disabled'])
+    await view.click(chip(view, 'Auto'))
     await until(async () => (await api.getSession(id)).radius == null)
-    expect(slider(view).attrs['aria-valuetext']).toBe('Auto')
+    await until(() => chip(view, 'Auto').attrs['aria-checked'] === 'true')
   })
 
-  // Faith's recording, 4 November 2026: the save ended before the plan was read again, so the slider showed the old value for half a second.
-  it('never snaps back to the old distance after it is let go, while the plan is read again', async () => {
+  // Faith's recording, 4 November 2026: the save ended before the plan was read again, so the old value showed for half a second.
+  it('never shows the old distance again after a chip is tapped, while the plan is read again', async () => {
     const { view, api, id } = await votingPage()
-    await view.click(view.one('[role=switch]'))
-    await until(async () => (await api.getSession(id)).radius === 1000)
-    await new Promise((resolve) => setTimeout(resolve, 100))
-    view.type('input[type=range]', '4')
-    slider(view).dispatch('change')
+    await view.click(chip(view, '2 km'))
     const seen = new Set()
-    const watching = setInterval(() => seen.add(slider(view).attrs['aria-valuetext']), 5)
+    const distance = (s) => /^(Auto|[0-9.]+ k?m)$/.test(s)
+    const watching = setInterval(() => seen.add(view.all('[role=radio]').filter((b) => b.attrs['aria-checked'] === 'true').map((b) => view.text(b)).filter(distance).join()), 5)
     await until(async () => (await api.getSession(id)).radius === 2000)
     await new Promise((resolve) => setTimeout(resolve, 900))
     clearInterval(watching)
-    expect([...seen]).toEqual(['Within 2 km'])
+    expect([...seen]).toEqual(['2 km'])
     expect(view.errors).toEqual([])
   })
 })
@@ -348,7 +325,9 @@ describe('the search panel, the CDC filters and the one widen line (Faith, 31 Oc
     expect(planner.searchSlot.mock.calls.at(-1)[0]).toMatchObject({ query: 'kopi', cdcOnly: true, browse: false })
   })
 
-  it('leaves places the group has out of the suggestions; Added can be pressed to take back; a refusal is said on its own row', async () => {
+  // Pick, then add (Darius, 4 November 2026): each place in the search has a circle to tick, one "Add" at the foot adds the ticked ones
+  // and closes the search, and a place this person added is taken back from its own card ("Remove").
+  it('leaves places the group has out of the suggestions; a ticked place is added, taken back from its card, and a refusal is said on its own row', async () => {
     const { view } = await votingPage()
     const { VENUES } = await import('../mock/venues.js')
     const eats = VENUES.filter((v) => v.category === 'eat')
@@ -362,21 +341,27 @@ describe('the search panel, the CDC filters and the one widen line (Faith, 31 Oc
       out.current = out.current.filter((o) => o.venue.id !== refused.id)
       return out
     })
-    view.one('[data-testid=place-search]').querySelector('input').dispatch('focusin')
-    await until(() => view.has('[data-testid=search-panel]') && view.text('[data-testid=search-panel]').includes(fresh.name))
+    const openSearch = async () => {
+      view.one('[data-testid=place-search]').querySelector('input').dispatch('focusin')
+      await until(() => view.has('[data-testid=search-panel]') && view.text('[data-testid=search-panel]').includes(fresh.name))
+    }
+    await openSearch()
     // Already one of the places: not suggested.
     expect(view.text('[data-testid=search-panel]')).not.toContain(have.name)
-    const button = (name) => view.all('button').find((b) => b.attrs['aria-label'] === `Add ${name}` || b.attrs['aria-label'] === `Take back ${name}`)
-    await view.click(button(fresh.name))
-    await until(() => button(fresh.name)?.attrs['aria-label'] === `Take back ${fresh.name}`)
-    expect(view.text(button(fresh.name))).toBe('Added')
+    const pick = (v) => view.one(`[data-testid="pick-${v.id}"]`)
+    await view.click(pick(fresh))
+    expect(pick(fresh).attrs['aria-checked']).toBe('true')
+    await view.click('[data-testid=add-picked]')
     await until(() => names(view).includes(fresh.name))
-    // Pressed again, it is taken back, and stays in the list to add again.
-    await view.click(button(fresh.name))
-    await until(() => button(fresh.name)?.attrs['aria-label'] === `Add ${fresh.name}`)
+    await until(() => !view.has('[data-testid=search-panel]'))
+    // Taken back from its card.
+    await until(() => view.has(`button[aria-label="Remove ${fresh.name}"]`))
+    await view.click(`button[aria-label="Remove ${fresh.name}"]`)
     await until(() => !names(view).includes(fresh.name))
-    // A place the planner will not take says why on its own row, not at the top of the page.
-    await view.click(button(refused.name))
+    // A place the planner will not take says why on its own row in the search, not at the top of the page.
+    await openSearch()
+    await view.click(pick(refused))
+    await view.click('[data-testid=add-picked]')
     await until(() => view.all('[role=alert]').some((a) => view.text(a).includes('does not fit this slot')))
     const note = view.all('[role=alert]').find((a) => view.text(a).includes('does not fit this slot'))
     expect(note.closest('li')).toBeTruthy()
@@ -449,10 +434,9 @@ describe('a radius change that clears votes', () => {
       return { ...ranked, options: ranked.options.slice(0, 1), current: ranked.current.filter((o) => o.venue.id === ranked.options[0].venue.id) }
     })
     const view = await draw(t, `/sessions/${id}/plan`, 'PlannerView', { id })
-    await until(() => view.has('input[type=range]'))
+    await until(() => view.has('[data-testid=radius]'))
     expect(view.text()).not.toContain('were cleared')
-    view.type('input[type=range]', '2')
-    view.one('input[type=range]').dispatch('change')
+    await view.click(view.all('[role=radio]').find((b) => view.text(b) === '500 m'))
     await until(() => view.text().includes('Votes for places outside the new ring were cleared.'))
     expect(view.errors).toEqual([])
     await view.click(view.one('button[aria-label="Dismiss"]'))

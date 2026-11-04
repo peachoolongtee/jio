@@ -38,24 +38,19 @@ describe('Confirm dietary needs', () => {
     expect(sent.at(-1)).toEqual({ mine: ['vegetarian'], dropped: [] })
   })
 
-  it('asks before taking off a need someone else has, reminds them someone needs it, and can keep it or drop it', async () => {
+  // Taking off a need someone else has is one tap for the host, with no "Unselect halal?" question (Darius, 4 November 2026). The line
+  // under the chips still says that someone needs it and that places will not be filtered for it, and it names nobody.
+  it('lets the host take off a need someone else has with one tap, says places will not be filtered for it, and brings it back with another', async () => {
     const { view, sent } = await dialog({ mine: [], others: ['halal'] })
     await view.click(chip(view, 'Halal'))
-    // The question, over the dialog: no name.
-    expect(view.all('h2').map((h) => view.text(h))).toEqual(['Confirm dietary needs', 'Unselect halal?'])
-    expect(view.text(view.all('section').at(-1))).toContain('Someone in this outing needs halal')
-    await view.click('[data-testid="diet-keep"]')
-    expect(view.all('h2').length).toBe(1)
-    expect(chips(view)[0]).toEqual(['Halal', true])
-    await view.click(chip(view, 'Halal'))
-    await view.click('[data-testid="diet-drop"]')
+    expect(view.all('h2').map((h) => view.text(h))).toEqual(['Confirm dietary needs'])
     expect(chips(view)[0]).toEqual(['Halal', false])
     expect(view.text('[data-testid="diet-dropped"]')).toBe('Someone in this outing needs halal, but places will not be filtered for it.')
     await view.click('[data-testid="diet-confirm-button"]')
     expect(sent.at(-1)).toEqual({ mine: [], dropped: ['halal'] })
-    // Selecting it again brings the filter back, with no question.
+    // Selecting it again brings the filter back.
     await view.click(chip(view, 'Halal'))
-    expect(view.all('h2').length).toBe(1)
+    expect(chips(view)[0]).toEqual(['Halal', true])
     await view.click('[data-testid="diet-confirm-button"]')
     expect(sent.at(-1)).toEqual({ mine: [], dropped: [] })
   })
@@ -143,17 +138,12 @@ describe('the dietary chips on the Vote page', () => {
     expect(chips(view)[2]).toEqual(['Vegan', true])
   })
 
-  it('asks the same question before taking off a need someone else has, and sends nothing if it is kept', async () => {
+  it('takes off a need someone else has at the host\'s one tap, with no question, and brings it back with another', async () => {
     const { view, sent } = await inline({ mine: [], others: ['halal'] })
     await view.click(chip(view, 'Halal'))
-    expect(view.all('h2').map((x) => view.text(x))).toEqual(['Unselect halal?'])
-    await view.click('[data-testid="diet-keep"]')
-    expect(sent).toEqual([])
-    await view.click(chip(view, 'Halal'))
-    await view.click('[data-testid="diet-drop"]')
+    expect(view.all('h2').length).toBe(0)
     expect(sent).toEqual([{ mine: [], dropped: ['halal'] }])
     expect(chips(view)[0]).toEqual(['Halal', false])
-    // On again: no question.
     await view.click(chip(view, 'Halal'))
     expect(view.all('h2').length).toBe(0)
     expect(sent.at(-1)).toEqual({ mine: [], dropped: [] })
