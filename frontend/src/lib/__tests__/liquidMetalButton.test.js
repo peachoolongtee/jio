@@ -40,10 +40,13 @@ describe('the caption', () => {
     expect(view.has('.lm__caption')).toBe(false)
   })
 
-  it('is wired in on Home with a caption inside its name', () => {
+  // Darius, 4 November 2026: no caption any more; the name is its label and tooltip. On Home for phones, and in the top bar from 744px.
+  it('is wired in on Home and in the top bar, named, with no caption', () => {
     // Read from the source: Home is too big a screen to draw for one attribute.
     const home = readFileSync(new URL('../../views/LandingView.vue', import.meta.url), 'utf8')
-    expect(home).toMatch(/<LiquidMetalButton label="Find places from a post" caption="From a post"/)
+    const bar = readFileSync(new URL('../../components/ui/TabBar.vue', import.meta.url), 'utf8')
+    for (const source of [home, bar]) expect(source).toMatch(/<LiquidMetalButton label="Find places from a post" to="\/places\/from-post"/)
+    expect(home).not.toMatch(/caption="From a post"/)
   })
 })
 
