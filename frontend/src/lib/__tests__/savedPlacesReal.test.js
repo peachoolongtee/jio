@@ -5,7 +5,7 @@ import { OTHER, PROFILE, boot, fakeSupabase } from './authFixture.js'
 
 vi.setConfig({ testTimeout: 20000 })
 
-const PLACE = { name: 'Next Door Cafe', nameEnglish: 'Next Door Cafe', categories: ['eat', 'drink'], tip: 'Try the paella', locationHint: 'Katong', googlePlaceId: 'g_one', postKey: 'tiktok:1', postUrl: 'https://www.tiktok.com/@a/video/1' }
+const PLACE = { name: 'Next Door Cafe', nameEnglish: 'Next Door Cafe', categories: ['eat'], tip: 'Try the paella', locationHint: 'Katong', googlePlaceId: 'g_one', postKey: 'tiktok:1', postUrl: 'https://www.tiktok.com/@a/video/1' }
 
 describe('a real account\'s saved places', () => {
   it('are kept in the table, with every field, and read back newest first', async () => {
@@ -20,7 +20,7 @@ describe('a real account\'s saved places', () => {
     await api.savePlaces([{ ...PLACE, name: 'Goliath Outdoor', nameEnglish: null, googlePlaceId: null, categories: ['shop'] }])
     const list = await api.listSavedPlaces()
     expect(list.map((p) => p.name)).toEqual(['Goliath Outdoor', 'Next Door Cafe'])
-    expect(list[1].categories).toEqual(['eat', 'drink'])
+    expect(list[1].categories).toEqual(['eat'])
     // Nothing of theirs went to this browser's own save.
     expect(JSON.stringify(api.storage.store)).not.toContain('Try the paella')
   })

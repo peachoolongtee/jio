@@ -62,7 +62,7 @@ watch(() => props.id, load)
 const session = computed(() => events.byId[props.id])
 const itinerary = computed(() => events.itineraries[props.id])
 const stops = computed(() => itinerary.value?.stops || [])
-const places = computed(() => stops.value.map((s, i) => ({ id: s.venue.id, name: s.venue.name, lat: s.venue.lat, lng: s.venue.lng, label: String(i + 1), category: s.category })))
+const places = computed(() => stops.value.flatMap((s, i) => (s.venue.noPin ? [] : [{ id: s.venue.id, name: s.venue.name, lat: s.venue.lat, lng: s.venue.lng, label: String(i + 1), category: s.category }])))
 // The rain on the map, as on the itinerary's map: the latest check on the day when there is one, else what the plan kept, for a
 // confirmed plan only, and only while that forecast is current (the plan's own was kept when it was confirmed, which may be hours ago).
 // `weather` is the block the source line reads. How to call: rain.value -> { places: [{ lat, lng }], text: 'Rain likely', weather: { source: 'live', ... } }

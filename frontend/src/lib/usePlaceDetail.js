@@ -28,8 +28,9 @@ export function usePlaceDetail(getSession) {
   // How to call: open(option, 'name') (from a card's name or photo; 'review' from its review line, the default)
   function open(option, from = 'review') {
     const place = placeFromOption(option)
-    detail.value = { optionId: option.id, from, place, reviews: reviewsFor(option.venue) }
-    if (place.address) return
+    // A saved place Jio does not know has no sample reviews and nothing to look up.
+    detail.value = { optionId: option.id, from, place, reviews: option.venue.saved ? [] : reviewsFor(option.venue) }
+    if (place.address || option.venue.saved) return
     getPlace(option.venue.id, getSession()?.area?.id)
       .then((known) => {
         if (detail.value?.optionId === option.id && known.address) detail.value.place = { ...detail.value.place, address: known.address }

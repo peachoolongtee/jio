@@ -1,11 +1,12 @@
 <script setup>
-// Saved places: what the person kept from posts. Each shows what the post said, its address too when the post gave one, with the link to Google
+// Saved places: what the person kept from posts, or added themselves with "Add a place" (components/saved/AddPlaceSheet.vue). Each shows what the post said, its address too when the post gave one, with the link to Google
 // Maps and a way to remove it. Nothing here asks Google, so opening the page costs nothing (Faith, 4 November 2026); Google's own address and
 // rating may not be stored (Google's terms). The Vote page's search lists these places too. Chips filter by category, as on Rewards. The page is laid out like
 // "Places from a post", which it opens from, on plain white (Faith, 4 November 2026). Only categories the list has get a chip.
 // How to call: the route /places/saved (router/routes.js).
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import AddPlaceSheet from '@/components/saved/AddPlaceSheet.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import CategoryIcon from '@/components/ui/CategoryIcon.vue'
@@ -22,12 +23,13 @@ import { savedAddress, savedArea, savedMapsUrl } from '@/lib/savedPlaces.js'
 // Back goes where the person came from: their profile, or the page that reads posts.
 const route = useRoute()
 const backTo = computed(() => (route.query.from === 'profile' ? '/profile' : '/places/from-post'))
+const adding = ref(false)
 const places = ref(null)
 // The category chosen, or '' for all. Removing the last place of a category falls back to all.
 const chosen = ref('')
-const categories = computed(() => CATEGORIES.filter((c) => (places.value || []).some((p) => p.categories.includes(c))))
+const categories = computed(() => CATEGORIES.filter((c) => (places.value || []).some((p) => p.categories[0] === c)))
 const filter = computed(() => (categories.value.includes(chosen.value) ? chosen.value : ''))
-const shown = computed(() => (places.value || []).filter((p) => !filter.value || p.categories.includes(filter.value)))
+const shown = computed(() => (places.value || []).filter((p) => !filter.value || p.categories[0] === filter.value))
 const failure = ref('')
 // The place "Remove" is asking about, and how that went.
 const removing = ref(null)
@@ -66,10 +68,11 @@ async function remove() {
     <header class="screen__header">
       <div class="screen__bar">
         <IconButton label="Back" :to="backTo"><AppIcon name="back" /></IconButton>
+        <AppButton variant="secondary" small data-testid="add-place-open" @click="adding = true"><AppIcon name="plus" :size="16" />Add a place</AppButton>
       </div>
       <div class="screen__titles">
         <h1 class="display-xl">Saved places</h1>
-        <p class="body-sm text-muted">Places you kept from posts. Suggest them when your group is voting.</p>
+        <p class="body-sm text-muted">Places you've kept. Suggest them when your group is voting.</p>
       </div>
     </header>
 
@@ -92,7 +95,7 @@ async function remove() {
             <CategoryIcon :category="place.categories[0]" :size="40" />
             <div class="saved__names">
               <h2 class="title-md">{{ place.nameEnglish || place.name }}</h2>
-              <p class="caption-sm text-muted">{{ place.categories.map((c) => CATEGORY_LABELS[c]).join(', ') }}<template v-if="savedArea(place)"> · {{ savedArea(place) }}</template></p>
+              <p class="caption-sm text-muted">{{ CATEGORY_LABELS[place.categories[0]] }}<template v-if="savedArea(place)"> · {{ savedArea(place) }}</template></p>
             </div>
           </div>
           <p v-if="place.tip" class="body-sm">{{ place.tip }}</p>
@@ -110,6 +113,8 @@ async function remove() {
         </ul>
       </section>
     </div>
+
+    <AddPlaceSheet v-model:open="adding" @saved="load" />
 
     <ModalDialog :open="!!removing" :title="removing ? `Remove ${removing.nameEnglish || removing.name}?` : ''" @update:open="(v) => !v && (removing = null)">
       <template #content>

@@ -28,7 +28,8 @@ const reading = ref(false)
 const failure = ref('')
 const answer = ref(null)
 let controller = null
-// The categories picked for each place, by its key; a place with none is not selected. What this person keeps already, as key -> categories.
+// The category picked for each place, by its key (one: a stop in an itinerary is one kind of place); a place with none is not selected.
+// What this person keeps already, as key -> categories.
 const picks = ref({})
 const savedByKey = ref(new Map())
 const saving = ref(false)
@@ -60,23 +61,22 @@ const postNotes = computed(() => {
 const keyOf = (place) => savedKey(toSavedPlace(place))
 const isSaved = (place) => savedByKey.value.has(keyOf(place))
 const savedWords = (place) => (savedByKey.value.get(keyOf(place)) || []).map((c) => CATEGORY_LABELS[c]).join(', ')
-const hasPick = (place, category) => (picks.value[keyOf(place)] || []).includes(category)
-// Picks or unpicks one category of a place. How to call: togglePick(place, 'eat')
+const hasPick = (place, category) => picks.value[keyOf(place)] === category
+// Picks a place's category, in place of the one it had; pressing the one it has unpicks it. How to call: togglePick(place, 'eat')
 function togglePick(place, category) {
   const key = keyOf(place)
-  const mine = picks.value[key] || []
-  picks.value = { ...picks.value, [key]: mine.includes(category) ? mine.filter((c) => c !== category) : [...mine, category] }
+  picks.value = { ...picks.value, [key]: picks.value[key] === category ? null : category }
   justSaved.value = 0
   saveError.value = ''
 }
-const picked = computed(() => places.value.filter((p) => !isSaved(p) && picks.value[keyOf(p)]?.length))
+const picked = computed(() => places.value.filter((p) => !isSaved(p) && picks.value[keyOf(p)]))
 const saveLabel = computed(() => (saving.value ? 'Saving…' : `Save ${picked.value.length} ${picked.value.length === 1 ? 'place' : 'places'}`))
 // Saves what is selected, then those places say "Saved". How to call: await saveTicked()
 async function saveTicked() {
   if (saving.value || !picked.value.length) return
   saving.value = true
   saveError.value = ''
-  const rows = picked.value.map((p) => toSavedPlace(p, CATEGORIES.filter((c) => hasPick(p, c))))
+  const rows = picked.value.map((p) => toSavedPlace(p, [picks.value[keyOf(p)]]))
   try {
     await savePlaces(rows)
     savedByKey.value = new Map([...savedByKey.value, ...rows.map((r) => [savedKey(r), r.categories])])
@@ -223,11 +223,11 @@ async function read() {
               <p v-if="place.tip" class="body-sm">{{ place.tip }}</p>
               <p v-for="note in placeNotes(place, postWarning)" :key="note" class="row gap-xs body-sm posts__warning"><AppIcon name="warning" :size="16" /><span>{{ note }}</span></p>
 
-              <!-- Keep this place: picking what kind of place it is selects it, and it can be more than one. -->
+              <!-- Keep this place: picking what kind of place it is selects it. A place is one kind. -->
               <p v-if="isSaved(place)" class="row gap-xs body-sm posts__saved" data-testid="post-saved"><AppIcon name="check" :size="16" />Saved as {{ savedWords(place) }}</p>
-              <div v-else class="posts__kinds" role="group" :aria-label="`Save ${place.nameEnglish || place.name} as`">
+              <div v-else class="posts__kinds" role="radiogroup" :aria-label="`Save ${place.nameEnglish || place.name} as`">
                 <span class="caption text-muted" aria-hidden="true">Save as</span>
-                <ChipButton v-for="c in CATEGORIES" :key="c" check :selected="hasPick(place, c)" data-testid="post-kind" @click="togglePick(place, c)">{{ CATEGORY_LABELS[c] }}</ChipButton>
+                <ChipButton v-for="c in CATEGORIES" :key="c" radio :selected="hasPick(place, c)" data-testid="post-kind" @click="togglePick(place, c)">{{ CATEGORY_LABELS[c] }}</ChipButton>
               </div>
 
               <div>

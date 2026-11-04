@@ -7,7 +7,7 @@ import { loadApi, stubPlanner } from './planFixture.js'
 import { mountScreen, until } from './domless.js'
 import { NO_COINS } from '../session.js'
 
-const planner = vi.hoisted(() => ({ api: { defaults: {} }, meetingArea: vi.fn(), rankSlot: vi.fn(), searchSlot: vi.fn(), roamNearby: vi.fn(), forecast: vi.fn() }))
+const planner = vi.hoisted(() => ({ api: { defaults: {} }, meetingArea: vi.fn(), rankSlot: vi.fn(), searchSlot: vi.fn(), roamNearby: vi.fn(), forecast: vi.fn(), searchOwnVenues: vi.fn(async () => []), searchAddresses: vi.fn(async () => []) }))
 vi.mock('../plannerApi.js', () => planner)
 vi.mock('@/components/map/PlannerMap.vue', () => ({ default: { render: () => null } }))
 vi.setConfig({ testTimeout: 60000, hookTimeout: 60000 })
@@ -206,7 +206,7 @@ describe('the search panel, the CDC filters and the one widen line (Faith, 31 Oc
   }
   const names = (view) => view.all('article[data-option]').map((a) => a.attrs['aria-label'])
 
-  // Saved places in the search's panel (Faith, 4 November 2026): only what the post said, and a place Jio does not know cannot be added yet.
+  // Saved places in the search's panel (Faith, 4 November 2026): only what the post said, and any of them can be added: as Jio's own place when Jio knows it, otherwise as a copy.
   describe('from your saved list', () => {
     const open = async (view) => {
       view.one('[data-testid=place-search]').querySelector('input').dispatch('focusin')
@@ -244,7 +244,8 @@ describe('the search panel, the CDC filters and the one widen line (Faith, 31 Oc
       const { VENUES } = await import('../mock/venues.js')
       const venue = VENUES.filter((v) => v.category === 'eat')[5]
       await api.savePlaces([{ ...SAVED, name: venue.name.toUpperCase() }])
-      planner.searchSlot.mockImplementation(async ({ slot, query }) => (query && slot.category === 'eat' ? [{ id: venue.id, name: venue.name, area: 'Bishan', category: 'eat', walk: 5 }] : []))
+      planner.searchSlot.mockImplementation(async () => [])
+      planner.searchOwnVenues.mockImplementation(async () => [{ id: venue.id, name: venue.name, category: 'eat' }])
       await open(view)
       await view.click(view.one('[data-testid=saved-add]'))
       await until(() => view.text('[data-testid=saved-row]').includes('Added'))
@@ -258,30 +259,53 @@ describe('the search panel, the CDC filters and the one widen line (Faith, 31 Oc
       expect(view.errors).toEqual([])
     })
 
-    it('says one Jio does not know cannot be added yet, with its link to Google Maps, and never adds a place from Google', async () => {
+    it('adds one Jio does not know as a copy, with a pin from OneMap, and takes it back; "Not on Jio yet" is gone', async () => {
       const { view, api, id } = await votingPage()
-      await api.savePlaces([SAVED])
-      planner.searchSlot.mockImplementation(async ({ slot, query }) => (query && slot.category === 'eat' ? [{ id: 'google_x', name: SAVED.name, area: 'Bishan', category: 'eat', walk: 5 }] : []))
-      await open(view)
-      const before = Object.values((await api.getSession(id)).options).flat()
-      await view.click(view.one('[data-testid=saved-add]'))
-      await until(() => view.has('[data-testid=saved-unknown]'))
-      expect(view.text('[data-testid=saved-unknown]')).toContain('Not on Jio yet')
-      expect(view.one('[data-testid=saved-unknown]').querySelector('a').attrs.href).toContain('query_place_id=g_one')
-      expect(view.one('[data-testid=saved-add]').attrs.disabled).toBeDefined()
-      expect(Object.values((await api.getSession(id)).options).flat()).toEqual(before)
-    })
-
-    it('tries each of its categories, and adds it under the one Jio knows it in', async () => {
-      const { view, api, id } = await votingPage()
-      const { VENUES } = await import('../mock/venues.js')
-      const venue = VENUES.filter((v) => v.category === 'drink')[2]
-      await api.savePlaces([{ ...SAVED, name: venue.name, categories: ['eat', 'drink'] }])
-      planner.searchSlot.mockImplementation(async ({ slot, query }) => (query && slot.category === 'drink' ? [{ id: venue.id, name: venue.name, area: 'Bishan', category: 'drink', walk: 5 }] : []))
+      await api.savePlaces([{ ...SAVED, locationHint: '76 Telok Ayer St, Singapore 048458' }])
+      const [place] = await api.listSavedPlaces()
+      planner.searchAddresses.mockImplementation(async (q) => (q === '048458' ? [{ name: 'AMOY HOTEL', postal: '048458', lat: 1.2813, lng: 103.8483 }] : []))
+      planner.searchSlot.mockImplementation(async () => [])
       await open(view)
       await view.click(view.one('[data-testid=saved-add]'))
       await until(() => view.text('[data-testid=saved-row]').includes('Added'))
-      expect(Object.values((await api.getSession(id)).options).flat()).toContain(venue.id)
+      expect(view.text()).not.toContain('Not on Jio')
+      const venueId = `saved_${place.id}`
+      expect(Object.values((await api.getSession(id)).options).flat()).toContain(venueId)
+      // The card says where it is and who saved it, and claims no sample reviews.
+      await until(() => view.has('[data-testid=saved-option]'))
+      expect(view.text('[data-testid=saved-option]')).toContain('76 Telok Ayer St')
+      expect(view.text('[data-testid=saved-option]')).toContain('Saved by')
+      expect(view.has('[data-testid=saved-option-maps]')).toBe(false)
+      // It stays "Added" with the place from the options, and takes back.
+      await until(() => view.one('[data-testid=saved-added]').attrs.disabled == null)
+      await view.click(view.one('[data-testid=saved-added]'))
+      await until(() => view.has('[data-testid=saved-add]'))
+      expect(Object.values((await api.getSession(id)).options).flat()).not.toContain(venueId)
+      expect(view.errors).toEqual([])
+    })
+
+    it('adds one with no address all the same, with no pin and a link instead', async () => {
+      const { view, api } = await votingPage()
+      await api.savePlaces([{ ...SAVED, locationHint: null }])
+      planner.searchAddresses.mockImplementation(async () => [])
+      planner.searchSlot.mockImplementation(async () => [])
+      await open(view)
+      await view.click(view.one('[data-testid=saved-add]'))
+      await until(() => view.has('[data-testid=saved-option-maps]'))
+      expect(view.one('[data-testid=saved-option-maps]').attrs.href).toContain('query_place_id=g_one')
+      expect(view.text()).toContain('No map pin')
+      expect(view.errors).toEqual([])
+    })
+
+    it('never adds a place from Google that has the same name', async () => {
+      const { view, api, id } = await votingPage()
+      await api.savePlaces([SAVED])
+      planner.searchOwnVenues.mockImplementation(async () => [{ id: 'google_x', name: SAVED.name, category: 'eat' }])
+      planner.searchSlot.mockImplementation(async () => [])
+      await open(view)
+      await view.click(view.one('[data-testid=saved-add]'))
+      await until(() => view.text('[data-testid=saved-row]').includes('Added'))
+      expect(Object.values((await api.getSession(id)).options).flat()).not.toContain('google_x')
     })
 
     it('hides them while only CDC places are asked for', async () => {

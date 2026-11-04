@@ -76,7 +76,7 @@ import CategoryKey from '@/components/map/CategoryKey.vue'
 import PlannerMap from '@/components/map/PlannerMap.vue'
 import NotFoundView from './NotFoundView.vue'
 import { listSavedPlaces, watchSessions } from '@/lib/api.js'
-import { knownVenue, matchesQuery, savedArea, savedMapsUrl } from '@/lib/savedPlaces.js'
+import { knownVenue, matchesQuery, savedArea, savedVenueId } from '@/lib/savedPlaces.js'
 import { CATEGORIES, CATEGORY_LABELS } from '@/lib/planner/slots.js'
 import { distanceText } from '@/lib/planner/format.js'
 import { ORDER_TABS, VOTED, confirmKey, confirmView, sourceIcon, sourceText, suggestedRows, votedRows } from '@/lib/confirmOrder.js'
@@ -395,8 +395,6 @@ async function takeBack(result) {
 // can be pressed to take it back, as in the suggestions; one Jio does not know says so, with its link to Google Maps (Faith, 4 November 2026).
 const savedPlaces = ref(null)
 const savedNote = ref({})
-const savedAdded = ref({})
-const savedUnknown = ref({})
 watch(findOpen, async (open) => {
   if (!open || savedPlaces.value) return
   try {
@@ -409,29 +407,30 @@ watch(findOpen, async (open) => {
 // The saved places to show: of the category chosen, matching what was typed, at most 6. CDC vouchers are not known for them.
 const savedRows = computed(() => {
   if (cdcOnly.value) return []
-  return (savedPlaces.value || []).filter((p) => (!filter.value || p.categories.includes(filter.value)) && matchesQuery(p, finding.value.query)).slice(0, 6)
+  return (savedPlaces.value || []).filter((p) => (!filter.value || p.categories[0] === filter.value) && matchesQuery(p, finding.value.query)).slice(0, 6)
 })
-// How to call: await addSaved(place)
+// What a saved place already is in this vote, by place: { id, slot } with its copy's id or the place of Jio's it matched. Read from the
+// options, so a reload and the other members' changes keep it right.
+// How to call: savedAdded.value[place.id] -> { id: 'saved_7f3c', slot } | undefined
+const savedAdded = computed(() => {
+  const added = {}
+  for (const place of savedPlaces.value || []) {
+    const slot = slots.value.find((s) => s.category === place.categories[0])
+    const option = slot?.options.find((o) => o.id === savedVenueId(place)) || (slot && knownVenue(place, slot.options.map((o) => o.venue)))
+    if (option) added[place.id] = { id: option.id, slot }
+  }
+  return added
+})
+// Adds a saved place to the stop of its category. How to call: await addSaved(place)
 async function addSaved(place) {
   if (rowBusy.value) return
-  const key = `saved:${place.id}`
-  // Its categories this outing has a stop for, the one chosen first: the place goes to the first of them Jio knows it under.
-  const wanted = filter.value ? [filter.value, ...place.categories.filter((c) => c !== filter.value)] : place.categories
-  const stops = wanted.map((c) => slots.value.find((s) => s.category === c)).filter(Boolean)
-  rowBusy.value = key
+  const category = place.categories[0]
+  const slot = slots.value.find((s) => s.category === category)
+  rowBusy.value = `saved:${place.id}`
   savedNote.value = { ...savedNote.value, [place.id]: '' }
   try {
-    if (!stops.length) throw new Error(`This outing has no ${place.categories.map((c) => CATEGORY_LABELS[c]).join(' or ')} stop.`)
-    for (const slot of stops) {
-      const found = await planner.searchVenues(props.id, slot.id, place.nameEnglish || place.name, { cdcOnly: false, browse: false })
-      const venue = knownVenue(place, found.filter((r) => r.category === slot.category))
-      if (!venue) continue
-      if (venue.unfit) throw new Error(unfitText(venue, slot))
-      await planner.addOption(props.id, slot.id, venue.id)
-      savedAdded.value = { ...savedAdded.value, [place.id]: { id: venue.id, slot } }
-      return
-    }
-    savedUnknown.value = { ...savedUnknown.value, [place.id]: true }
+    if (!slot) throw new Error(`This outing has no ${CATEGORY_LABELS[category]} stop.`)
+    await planner.addSavedOption(props.id, slot.id, place)
   } catch (e) {
     savedNote.value = { ...savedNote.value, [place.id]: e.message }
   } finally {
@@ -446,8 +445,6 @@ async function takeBackSaved(place) {
   savedNote.value = { ...savedNote.value, [place.id]: '' }
   try {
     await planner.removeOption(props.id, added.slot.id, added.id)
-    const { [place.id]: _gone, ...rest } = savedAdded.value
-    savedAdded.value = rest
   } catch (e) {
     savedNote.value = { ...savedNote.value, [place.id]: e.message }
   } finally {
@@ -636,7 +633,7 @@ function emptyText(slot) {
 // The same places as the list: every category, or the one the filter shows.
 const mapOptions = computed(() => shown.value.flatMap((slot) => slot.options.map((option) => ({ slot, option }))))
 const mapPlaces = computed(() =>
-  mapOptions.value.map(({ slot, option: o }) => ({ id: o.id, name: o.venue.name, lat: o.venue.lat, lng: o.venue.lng, category: o.venue.category, highlight: slot.leader === o.id, muted: !!slot.leader && slot.leader !== o.id })),
+  mapOptions.value.filter(({ option: o }) => !o.venue.noPin).map(({ slot, option: o }) => ({ id: o.id, name: o.venue.name, lat: o.venue.lat, lng: o.venue.lng, category: o.venue.category, highlight: slot.leader === o.id, muted: !!slot.leader && slot.leader !== o.id })),
 )
 const selectedEntry = computed(() => mapOptions.value.find(({ option }) => option.id === selected.value) || null)
 const selectedOption = computed(() => selectedEntry.value?.option || null)
@@ -1009,16 +1006,15 @@ async function keepDialog(e) {
             <template v-if="savedRows.length">
               <p class="caption text-muted find__caption">From your saved list</p>
               <ul class="add-results" aria-label="Your saved places" data-testid="saved-rows">
-                <li v-for="p in savedRows" :key="p.id" class="add-row" :class="{ 'has-note': savedNote[p.id] || savedUnknown[p.id] }" data-testid="saved-row">
+                <li v-for="p in savedRows" :key="p.id" class="add-row" :class="{ 'has-note': savedNote[p.id] }" data-testid="saved-row">
                   <CategoryIcon :category="p.categories[0]" :size="32" />
                   <span class="add-row__text">
                     <span class="title-sm truncate">{{ p.nameEnglish || p.name }}</span>
-                    <span class="caption-sm text-muted">{{ p.categories.map((c) => CATEGORY_LABELS[c]).join(', ') }}<template v-if="savedArea(p)"> · {{ savedArea(p) }}</template></span>
+                    <span class="caption-sm text-muted">{{ CATEGORY_LABELS[p.categories[0]] }}<template v-if="savedArea(p)"> · {{ savedArea(p) }}</template></span>
                     <span v-if="savedNote[p.id]" class="add-row__note body-sm text-error" role="alert"><AppIcon name="warning" :size="16" />{{ savedNote[p.id] }}</span>
-                    <span v-else-if="savedUnknown[p.id]" class="caption-sm text-muted" role="status" data-testid="saved-unknown">Not on Jio yet · <a :href="savedMapsUrl(p)" target="_blank" rel="noopener noreferrer">Google Maps<span class="sr-only">, opens in a new tab</span></a></span>
                   </span>
                   <AppButton v-if="savedAdded[p.id]" class="add-btn is-added" variant="secondary" small :disabled="!canTakeBack(savedAdded[p.id])" :aria-busy="rowBusy === `saved:${p.id}` ? 'true' : undefined" :aria-label="canTakeBack(savedAdded[p.id]) ? `Take back ${p.nameEnglish || p.name}` : `${p.nameEnglish || p.name} is already a choice`" data-testid="saved-added" @click="takeBackSaved(p)"><AppIcon name="check" :size="16" />Added</AppButton>
-                  <AppButton v-else class="add-btn" variant="secondary" small :disabled="savedUnknown[p.id]" :aria-busy="rowBusy === `saved:${p.id}` ? 'true' : undefined" :aria-label="`Add ${p.nameEnglish || p.name}`" data-testid="saved-add" @click="addSaved(p)">Add</AppButton>
+                  <AppButton v-else class="add-btn" variant="secondary" small :aria-busy="rowBusy === `saved:${p.id}` ? 'true' : undefined" :aria-label="`Add ${p.nameEnglish || p.name}`" data-testid="saved-add" @click="addSaved(p)">Add</AppButton>
                 </li>
               </ul>
             </template>

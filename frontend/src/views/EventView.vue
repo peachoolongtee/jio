@@ -328,7 +328,7 @@ const loadPhotos = () => photoCount.value && events.loadPhotos(props.id).catch((
 watch([() => props.id, photoCount], loadPhotos, { immediate: true })
 
 const mapPlaces = computed(() =>
-  (itinerary.value?.stops || []).map((s, i) => ({ id: s.venue.id, name: s.venue.name, lat: s.venue.lat, lng: s.venue.lng, label: String(i + 1), category: s.category })),
+  (itinerary.value?.stops || []).flatMap((s, i) => (s.venue.noPin ? [] : [{ id: s.venue.id, name: s.venue.name, lat: s.venue.lat, lng: s.venue.lng, label: String(i + 1), category: s.category }])),
 )
 
 async function act(fn) {
@@ -559,7 +559,8 @@ async function endPlan() {
                   <div class="stack">
                     <span class="title-sm">Ends {{ dayTime(lastStop.end) }}</span>
                     <span v-if="lateText" class="timeline__warning caption-sm" data-testid="plan-late"><AppIcon name="warning" :size="12" /> {{ lateText }}</span>
-                    <span class="caption-sm text-muted">about {{ itinerary.end.mrtWalk }} min walk to {{ itinerary.end.mrt }} MRT</span>
+                    <!-- A saved place Jio does not know has no MRT on record. -->
+                    <span v-if="itinerary.end.mrt" class="caption-sm text-muted">about {{ itinerary.end.mrtWalk }} min walk to {{ itinerary.end.mrt }} MRT</span>
                     <span v-if="itinerary.end.farFromMrt" class="timeline__warning caption-sm"><AppIcon name="warning" :size="12" /> Far from the MRT</span>
                   </div>
                 </div>

@@ -191,7 +191,7 @@ describe('GET /api/places/search (start and end points, meeting spots)', () => {
     const none = await start({ onemap: { routingEnabled: false, search: async () => [] }, places: { enabled: true, searchText } })
     try {
       const { body } = await none.get('Teo Heng')
-      expect(body.results).toEqual([{ name: 'Teo Heng KTV', address: '1 Example Rd, Singapore 123456', postal: '123456', lat: 1.3, lng: 103.84, source: 'google' }])
+      expect(body.results).toEqual([{ name: 'Teo Heng KTV', address: '1 Example Rd, Singapore 123456', postal: '123456', lat: 1.3, lng: 103.84, source: 'google', placeId: 'g1' }])
     } finally {
       await none.close()
     }

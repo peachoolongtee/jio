@@ -34,7 +34,7 @@ import { cleanDietary } from './signupRules.js'
 import { dietCaveats } from './dietText.js'
 import { localAccountsAllowed, projectOrigin } from './supabase.js'
 import { addDays, format, isValid, parseISO } from 'date-fns'
-import { savedKey } from './savedPlaces.js'
+import { asSavedVenue, findSavedPin, isSavedVenueId, knownVenue, savedCopy, savedKey, savedVenueId } from './savedPlaces.js'
 
 export { api } from './plannerApi.js'
 
@@ -474,6 +474,7 @@ const remote = createSessionsRemote({
     deleteSlot: (sessionId, slotId) => planner.deleteSessionSlot(sessionId, slotId),
     restoreSlots: (sessionId) => planner.restoreSessionSlots(sessionId),
     addOption: (sessionId, slotId, venueId) => planner.addSessionOption(sessionId, slotId, venueId),
+    addSavedOption: (sessionId, slotId, saved) => planner.addSessionSavedOption(sessionId, slotId, saved),
     removeOption: (sessionId, slotId, venueId) => planner.removeSessionOption(sessionId, slotId, venueId),
     moreOptions: (sessionId, slotId, have) => planner.moreSessionOptions(sessionId, slotId, have),
     swapOption: (sessionId, slotId, fromId, toId) => planner.swapSessionOption(sessionId, slotId, fromId, toId),
@@ -1259,20 +1260,28 @@ function endPlaceOf(session, id) {
 // Rank one slot on the backend. The slot's current options are always scored, so they come back in `current`
 // while they still fit. Every venue in the answer is remembered, so options and the itinerary can show it later.
 async function rankSlot(session, slot, slots, currentOptionIds = session.options[slot.id] || []) {
+  const centre = areaById(session.meeting.areaId)
   const ranked = await planner.rankSlot({
     members: rankingMembers(session),
-    centre: areaById(session.meeting.areaId),
+    centre,
     date: session.date,
     slot,
     lastStop: slots[slots.length - 1]?.id === slot.id,
-    currentOptionIds,
+    currentOptionIds: currentOptionIds.filter((id) => !isSavedVenueId(id)),
     conditions: db.conditions,
     radiusMeters: session.radius || undefined,
     topN: RANKED_MAX,
     dietPolicy: dietPolicy(session, slot.category),
   })
   for (const o of [...ranked.options, ...ranked.current]) db.venues[o.venue.id] = o.venue
-  return ranked
+  // A saved place's copy is not the planner's to rank: it stays an option for as long as the group has it, and one with no pin stands at the meeting area.
+  const copies = currentOptionIds.filter(isSavedVenueId).flatMap((id) => {
+    const venue = db.venues[id]
+    if (!venue) return []
+    if (venue.noPin) Object.assign(venue, { lat: centre.lat, lng: centre.lng })
+    return [{ venue, score: 0, walk: P.walkMinutes(centre, venue), reasons: [], warnings: [], swap: null, explanation: '', ...dietCaveats(venue, groupNeeds(session)), approximate: !!venue.rough }]
+  })
+  return copies.length ? { ...ranked, current: [...ranked.current, ...copies] } : ranked
 }
 
 const rankAll = (session, slots) => Promise.all(slots.map((slot) => rankSlot(session, slot, slots)))
@@ -1359,7 +1368,7 @@ async function syncOptions(session, { fresh = false } = {}) {
   slots.forEach((slot, i) => {
     const votes = session.votes[slot.id] || {}
     const voted = new Set(Object.values(votes))
-    const keep = fresh ? (session.options[slot.id] || []).filter((venue) => voted.has(venue)) : session.options[slot.id]
+    const keep = fresh ? (session.options[slot.id] || []).filter((venue) => voted.has(venue) || isSavedVenueId(venue)) : session.options[slot.id]
     nextOptions[slot.id] = P.reconcileOptions(keep, rankedIds(rankings[i]))
     nextVotes[slot.id] = Object.fromEntries(Object.entries(votes).filter(([person, venue]) => ids.includes(person) && nextOptions[slot.id].includes(venue)))
   })
@@ -2279,7 +2288,8 @@ export function placesFromPost(url, { signal } = {}) {
 // A person's saved places. A real account keeps them in the table `saved_places`, which it reads and writes directly, its own rows only; a
 // demo or local account keeps them in this browser. lib/savedPlaces.js has what a row holds.
 const SAVED_COLUMNS = 'id, name, name_english, categories, tip, location_hint, google_place_id, post_key, post_url, created_at'
-const savedFromRow = (r) => ({ id: r.id, name: r.name, nameEnglish: r.name_english, categories: r.categories, tip: r.tip, locationHint: r.location_hint, googlePlaceId: r.google_place_id, postKey: r.post_key, postUrl: r.post_url, createdAt: r.created_at })
+// A place is one kind (Faith, 4 November 2026): a row saved with several, before that, counts as its first.
+const savedFromRow = (r) => ({ id: r.id, name: r.name, nameEnglish: r.name_english, categories: r.categories.slice(0, 1), tip: r.tip, locationHint: r.location_hint, googlePlaceId: r.google_place_id, postKey: r.post_key, postUrl: r.post_url, createdAt: r.created_at })
 // The saved-place words for anything that went wrong, for a table this project does not have yet too. A person never sees a raw error.
 // How to call: throw savedError(error)
 function savedError(error) {
@@ -2309,12 +2319,12 @@ export async function listSavedPlaces() {
     return data.map(savedFromRow)
   }
   await wait(DELAY.read)
-  // A row saved with one category, before a place could have several.
-  return (db.savedPlaces || []).map((s) => (s.categories ? s : { ...s, categories: [s.category] }))
+  // A place is one kind: a row saved with several counts as its first, and an older one has `category`.
+  return (db.savedPlaces || []).map((s) => ({ ...s, categories: s.categories ? s.categories.slice(0, 1) : [s.category] }))
 }
 
 // Saves places the person picked, and answers the ones now saved. One they already keep is left as it is, not an error.
-// How to call: await savePlaces([toSavedPlace(place, ['eat', 'drink'])]) -> [{ id, name, ... }]
+// How to call: await savePlaces([toSavedPlace(place, ['eat'])]) -> [{ id, name, ... }]
 export async function savePlaces(places) {
   const client = savedClient()
   const saved = []
@@ -2338,6 +2348,31 @@ export async function savePlaces(places) {
   }
   save()
   return saved
+}
+
+// Places to keep, for what was typed on "Add a place": Jio's own first, then OneMap's, then Google's when those found nothing. A row is
+// { key, name, sub, source, category, locationHint, placeId, address }. `unavailable` when no search could answer. `signal` cancels it.
+// How to call: const { places, unavailable } = await findPlacesToSave('nylon', { signal })
+export async function findPlacesToSave(query, { signal } = {}) {
+  const [own, wider] = await Promise.allSettled([planner.searchOwnVenues(query, { signal }), planner.searchAddresses(query, { signal })])
+  if (signal?.aborted) throw cancelled()
+  const seen = new Set()
+  const places = []
+  const add = (row) => {
+    const key = row.name.trim().toLowerCase()
+    if (seen.has(key)) return
+    seen.add(key)
+    places.push({ ...row, key: `${row.source}:${key}:${places.length}` })
+  }
+  for (const v of own.status === 'fulfilled' ? own.value : []) {
+    if (String(v.venueId).startsWith('google_')) continue
+    add({ name: v.name, sub: v.area || '', source: 'jio', category: v.category, locationHint: v.area || null })
+  }
+  for (const r of wider.status === 'fulfilled' ? wider.value : []) {
+    if (r.source === 'google') add({ name: r.name, sub: r.address || '', source: 'google', address: r.address || '', placeId: r.placeId || null })
+    else add({ name: displayName(r.name) || r.name, sub: r.address || '', source: 'onemap', locationHint: r.address || null })
+  }
+  return { places: places.slice(0, 8), unavailable: own.status === 'rejected' && wider.status === 'rejected' }
 }
 
 // Removes one of the person's saved places. A place added to an outing stays there.
@@ -3742,6 +3777,33 @@ export async function addOption(id, slotId, venueId) {
   return touch(session, 'options')
 }
 
+// Add a saved place to the slot of its category: as the place Jio knows it as, when it does (asking Jio's own places costs no Google call), and
+// otherwise as a copy (lib/savedPlaces.js), with a pin from OneMap when its address gives one. The planner does not rank a copy, so it always fits,
+// and so every saved place can be added.
+// How to call: await addSavedOption('s1', 'eat', { id: '7f3c', name: 'Nylon', categories: ['eat'], locationHint: 'Tanjong Pagar', googlePlaceId: null })
+export async function addSavedOption(id, slotId, place) {
+  const found = await planner.searchOwnVenues(place.nameEnglish || place.name).catch(() => [])
+  const known = knownVenue(place, found.filter((r) => r.category === place.categories[0]))
+  if (known) return addOption(id, slotId, known.id)
+  const pin = await findSavedPin(place, { search: planner.searchAddresses, areas: AREAS })
+  const copy = savedCopy(place, pin)
+  if (onServer()) {
+    await remote.addSavedOption(id, slotId, copy)
+    return afterServerWrite(id, 'options')
+  }
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  const venueId = savedVenueId(place)
+  const options = session.options[slotId] || []
+  if (options.includes(venueId)) return touch(session, 'options')
+  if (options.length >= P.OPTIONS_MAX) throw new Error('A slot holds up to 6 options.')
+  const centre = areaById(session.meeting.areaId)
+  db.venues[venueId] = asSavedVenue({ ...copy, id: venueId, lat: copy.lat ?? centre.lat, lng: copy.lng ?? centre.lng, ...(copy.lat == null ? { noPin: true } : {}) })
+  session.options[slotId] = [...options, venueId]
+  session.addedBy = { ...(session.addedBy || {}), [slotId]: { ...(session.addedBy?.[slotId] || {}), [venueId]: me() } }
+  return touch(session, 'options')
+}
+
 // Take back a place the signed-in person added, while voting and while nobody else has voted for it; their own vote for it goes too.
 // Refused for a place someone else added or the planner put there. A place that is not an option any more is left alone.
 // How to call: await removeOption('s1', 'eat-1', 'v25')
@@ -3922,7 +3984,12 @@ function dietaryView(state, joinedCount) {
 async function ensureVenues(ids) {
   const missing = [...new Set(ids)].filter((venueId) => !serverVenues.has(venueId))
   if (!missing.length) return
-  for (const venue of await remote.venues(missing)) serverVenues.set(venue.id, venue)
+  // A saved place's copy is kept with its option, and the server's list of places does not have it.
+  const copies = missing.filter(isSavedVenueId)
+  const listed = missing.filter((venueId) => !isSavedVenueId(venueId))
+  const [places, venues] = await Promise.all([copies.length ? remote.savedOptionPlaces(copies) : [], listed.length ? remote.venues(listed) : []])
+  for (const place of places) serverVenues.set(place.id, asSavedVenue(place))
+  for (const venue of venues) serverVenues.set(venue.id, venue)
 }
 
 // A shared session's plan for the Vote page, in the shape the local getPlan makes. Read from the database (the slots, the places offered in
@@ -3951,6 +4018,8 @@ async function planFromServer(id, { votesOnly = false } = {}) {
         ? await readDiet(id)
         : { diet: newestPlanRead.get(id)?.diet ?? null, failed: false }
   const named = held?.read ? held.named : namedNeedsOf(read.joined, diet)
+  // A saved place's copy came with its row, and is read fresh: one with no pin moves with the meeting area.
+  for (const row of Object.values(read.optionRows).flat()) if (row.details?.place) serverVenues.set(row.venueId, asSavedVenue(row.details.place))
   await ensureVenues(Object.values(read.optionRows).flatMap((rows) => rows.map((r) => r.venueId)))
   if (asked !== epoch) throw Object.assign(new Error('That was read for another account.'), { code: 'stale' })
   return newestPlan(
@@ -3994,6 +4063,7 @@ function planView(read, named = { needs: [], complete: false }, diet = null, die
         rank: row.rank,
         // Who added the place by hand (they may take it back); null for the planner's own.
         addedBy: row.source === 'member' ? row.addedBy ?? null : null,
+        ...(venue.saved && row.addedBy ? { savedBy: nameOf(row.addedBy) } : {}),
         walk: d.walkMinutes ?? P.walkMinutes(area, venue),
         // As the crow flies from the meeting area, for the card ("180 m").
         distanceM: Math.round(P.distanceKm(area, venue) * 1000),
@@ -4084,6 +4154,7 @@ export async function getPlan(id, { votesOnly = false } = {}) {
           walk: o.walk,
           // Who added the place by hand (they may take it back); null for the planner's own.
           addedBy: session.addedBy?.[slot.id]?.[venueId] ?? null,
+          ...(o.venue.saved && session.addedBy?.[slot.id]?.[venueId] ? { savedBy: nameOf(session.addedBy[slot.id][venueId]) } : {}),
           // As the crow flies from the meeting area, for the card ("180 m").
           distanceM: Math.round(P.distanceKm(area, o.venue) * 1000),
           reasons: o.reasons,

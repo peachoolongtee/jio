@@ -65,6 +65,8 @@ export const usePlannerStore = defineStore('planner', () => {
   const restoreSlots = (id) => api.restoreSlots(id)
   const addMore = (id, slotId) => api.addMoreOptions(id, slotId)
   const addOption = (id, slotId, venueId) => api.addOption(id, slotId, venueId)
+  // Add a saved place Jio does not know, as a copy. How to call: await addSavedOption('s1', 'eat', place)
+  const addSavedOption = (id, slotId, place) => api.addSavedOption(id, slotId, place)
   // Take back a place you added. How to call: await removeOption('s1', 'eat-1', 'v25')
   const removeOption = (id, slotId, venueId) => api.removeOption(id, slotId, venueId)
   const swapOption = (id, slotId, fromId, toId) => api.swapOption(id, slotId, fromId, toId)
@@ -175,5 +177,5 @@ export const usePlannerStore = defineStore('planner', () => {
     if (event.sessionId && plans.value[event.sessionId]) reload(event.sessionId)
   })
 
-  return { plans, loading, errors, conditions, loadPlan, loadConditions, setCondition, setMyPreferences, deleteSlot, restoreSlots, addMore, addOption, removeOption, swapOption, vote, searchVenues, setRadius, setUnconfirmed, confirmDiet }
+  return { addSavedOption, plans, loading, errors, conditions, loadPlan, loadConditions, setCondition, setMyPreferences, deleteSlot, restoreSlots, addMore, addOption, removeOption, swapOption, vote, searchVenues, setRadius, setUnconfirmed, confirmDiet }
 })
