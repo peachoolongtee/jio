@@ -9,9 +9,12 @@
 // Ian hosts both.
 import { test, expect, signInDemo } from './fixtures.js'
 
-// Open a meetup from Home: pick its row in "Your meetups", then use the "Open meetup" link of the card that shows.
+// Open a meetup from Home: show the list (Home opens on the map alone), pick its row in "Your meetups", then use the "Open meetup"
+// link of the panel that opens.
 // How to call: await openMeetup(page, 'Saturday movie and makan')
 async function openMeetup(page, title) {
+  const list = page.getByTestId('home-list-toggle')
+  if ((await list.getAttribute('aria-pressed')) !== 'true') await list.click()
   await page.getByRole('region', { name: 'Your meetups' }).getByRole('button', { name: new RegExp(`^${title}`) }).click()
   await page.getByRole('link', { name: `Open meetup ${title}` }).click()
 }

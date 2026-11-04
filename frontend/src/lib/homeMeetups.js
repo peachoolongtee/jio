@@ -3,7 +3,7 @@
 // All of it takes plain session summaries (lib/api.js), so it is tested without a browser.
 import { addDays, differenceInCalendarDays, format, isValid, parseISO, startOfWeek } from 'date-fns'
 import { proposalsOf } from './roam.js'
-import { isPaused, overdueOuting, sessionPath, singaporeDate } from './session.js'
+import { isPaused, overdueOuting, sessionPath, singaporeDate, startsIn } from './session.js'
 
 // How far apart, in px, pins that share a meeting area are drawn, so each one can still be tapped (a pin is 48px
 // wide). They fan out sideways around the area, centred on it.
@@ -45,6 +45,17 @@ export function activeMeetups(sessions, now = new Date()) {
 export function selectMeetup(meetups, id) {
   const wanted = Array.isArray(id) ? id[0] : id
   return meetups.find((m) => m.id === wanted) || meetups[0] || null
+}
+
+// The meetup Home opens on its map (the lead's flow of 4 November 2026): the one the URL names, if it is listed; otherwise the first one
+// happening right now, which opens by itself, unless the person has closed it; otherwise none, and Home is the map alone.
+// How to call: homeSelection(meetups, route.query.meetup, new Date(), { liveDismissed: false }) -> a meetup, or null
+export function homeSelection(meetups, id, now = new Date(), { liveDismissed = false } = {}) {
+  const wanted = Array.isArray(id) ? id[0] : id
+  const named = wanted ? meetups.find((m) => m.id === wanted) : null
+  if (named) return named
+  if (liveDismissed) return null
+  return meetups.find((m) => startsIn(m, now)?.tone === 'live') || null
 }
 
 // The short word on a pin: "Today", a weekday inside the coming week ("Sat"), otherwise the date ("24 Oct").

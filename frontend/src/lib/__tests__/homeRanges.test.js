@@ -1,5 +1,6 @@
 // Home's week chips (walkthrough, 30 October 2026): This week, Next week, After next week and All choose which meetups "Your meetups" lists, and the
-// map pins only those, so each pin has its row. Drawn for real (domless.js) on the stand-in planner, for a local account; the pins need a
+// map pins only those, so each pin has its row. Home opens on the map alone (the lead's flow of 4 November 2026): nothing is selected until a
+// pin or a row is picked, except a meetup happening now, which opens by itself; its card closes by its ×, Escape or the empty map. Drawn for real (domless.js) on the stand-in planner, for a local account; the pins need a
 // browser and are stood in for by an element that says how many it was given and for which areas, and the dotted map by one that says how
 // many routes it draws and where they end. Also: the routes, always six, converge on the selected pin.
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -38,13 +39,16 @@ async function meetupAt(api, date, areaId) {
   await api.setKnownPlace(id, areaId)
 }
 
-// Home for Ian with one meetup this week (Saturday, Bugis) and two next week (Bishan, Orchard).
-async function drawHome() {
+// Home for Ian with one meetup this week (Saturday, Bugis) and two next week (Bishan, Orchard). `at`, if given, is the time Home is opened
+// at (the meetups are made at the test's own time, before it).
+// How to call: await drawHome({ at: '2026-10-31T13:00:00+08:00' })
+async function drawHome({ at } = {}) {
   const api = await loadApi()
   await api.signUp({ email: 'ian@example.com', name: 'Ian', username: 'ian', dob: '2000-01-31', homeAreaId: 'tampines' })
   await meetupAt(api, '2026-10-31', 'bugis')
   await meetupAt(api, '2026-11-03', 'bishan')
   await meetupAt(api, '2026-11-04', 'orchard')
+  if (at) vi.setSystemTime(new Date(at))
   const { createPinia, setActivePinia } = await import('pinia')
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -60,6 +64,12 @@ async function drawHome() {
   return view
 }
 const chip = (view, label) => view.all('[role=radio]').find((c) => view.text(c).startsWith(label))
+const row = (view, title) => view.all('button').find((b) => view.text(b).includes(title))
+// How to call: await openList(view)
+async function openList(view) {
+  await view.click(view.one('[data-testid=home-list-toggle]'))
+  await until(() => view.has('[data-testid=meetup-status]'))
+}
 
 describe('the week chips on Home', () => {
   it('start on This week, with counts, and pin only what is listed', async () => {
@@ -70,6 +80,9 @@ describe('the week chips on Home', () => {
     expect(chip(view, 'After next week').attrs['aria-disabled']).toBe('true')
     expect(view.text('[data-testid=pins]')).toBe('1')
     expect(view.one('[data-testid=pins]').attrs['data-areas']).toBe('Bugis')
+    // The list is behind List, so Home is the map.
+    expect(view.has('[data-testid=meetup-status]')).toBe(false)
+    await openList(view)
     // Each row says its stage and whose turn it is; Ian has not voted, so it is his.
     expect(view.text('[data-testid=meetup-status]')).toContain('Voting')
     expect(view.text('[data-testid=your-turn]')).toBe('Your turn · Vote')
@@ -126,15 +139,55 @@ describe('the routes on the map', () => {
     const { AREAS } = await import('../mock/places.js')
     const at = (id) => AREAS.find((a) => a.id === id)
     const bugis = `${at('bugis').lat},${at('bugis').lng}`
+    // Nothing selected: six routes running round the island, meeting nowhere.
     expect(view.text('[data-testid=routes]')).toBe('6')
-    expect(view.one('[data-testid=routes]').attrs['data-ends']).toBe(bugis)
+    expect(view.one('[data-testid=routes]').attrs['data-ends'].split('|')).toHaveLength(6)
+    await openList(view)
+    await view.click(row(view, 'Out 2026-10-31'))
+    await until(() => view.one('[data-testid=routes]').attrs['data-ends'] === bugis)
+    expect(view.text('[data-testid=routes]')).toBe('6')
+    // Next week does not list the Bugis meetup, so nothing is selected; picking the Bishan row converges there, then Orchard's, still six.
     await view.click(chip(view, 'Next week'))
+    await until(() => view.one('[data-testid=routes]').attrs['data-ends'].split('|').length === 6)
+    await view.click(row(view, 'Out 2026-11-03'))
     await until(() => view.one('[data-testid=routes]').attrs['data-ends'] === BISHAN)
-    expect(view.text('[data-testid=routes]')).toBe('6')
-    // Picking the Orchard meetup's row moves them there, still six.
-    const row = view.all('button').find((b) => view.text(b).includes('Out 2026-11-04'))
-    await view.click(row)
+    await view.click(row(view, 'Out 2026-11-04'))
     await until(() => view.one('[data-testid=routes]').attrs['data-ends'] === ORCHARD)
     expect(view.text('[data-testid=routes]')).toBe('6')
+  })
+})
+
+describe('the open meetup on Home', () => {
+  it('is none at first: the map alone, with a line that says what a pin does', async () => {
+    const view = await drawHome()
+    expect(view.has('[data-testid=home-panel]')).toBe(false)
+    expect(view.has('[data-testid=meetup-detail]')).toBe(false)
+    expect(view.text('.home__blurb')).toBe('Choose a pin to see that meetup.')
+    expect(view.errors).toEqual([])
+  })
+
+  it('opens when a row is picked, and closes by its ×', async () => {
+    const view = await drawHome()
+    await openList(view)
+    await view.click(row(view, 'Out 2026-10-31'))
+    await until(() => view.has('[data-testid=meetup-detail]'))
+    expect(view.text('[data-testid=meetup-detail]')).toContain('Out 2026-10-31')
+    await view.click(view.one('[data-testid=home-panel-close]'))
+    await until(() => !view.has('[data-testid=meetup-detail]'))
+    expect(view.text('p[role=status]')).toBe('Out 2026-10-31 closed')
+  })
+
+  it('opens by itself when a meetup is happening now, and stays closed once closed', async () => {
+    // Saturday 31 October, 13:00: the Bugis meetup (12:00 to 15:00) is going on.
+    const view = await drawHome({ at: '2026-10-31T13:00:00+08:00' })
+    await until(() => view.has('[data-testid=meetup-detail]'))
+    expect(view.text('[data-testid=meetup-detail]')).toContain('Out 2026-10-31')
+    await view.click(view.one('[data-testid=home-panel-close]'))
+    await until(() => !view.has('[data-testid=meetup-detail]'))
+    // Another chip and back: it does not open itself again.
+    await view.click(chip(view, 'Next week'))
+    await view.click(chip(view, 'This week'))
+    expect(view.has('[data-testid=meetup-detail]')).toBe(false)
+    expect(view.errors).toEqual([])
   })
 })
