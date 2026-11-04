@@ -1,7 +1,9 @@
 <script setup>
 // "Places from a post": paste a link to a YouTube, TikTok, Instagram or Xiaohongshu post and see the places it names, each
-// with its address and a link that opens it in Google Maps. Nothing is saved, and no map is drawn: Google's places may not
-// be shown on or beside the OneMap map (CLAUDE.md), so a place opens in Google Maps instead.
+// with its address and a link that opens it in Google Maps. No map is drawn: Google's places may not be shown on or beside the OneMap
+// map (CLAUDE.md), so a place opens in Google Maps instead. Picking one or more categories under a place selects it, and "Save" adds what is
+// selected to the person's saved places (Faith, 4 November 2026). Only the post's own words and Google's id are kept (lib/savedPlaces.js).
+// Going to another page and back keeps the link, the places and what was picked (postDraft).
 // How to call: the route /places/from-post (router/routes.js).
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -11,7 +13,11 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import TextField from '@/components/ui/TextField.vue'
-import { placesFromPost, postReaderStatus } from '@/lib/api.js'
+import ChipButton from '@/components/ui/ChipButton.vue'
+import { listSavedPlaces, placesFromPost, postReaderStatus, savePlaces } from '@/lib/api.js'
+import { CATEGORIES, CATEGORY_LABELS } from '@/lib/planner/slots.js'
+import { currentUserId } from '@/lib/currentUser.js'
+import { keepPostDraft, readPostDraft, savedKey, toSavedPlace } from '@/lib/savedPlaces.js'
 import { mapsUrl, matchQuestion, placeAddress, placeNotes, postLinkProblem, ratingLine, readErrorText, sourceNote, unreadableText } from '@/lib/postPlaces.js'
 
 const link = ref('')
@@ -22,6 +28,12 @@ const reading = ref(false)
 const failure = ref('')
 const answer = ref(null)
 let controller = null
+// The categories picked for each place, by its key; a place with none is not selected. What this person keeps already, as key -> categories.
+const picks = ref({})
+const savedByKey = ref(new Map())
+const saving = ref(false)
+const saveError = ref('')
+const justSaved = ref(0)
 
 onMounted(async () => {
   try {
@@ -31,7 +43,10 @@ onMounted(async () => {
     reader.value = 'ready'
   }
 })
-onBeforeUnmount(() => controller?.abort())
+onBeforeUnmount(() => {
+  controller?.abort()
+  keepPostDraft(currentUserId(), { link: link.value, answer: answer.value, picks: picks.value })
+})
 
 const places = computed(() => (answer.value?.status === 'ok' ? answer.value.places : []))
 // Sentences about the whole post: how old it is, and what the server could not read. The server's own notes already say
@@ -41,6 +56,55 @@ const postNotes = computed(() => {
   const notes = (answer.value?.notes || []).filter(Boolean)
   return [source?.warning, ...(notes.length ? notes : [sourceNote(source)])].filter(Boolean)
 })
+// A place's key, the same one its saved row would have. How to call: keyOf(place) -> 'id:abc'
+const keyOf = (place) => savedKey(toSavedPlace(place))
+const isSaved = (place) => savedByKey.value.has(keyOf(place))
+const savedWords = (place) => (savedByKey.value.get(keyOf(place)) || []).map((c) => CATEGORY_LABELS[c]).join(', ')
+const hasPick = (place, category) => (picks.value[keyOf(place)] || []).includes(category)
+// Picks or unpicks one category of a place. How to call: togglePick(place, 'eat')
+function togglePick(place, category) {
+  const key = keyOf(place)
+  const mine = picks.value[key] || []
+  picks.value = { ...picks.value, [key]: mine.includes(category) ? mine.filter((c) => c !== category) : [...mine, category] }
+  justSaved.value = 0
+  saveError.value = ''
+}
+const picked = computed(() => places.value.filter((p) => !isSaved(p) && picks.value[keyOf(p)]?.length))
+const saveLabel = computed(() => (saving.value ? 'Saving…' : `Save ${picked.value.length} ${picked.value.length === 1 ? 'place' : 'places'}`))
+// Saves what is selected, then those places say "Saved". How to call: await saveTicked()
+async function saveTicked() {
+  if (saving.value || !picked.value.length) return
+  saving.value = true
+  saveError.value = ''
+  const rows = picked.value.map((p) => toSavedPlace(p, CATEGORIES.filter((c) => hasPick(p, c))))
+  try {
+    await savePlaces(rows)
+    savedByKey.value = new Map([...savedByKey.value, ...rows.map((r) => [savedKey(r), r.categories])])
+    justSaved.value = rows.length
+    picks.value = {}
+  } catch (err) {
+    saveError.value = err.message
+  } finally {
+    saving.value = false
+  }
+}
+// Which of a post's places this person keeps already. A failure only leaves them looking unsaved, and saving one again changes nothing.
+// How to call: await loadSavedKeys()
+async function loadSavedKeys() {
+  try {
+    savedByKey.value = new Map((await listSavedPlaces()).map((r) => [savedKey(r), r.categories]))
+  } catch {
+    savedByKey.value = new Map()
+  }
+}
+// Back from another page: what was here is here again, and a place removed from the saved list meanwhile can be picked again.
+const kept = readPostDraft(currentUserId())
+if (kept) {
+  link.value = kept.link
+  answer.value = kept.answer
+  picks.value = kept.picks
+  if (kept.answer) loadSavedKeys()
+}
 const postWarning = computed(() => answer.value?.source?.warning || '')
 const googleDown = computed(() => answer.value?.google?.source === 'unavailable')
 const announce = computed(() => {
@@ -60,8 +124,12 @@ async function read() {
   reading.value = true
   failure.value = ''
   answer.value = null
+  picks.value = {}
+  justSaved.value = 0
+  saveError.value = ''
   try {
     answer.value = await placesFromPost(link.value.trim(), { signal: controller.signal })
+    await loadSavedKeys()
   } catch (err) {
     if (err?.name === 'AbortError') return
     if (err?.code === 'not_a_link' || err?.code === 'unsupported_site') linkError.value = err.message
@@ -77,6 +145,7 @@ async function read() {
     <header class="screen__header">
       <div class="screen__bar">
         <IconButton label="Back" to="/"><AppIcon name="back" /></IconButton>
+        <AppButton variant="tertiary" underline small to="/places/saved" data-testid="saved-link">Saved places</AppButton>
       </div>
       <div class="screen__titles">
         <h1 class="display-xl">Places from a post</h1>
@@ -100,7 +169,7 @@ async function read() {
               inputmode="url"
               autocomplete="off"
               spellcheck="false"
-              placeholder="https://www.tiktok.com/@…/video/…"
+              placeholder="Paste a link"
               :error="linkError"
               data-testid="post-link"
               @input="linkError = ''"
@@ -154,6 +223,13 @@ async function read() {
               <p v-if="place.tip" class="body-sm">{{ place.tip }}</p>
               <p v-for="note in placeNotes(place, postWarning)" :key="note" class="row gap-xs body-sm posts__warning"><AppIcon name="warning" :size="16" /><span>{{ note }}</span></p>
 
+              <!-- Keep this place: picking what kind of place it is selects it, and it can be more than one. -->
+              <p v-if="isSaved(place)" class="row gap-xs body-sm posts__saved" data-testid="post-saved"><AppIcon name="check" :size="16" />Saved as {{ savedWords(place) }}</p>
+              <div v-else class="posts__kinds" role="group" :aria-label="`Save ${place.nameEnglish || place.name} as`">
+                <span class="caption text-muted" aria-hidden="true">Save as</span>
+                <ChipButton v-for="c in CATEGORIES" :key="c" check :selected="hasPick(place, c)" data-testid="post-kind" @click="togglePick(place, c)">{{ CATEGORY_LABELS[c] }}</ChipButton>
+              </div>
+
               <div>
                 <!-- Opens a new tab: the icon says so, and a screen reader hears which place this one is for (the page has one of these a place). -->
                 <AppButton variant="secondary" small :href="mapsUrl(place)" target="_blank" data-testid="post-maps">{{ place.match ? 'Open in Google Maps' : 'Search Google Maps' }} <span class="sr-only">for {{ place.nameEnglish || place.name }}, opens in a new tab</span><AppIcon name="external" :size="14" /></AppButton>
@@ -172,6 +248,13 @@ async function read() {
           </ul>
 
           <p v-if="places.some((p) => p.match)" class="caption-sm text-muted">Addresses and ratings from Google Maps.</p>
+
+          <!-- Stays in view while the list scrolls, once something is ticked or was just saved. -->
+          <div v-if="picked.length || justSaved || saveError" class="posts__bar" data-testid="post-save-bar">
+            <p v-if="saveError" class="body-sm text-error" role="alert">{{ saveError }}</p>
+            <p v-else-if="justSaved && !picked.length" class="body-sm" role="status" data-testid="post-save-done">{{ justSaved }} {{ justSaved === 1 ? 'place' : 'places' }} saved. <RouterLink to="/places/saved">See saved places</RouterLink></p>
+            <AppButton v-if="picked.length" variant="pill" class="posts__save" :disabled="saving" data-testid="post-save" @click="saveTicked">{{ saveLabel }}</AppButton>
+          </div>
         </section>
       </template>
     </div>
@@ -194,6 +277,42 @@ async function read() {
     margin-top: 0;
     min-height: 56px;
   }
+}
+.posts__saved {
+  min-height: var(--tap-min);
+  font-weight: 600;
+}
+.posts__kinds {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+/* Save floats over the list with no card behind it (Faith, 4 November 2026), held at the bottom while the list scrolls. A line beside it gets
+   its own white pill, to stay readable over what passes under it. The empty space around them lets clicks through to the list. */
+.posts__bar {
+  position: sticky;
+  bottom: var(--spacing-md);
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-sm) var(--spacing-md);
+  pointer-events: none;
+}
+.posts__bar > * {
+  pointer-events: auto;
+  box-shadow: var(--shadow-float);
+}
+.posts__bar > p {
+  margin: 0;
+  padding: var(--spacing-sm) var(--spacing-base);
+  border-radius: var(--rounded-full);
+  background: var(--canvas);
+}
+.posts__save {
+  font-weight: 600;
 }
 .posts__note {
   display: block;

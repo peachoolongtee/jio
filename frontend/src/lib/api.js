@@ -34,6 +34,7 @@ import { cleanDietary } from './signupRules.js'
 import { dietCaveats } from './dietText.js'
 import { localAccountsAllowed, projectOrigin } from './supabase.js'
 import { addDays, format, isValid, parseISO } from 'date-fns'
+import { savedKey } from './savedPlaces.js'
 
 export { api } from './plannerApi.js'
 
@@ -147,6 +148,8 @@ function freshDb(keep = {}) {
     // Past seasons, latest first: { number, startsAt, endsAt, winners: [{ id, seasonPoints }], prize, standings }.
     pastSeasons: real ? [] : [pastSeason],
     redemptions: [],
+    // What the person kept from posts, newest first (a demo or local account; a real account's are in `saved_places`).
+    savedPlaces: [],
     conditions: defaultConditions(),
     // Every venue the planner has sent, by id. Suggestions can be any of the backend's venues, not only VENUES.
     venues: {},
@@ -2267,10 +2270,88 @@ export function postReaderStatus() {
 }
 
 // The places named in a pasted post, with their addresses where Google has them (plannerApi.js readPost says what comes back).
-// Nothing is saved: the screen shows the answer and lets the person open a place in Google Maps.
+// Nothing is saved by this: the person picks which places to keep (savePlaces).
 // How to call: const answer = await placesFromPost('https://vt.tiktok.com/ZS123/', { signal })
 export function placesFromPost(url, { signal } = {}) {
   return planner.readPost(url, { signal })
+}
+
+// A person's saved places. A real account keeps them in the table `saved_places`, which it reads and writes directly, its own rows only; a
+// demo or local account keeps them in this browser. lib/savedPlaces.js has what a row holds.
+const SAVED_COLUMNS = 'id, name, name_english, categories, tip, location_hint, google_place_id, post_key, post_url, created_at'
+const savedFromRow = (r) => ({ id: r.id, name: r.name, nameEnglish: r.name_english, categories: r.categories, tip: r.tip, locationHint: r.location_hint, googlePlaceId: r.google_place_id, postKey: r.post_key, postUrl: r.post_url, createdAt: r.created_at })
+// The saved-place words for anything that went wrong, for a table this project does not have yet too. A person never sees a raw error.
+// How to call: throw savedError(error)
+function savedError(error) {
+  const missing = error?.code === '42P01' || error?.code === 'PGRST205'
+  return new Error(missing ? 'Saved places are not available yet.' : 'Your saved places could not be reached. Try again.')
+}
+const savedClient = () => (isReal() ? auth.dataClient() : null)
+// Asks the table, and throws in words whatever goes wrong, a request that could not be made included. `allow` is an error code that is not a
+// failure. How to call: const { data } = await askSaved(() => client.from('saved_places').select('id'), '23505')
+async function askSaved(request, allow) {
+  let answer
+  try {
+    answer = await request()
+  } catch (err) {
+    throw savedError(err)
+  }
+  if (answer.error && answer.error.code !== allow) throw savedError(answer.error)
+  return answer
+}
+
+// The signed-in person's saved places, newest first.
+// How to call: const places = await listSavedPlaces()
+export async function listSavedPlaces() {
+  const client = savedClient()
+  if (client) {
+    const { data } = await askSaved(() => client.from('saved_places').select(SAVED_COLUMNS).order('created_at', { ascending: false }))
+    return data.map(savedFromRow)
+  }
+  await wait(DELAY.read)
+  // A row saved with one category, before a place could have several.
+  return (db.savedPlaces || []).map((s) => (s.categories ? s : { ...s, categories: [s.category] }))
+}
+
+// Saves places the person picked, and answers the ones now saved. One they already keep is left as it is, not an error.
+// How to call: await savePlaces([toSavedPlace(place, ['eat', 'drink'])]) -> [{ id, name, ... }]
+export async function savePlaces(places) {
+  const client = savedClient()
+  const saved = []
+  if (client) {
+    for (const p of places) {
+      const row = { name: p.name, name_english: p.nameEnglish, categories: p.categories, tip: p.tip, location_hint: p.locationHint, google_place_id: p.googlePlaceId, post_key: p.postKey, post_url: p.postUrl }
+      const { data } = await askSaved(() => client.from('saved_places').insert(row).select(SAVED_COLUMNS).single(), '23505')
+      if (data) saved.push(savedFromRow(data))
+    }
+    return saved
+  }
+  await wait(DELAY.write)
+  requireMe()
+  db.savedPlaces = db.savedPlaces || []
+  for (const p of places) {
+    const key = savedKey(p)
+    if (db.savedPlaces.some((s) => savedKey(s) === key)) continue
+    const row = { ...p, id: `saved-${db.seq++}`, createdAt: new Date().toISOString() }
+    db.savedPlaces.unshift(row)
+    saved.push(row)
+  }
+  save()
+  return saved
+}
+
+// Removes one of the person's saved places. A place added to an outing stays there.
+// How to call: await removeSavedPlace('saved-12')
+export async function removeSavedPlace(id) {
+  const client = savedClient()
+  if (client) {
+    await askSaved(() => client.from('saved_places').delete().eq('id', id))
+    return
+  }
+  await wait(DELAY.write)
+  requireMe()
+  db.savedPlaces = (db.savedPlaces || []).filter((s) => s.id !== id)
+  save()
 }
 
 // Search for a start or end location by place name, address or postal code.

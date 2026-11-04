@@ -9,8 +9,7 @@
 // Search within (ticket #122): while voting, an "Auto distance" switch (on by default) and a slider from 100 m to 3 km that works once the
 // switch is off (Faith, 31 October 2026; it was one slider with Auto at its left end). The map draws the radius as a ring round the
 // meeting area as the slider moves, and once it rests the places follow it: places outside drop out with their votes, and each category
-// tops up again (lib/api.js setRadius). One line under the slider names every category short of places, with one "Widen to ..." far
-// enough for all of them.
+// tops up again (lib/api.js setRadius).
 // Search: one box at the top finds places to add, in the category the filter shows or in every category (each place goes to its own
 // category's list). Clicking into it opens a panel: a "CDC vouchers only" toggle, then suggestions (the nearest places that fit) until
 // something is typed, then what was found; the toggle applies to both (Faith, 31 October 2026). Under each category a down arrow adds
@@ -76,7 +75,8 @@ import WeatherSource from '@/components/weather/WeatherSource.vue'
 import CategoryKey from '@/components/map/CategoryKey.vue'
 import PlannerMap from '@/components/map/PlannerMap.vue'
 import NotFoundView from './NotFoundView.vue'
-import { watchSessions } from '@/lib/api.js'
+import { listSavedPlaces, watchSessions } from '@/lib/api.js'
+import { knownVenue, matchesQuery, savedArea, savedMapsUrl } from '@/lib/savedPlaces.js'
 import { CATEGORIES, CATEGORY_LABELS } from '@/lib/planner/slots.js'
 import { distanceText } from '@/lib/planner/format.js'
 import { ORDER_TABS, VOTED, confirmKey, confirmView, sourceIcon, sourceText, suggestedRows, votedRows } from '@/lib/confirmOrder.js'
@@ -122,9 +122,13 @@ const confirmError = ref('')
 const finding = ref({ query: '', results: [], busy: false })
 // The toggle at the top of the search's panel: only places that take CDC vouchers, in the suggestions and in what is found.
 const cdcOnly = ref(false)
-// The panel under the box (the toggle, then the suggestions or what was found) is open while the box or the panel has focus, or while
-// something is typed. A press anywhere else closes it.
+// The panel under the box (the toggle, then the suggestions or what was found) is open while the box, the panel or the category chips above
+// it have focus, or while something is typed: moving between Eat and Shop keeps the suggestions open (Faith, 4 November 2026). A press
+// anywhere else closes it.
 const findEl = ref(null)
+const filterEl = ref(null)
+// Is this element part of the search? How to call: inFind(event.target) -> true
+const inFind = (el) => !!(findEl.value?.contains(el) || filterEl.value?.contains(el))
 const findFocused = ref(false)
 // Escape shuts the panel while the box keeps focus; typing or moving focus into the box again opens it.
 const findShut = ref(false)
@@ -156,10 +160,10 @@ const findStatus = computed(() => {
 })
 // How to call: <div @focusout="onFindFocusOut">
 function onFindFocusOut(event) {
-  if (event.relatedTarget && !findEl.value?.contains(event.relatedTarget)) findFocused.value = false
+  if (event.relatedTarget && !inFind(event.relatedTarget)) findFocused.value = false
 }
 function onPagePointerDown(event) {
-  if (findFocused.value && !findEl.value?.contains(event.target)) findFocused.value = false
+  if (findFocused.value && !inFind(event.target)) findFocused.value = false
 }
 onMounted(() => document.addEventListener('pointerdown', onPagePointerDown))
 onBeforeUnmount(() => document.removeEventListener('pointerdown', onPagePointerDown))
@@ -386,6 +390,70 @@ async function takeBack(result) {
     rowBusy.value = ''
   }
 }
+// The person's saved places in the search's panel, read when it first opens. A saved place shows only what the post said, never Google's
+// details, because this panel sits beside the OneMap map. "Add" looks for it among Jio's own places, by name, and adds that one, and "Added"
+// can be pressed to take it back, as in the suggestions; one Jio does not know says so, with its link to Google Maps (Faith, 4 November 2026).
+const savedPlaces = ref(null)
+const savedNote = ref({})
+const savedAdded = ref({})
+const savedUnknown = ref({})
+watch(findOpen, async (open) => {
+  if (!open || savedPlaces.value) return
+  try {
+    savedPlaces.value = await listSavedPlaces()
+  } catch {
+    // Not reachable: the panel simply has no saved list.
+    savedPlaces.value = []
+  }
+})
+// The saved places to show: of the category chosen, matching what was typed, at most 6. CDC vouchers are not known for them.
+const savedRows = computed(() => {
+  if (cdcOnly.value) return []
+  return (savedPlaces.value || []).filter((p) => (!filter.value || p.categories.includes(filter.value)) && matchesQuery(p, finding.value.query)).slice(0, 6)
+})
+// How to call: await addSaved(place)
+async function addSaved(place) {
+  if (rowBusy.value) return
+  const key = `saved:${place.id}`
+  // Its categories this outing has a stop for, the one chosen first: the place goes to the first of them Jio knows it under.
+  const wanted = filter.value ? [filter.value, ...place.categories.filter((c) => c !== filter.value)] : place.categories
+  const stops = wanted.map((c) => slots.value.find((s) => s.category === c)).filter(Boolean)
+  rowBusy.value = key
+  savedNote.value = { ...savedNote.value, [place.id]: '' }
+  try {
+    if (!stops.length) throw new Error(`This outing has no ${place.categories.map((c) => CATEGORY_LABELS[c]).join(' or ')} stop.`)
+    for (const slot of stops) {
+      const found = await planner.searchVenues(props.id, slot.id, place.nameEnglish || place.name, { cdcOnly: false, browse: false })
+      const venue = knownVenue(place, found.filter((r) => r.category === slot.category))
+      if (!venue) continue
+      if (venue.unfit) throw new Error(unfitText(venue, slot))
+      await planner.addOption(props.id, slot.id, venue.id)
+      savedAdded.value = { ...savedAdded.value, [place.id]: { id: venue.id, slot } }
+      return
+    }
+    savedUnknown.value = { ...savedUnknown.value, [place.id]: true }
+  } catch (e) {
+    savedNote.value = { ...savedNote.value, [place.id]: e.message }
+  } finally {
+    rowBusy.value = ''
+  }
+}
+// Takes back a saved place this person added. How to call: await takeBackSaved(place)
+async function takeBackSaved(place) {
+  const added = savedAdded.value[place.id]
+  if (rowBusy.value || !added) return
+  rowBusy.value = `saved:${place.id}`
+  savedNote.value = { ...savedNote.value, [place.id]: '' }
+  try {
+    await planner.removeOption(props.id, added.slot.id, added.id)
+    const { [place.id]: _gone, ...rest } = savedAdded.value
+    savedAdded.value = rest
+  } catch (e) {
+    savedNote.value = { ...savedNote.value, [place.id]: e.message }
+  } finally {
+    rowBusy.value = ''
+  }
+}
 // Nothing to suggest within the radius: how far that is, and (for whoever may change it) a way to look as far as 3 km.
 const suggestReach = computed(() => radiusLabel(radius.value ?? 3000))
 const canReachFurther = computed(() => canSetRadius.value && radius.value != null && radius.value < 3000)
@@ -436,8 +504,6 @@ async function setRadius(metres) {
   queuedRadius = null
   if (next) await setRadius(next.metres)
 }
-// The smallest choice that reaches `km`, for "Widen to ...". How to call: radiusFor(1.4) -> 2000
-const radiusFor = (km) => RADII.find((m) => m != null && m >= km * 1000) ?? null
 // How far the places may be, in words: the chosen radius, or the planner's own limit of 3 km under Auto.
 const reachText = computed(() => radiusLabel(radius.value ?? 3000))
 // The slider runs over the distances. While it moves the map's ring follows it at once (`draftRadius`). The radius is saved and the places
@@ -478,16 +544,6 @@ function commitRadius() {
 onBeforeUnmount(() => clearTimeout(radiusTimer))
 // The slider's words: "Auto" while the switch is on, else the distance. How to call: radiusStepText(2) -> 'Within 500 m'
 const radiusStepText = (i) => (autoRadius.value ? 'Auto' : `Within ${radiusLabel(MANUAL_RADII[i])}`)
-// One line for every category that is short of places within the radius, with one way to widen it: far enough for all of them (it was
-// a "Widen to" under each category). How to call: shortOfPlaces.value -> { labels: ['Drink', 'Shop'], to: 3000 }
-const shortOfPlaces = computed(() => {
-  if (radius.value == null) return null
-  const short = slots.value.filter((s) => (s.options.length ? s.few : !s.dietFew))
-  if (!short.length) return null
-  const km = Math.max(0, ...short.map((s) => (s.options.length ? s.few?.widenToKm : s.empty?.widenToKm) || 0))
-  const to = km ? radiusFor(km) : null
-  return { labels: short.map((s) => CATEGORY_LABELS[s.category]), to: to && to > radius.value ? to : null }
-})
 
 // ── Dietary needs ──
 // The line under Eat, or '' when the group has no needs.
@@ -927,7 +983,7 @@ async function keepDialog(e) {
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
 
         <!-- One filter for the list and the map, and the CDC toggle for Eat and Drink. -->
-        <div class="filter scroll-x">
+        <div ref="filterEl" class="filter scroll-x" @focusout="onFindFocusOut">
           <div class="filter__set" role="radiogroup" v-radio-group aria-label="Show">
             <ChipButton radio :selected="!filter" @click="filter = ''">All</ChipButton>
             <ChipButton v-for="c in CATEGORIES" :key="c" radio :selected="filter === c" :aria-label="`${CATEGORY_LABELS[c]}, ${countOf(c)} places`" @click="filter = c">
@@ -950,6 +1006,22 @@ async function keepDialog(e) {
             <div class="find__filters">
               <ChipButton check :selected="cdcOnly" data-testid="search-cdc" @click="cdcOnly = !cdcOnly">Search CDC vouchers only</ChipButton>
             </div>
+            <template v-if="savedRows.length">
+              <p class="caption text-muted find__caption">From your saved list</p>
+              <ul class="add-results" aria-label="Your saved places" data-testid="saved-rows">
+                <li v-for="p in savedRows" :key="p.id" class="add-row" :class="{ 'has-note': savedNote[p.id] || savedUnknown[p.id] }" data-testid="saved-row">
+                  <CategoryIcon :category="p.categories[0]" :size="32" />
+                  <span class="add-row__text">
+                    <span class="title-sm truncate">{{ p.nameEnglish || p.name }}</span>
+                    <span class="caption-sm text-muted">{{ p.categories.map((c) => CATEGORY_LABELS[c]).join(', ') }}<template v-if="savedArea(p)"> · {{ savedArea(p) }}</template></span>
+                    <span v-if="savedNote[p.id]" class="add-row__note body-sm text-error" role="alert"><AppIcon name="warning" :size="16" />{{ savedNote[p.id] }}</span>
+                    <span v-else-if="savedUnknown[p.id]" class="caption-sm text-muted" role="status" data-testid="saved-unknown">Not on Jio yet · <a :href="savedMapsUrl(p)" target="_blank" rel="noopener noreferrer">Google Maps<span class="sr-only">, opens in a new tab</span></a></span>
+                  </span>
+                  <AppButton v-if="savedAdded[p.id]" class="add-btn is-added" variant="secondary" small :disabled="!canTakeBack(savedAdded[p.id])" :aria-busy="rowBusy === `saved:${p.id}` ? 'true' : undefined" :aria-label="canTakeBack(savedAdded[p.id]) ? `Take back ${p.nameEnglish || p.name}` : `${p.nameEnglish || p.name} is already a choice`" data-testid="saved-added" @click="takeBackSaved(p)"><AppIcon name="check" :size="16" />Added</AppButton>
+                  <AppButton v-else class="add-btn" variant="secondary" small :disabled="savedUnknown[p.id]" :aria-busy="rowBusy === `saved:${p.id}` ? 'true' : undefined" :aria-label="`Add ${p.nameEnglish || p.name}`" data-testid="saved-add" @click="addSaved(p)">Add</AppButton>
+                </li>
+              </ul>
+            </template>
             <p v-if="!finding.query.trim() && finding.results.length" class="caption text-muted find__caption">Suggested near {{ session.area.name }}</p>
           <ul v-if="finding.results.length" class="add-results" :aria-label="finding.query.trim() ? 'Places found' : 'Suggested places'">
             <li v-for="r in finding.results" :key="rowKey(r)" class="add-row" :class="{ 'has-note': rowNote[rowKey(r)] }">
@@ -992,7 +1064,7 @@ async function keepDialog(e) {
           </ul>
           <p v-else-if="finding.query.trim() && !finding.busy" class="body-sm text-muted">No places{{ cdcOnly ? ' that take CDC vouchers' : '' }} match "{{ finding.query.trim() }}".</p>
           <p v-if="finding.query.trim() && finding.googleDown && !finding.busy" class="caption-sm text-muted find__note" role="status" data-testid="google-down"><AppIcon name="info" :size="14" /><span>Google isn't answering right now, so only Jio's saved places were searched. <AppButton variant="tertiary" underline small data-testid="search-again" @click="findPlaces(finding.query)">Search again</AppButton></span></p>
-          <p v-else-if="!finding.busy" class="few-line" data-testid="suggest-none">
+          <p v-else-if="!finding.query.trim() && !finding.results.length && !finding.busy" class="few-line" data-testid="suggest-none">
             <span class="body-sm text-muted">No places{{ cdcOnly ? ' that take CDC vouchers' : '' }} to suggest within {{ suggestReach }} of {{ session.area.name }}. Type a name to search.</span>
             <AppButton v-if="canReachFurther" variant="tertiary" underline small :disabled="settingRadius" @click="setRadius(3000)">Look within 3 km</AppButton>
           </p>
@@ -1007,11 +1079,6 @@ async function keepDialog(e) {
         <div v-else-if="voting && slots.length" class="radius" data-testid="radius">
           <ToggleSwitch v-model="autoRadius" class="radius__auto" label="Auto distance" :hint="autoRadius ? 'Jio looks further out until 3 places fit, up to 3 km. Turn off to choose.' : ''" :disabled="settingRadius" data-testid="radius-auto" />
           <RangeSlider v-model="radiusStep" class="radius__slider" @commit="commitRadius" :label="`Search within, from ${session.area.name}`" :min="0" :max="MANUAL_RADII.length - 1" :step="1" :format="radiusStepText" :disabled="autoRadius" data-testid="radius-slider" />
-          <!-- Every category short of places, said once, with one way to widen far enough for all of them. -->
-          <p v-if="shortOfPlaces" class="few-line" data-testid="radius-short">
-            <span class="caption-sm text-muted">Few places within {{ radiusLabel(radius) }} for {{ listJoin(shortOfPlaces.labels).replace(' or ', ' and ') }}.</span>
-            <AppButton v-if="shortOfPlaces.to" variant="tertiary" underline small :disabled="settingRadius" data-testid="radius-widen" @click="setRadius(shortOfPlaces.to)">Widen to {{ radiusLabel(shortOfPlaces.to) }}</AppButton>
-          </p>
         </div>
 
         <!-- The outing's dietary needs, laid out like "Search within": the label with the needs selected below as tags, then the
@@ -1192,7 +1259,8 @@ async function keepDialog(e) {
 <style scoped>
 /* Search within: a label, the chips, and one line on what the choice means. */
 /* The switch (its name and the line under it), then the slider with its own name: spaced so they read as two things. */
-.radius { display: flex; flex-direction: column; gap: var(--spacing-md); }
+/* The slider's box is taller than it looks (its tap area), so what follows comes up by that much, to sit as near as the rows above it. */
+.radius { display: flex; flex-direction: column; gap: var(--spacing-md); margin-bottom: calc(var(--spacing-base) * -1); }
 .radius__auto :deep(.switch-row__text) { gap: var(--spacing-xs); }
 .few-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-xs) var(--spacing-sm); margin: 0; }
 /* The filter: one row of chips, scrolling sideways on a phone. */

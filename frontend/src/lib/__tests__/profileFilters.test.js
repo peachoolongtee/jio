@@ -123,6 +123,15 @@ describe('the Sessions list on your own profile', () => {
     return view
   }
 
+  it('offers Saved places on your own profile, and never on someone else\'s', async () => {
+    const mine = await drawProfile()
+    expect(mine.text('[data-testid=profile-saved]')).toContain('Saved places')
+    expect(mine.has('[data-testid=edit-profile]')).toBe(true)
+    mine.unmount()
+    const theirs = await drawPerson('darius')
+    expect(theirs.has('[data-testid=profile-saved]')).toBe(false)
+  })
+
   it('lists a friend\'s sessions, and a day picked on their graph narrows them (Faith, 4 November 2026)', async () => {
     const view = await drawPerson('darius')
     await until(() => view.has('[data-testid=profile-sessions]') && view.text('[data-testid=profile-sessions]').includes('Sample history'))
