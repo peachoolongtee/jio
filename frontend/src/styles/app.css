@@ -225,7 +225,10 @@ svg { display: block; flex-shrink: 0; }
    Phones and tablets keep the List / Map switch. */
 @media (min-width: 1128px) {
   .screen:has(.split--first) { --map-panel: 420px; --map-edge: var(--spacing-lg); }
-  .screen:has(.itin-split) { --map-panel: 520px; }
+  .screen:has(.itin-split), .screen:has(.roam-split) { --map-panel: 520px; }
+  .screen:has(.plan-split) { --map-panel: 560px; }
+  /* "What next?" keeps its sections in one wrapper (RoamPanel); it steps aside so each section is a card of its own. */
+  .screen:has(.split--first) .roam-panel { display: contents; }
 
   .screen:has(.split--first) > .session-head { position: fixed; z-index: 15; top: var(--map-edge); right: var(--map-edge); left: var(--map-edge); flex-direction: row; align-items: flex-start; gap: var(--spacing-sm); padding: 0; pointer-events: none; }
   .screen:has(.split--first) > .session-head .screen__bar { display: contents; }
@@ -244,9 +247,9 @@ svg { display: block; flex-shrink: 0; }
   .screen:has(.split--first) > .screen__body::-webkit-scrollbar { display: none; }
   .screen:has(.split--first) > .screen__body > *, .screen:has(.split--first) .split__list > * { pointer-events: auto; }
   .screen:has(.split--first) .split--first { pointer-events: none; }
-  /* Each section a white card of its own over the map. */
-  .screen:has(.split--first) > .screen__body > :not(.split):not(.sr-only), .screen:has(.split--first) .split__list > :not(.sr-only) { flex-shrink: 0; border-radius: var(--rounded-lg); background: var(--canvas); box-shadow: var(--shadow-float); }
-  .screen:has(.split--first) > .screen__body > :not(.split):not(.card):not(.sr-only), .screen:has(.split--first) .split__list > :not(.card):not(.sr-only) { padding: var(--spacing-base); }
+  /* Each section a white card of its own over the map, raised above it (the map is fixed inside the same column). */
+  .screen:has(.split--first) > .screen__body > :not(.split):not(.sr-only):not(.roam-panel), .screen:has(.split--first) .roam-panel > :not(.split):not(.sr-only), .screen:has(.split--first) .split__list > :not(.sr-only) { position: relative; z-index: 1; flex-shrink: 0; border-radius: var(--rounded-lg); background: var(--canvas); box-shadow: var(--shadow-float); }
+  .screen:has(.split--first) > .screen__body > :not(.split):not(.card):not(.sr-only):not(.roam-panel), .screen:has(.split--first) .roam-panel > :not(.split):not(.card):not(.sr-only), .screen:has(.split--first) .split__list > :not(.card):not(.sr-only) { padding: var(--spacing-base); }
   .screen:has(.split--first) .split__list { gap: var(--spacing-sm); }
 
   /* The map's colour key: at the top left, under the header's card, clear of the zoom buttons at the bottom left. */

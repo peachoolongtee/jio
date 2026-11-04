@@ -167,6 +167,19 @@ function onFindFocusOut(event) {
 function onPagePointerDown(event) {
   if (findFocused.value && !findEl.value?.contains(event.target)) findFocused.value = false
 }
+// What the floating cards cover of the full-screen map from 1128px (app.css "Map-first pages"): the header's card at the top, the column of
+// cards on the right (560 px wide) and the button at the foot, so the map frames the places in the rest. Nothing below 1128px.
+const mapCover = ref({})
+// Sets mapCover for the window's width. How to call: syncCover()
+function syncCover() {
+  const wide = (globalThis.innerWidth || 0) >= 1128
+  mapCover.value = wide ? { top: 170, right: 560 + 48, bottom: 72 } : {}
+}
+onMounted(() => {
+  syncCover()
+  globalThis.addEventListener?.('resize', syncCover)
+})
+onBeforeUnmount(() => globalThis.removeEventListener?.('resize', syncCover))
 onMounted(() => document.addEventListener('pointerdown', onPagePointerDown))
 onBeforeUnmount(() => document.removeEventListener('pointerdown', onPagePointerDown))
 const loadingMore = ref('')
@@ -886,7 +899,7 @@ async function keepDialog(e) {
           <AppButton small variant="secondary" :disabled="choicesLoading || !!choosing" data-testid="replace-retry" @click="retryChoices">Try again</AppButton>
         </div>
 
-        <SplitView v-model:view="view" label="Places">
+        <SplitView v-model:view="view" class="plan-split" label="Places" map-first>
           <template #list>
             <div v-if="choicesLoading && !currentChoices" class="stack gap-md" data-testid="replace-loading">
               <SkeletonRow v-for="n in 3" :key="n" avatar :lines="3" />
@@ -923,7 +936,7 @@ async function keepDialog(e) {
           </template>
 
           <template #map>
-            <PlannerMap :area="session.area" :places="replacePlaces" :selected="selected" label="Places map" @select="selected = $event" />
+            <PlannerMap :cover="mapCover" :area="session.area" :places="replacePlaces" :selected="selected" label="Places map" @select="selected = $event" />
             <CategoryKey :categories="replacePlaces.map((p) => p.category)" />
           </template>
         </SplitView>
@@ -1031,7 +1044,7 @@ async function keepDialog(e) {
           <DietaryChips :mine="shownMine" :others="plan.othersDietary || []" :dropped="shownDropped" :can-drop="isHost" :busy="dietBusy" @change="saveDiet" />
         </div>
 
-        <SplitView v-model:view="view" label="Places">
+        <SplitView v-model:view="view" class="plan-split" label="Places" map-first>
           <template #list>
             <p v-if="!loading && listed.length && walkFrom" class="walk-from caption-sm text-muted" data-testid="walk-from">{{ walkFrom }}</p>
             <div v-if="loading" class="stack gap-md">
@@ -1091,7 +1104,7 @@ async function keepDialog(e) {
           </template>
 
           <template #map>
-            <PlannerMap :area="session.area" :places="mapPlaces" :radius="voting ? shownRadius || 0 : 0" :selected="selected" label="Places map" @select="selected = $event" />
+            <PlannerMap :cover="mapCover" :area="session.area" :places="mapPlaces" :radius="voting ? shownRadius || 0 : 0" :selected="selected" label="Places map" @select="selected = $event" />
             <CategoryKey :categories="mapPlaces.map((p) => p.category)" />
             <div v-if="selectedOption" class="pin-card" role="dialog" :aria-label="selectedOption.venue.name">
               <div class="row between gap-sm">
