@@ -465,7 +465,9 @@ async function endPlan() {
           <RoamPanel :session="session" proposals-above />
         </template>
 
-        <SplitView v-else v-model:view="view" label="Itinerary" even>
+        <!-- Map first (Darius, 4 November 2026, as Home and Locate): from 1128px the map on the left and the timeline docked on the right,
+             full height and 520px wide (the stops need more room than Locate's cards), with the footer at its foot. -->
+        <SplitView v-else v-model:view="view" class="itin-split" label="Itinerary" even map-first>
           <template #list>
             <div v-if="!itinerary" class="stack gap-md">
               <SkeletonRow v-for="n in 3" :key="n" avatar />
@@ -677,5 +679,12 @@ async function endPlan() {
   .timeline :deep(.stop__banner) { height: 150px; border-radius: var(--rounded-md); }
   .timeline :deep(.stop .title-md) { font: var(--text-display-sm); }
   .timeline :deep(.stop) { padding: var(--spacing-sm) 0; }
+}
+/* Map first (from 1128px): the timeline's panel is 520px, and the page's footer sits at its foot, its width (as Locate). */
+.itin-split { --split-panel: 520px; }
+@media (min-width: 1128px) {
+  .screen:has(.split--first) > .screen__footer { position: fixed; z-index: 20; right: 0; bottom: 0; left: auto; width: 520px; padding: var(--spacing-sm) var(--spacing-base) calc(var(--spacing-base) + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--hairline); border-left: 1px solid var(--border-strong); }
+  .screen:has(.split--first) > .screen__footer > :deep(.btn) { flex: 1 1 0; min-width: 0; }
+  .screen:has(.split--first) > .screen__body { padding-bottom: 0; }
 }
 </style>
