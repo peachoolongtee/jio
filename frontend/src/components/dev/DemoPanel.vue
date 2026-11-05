@@ -1,5 +1,6 @@
 <script setup>
-// Demo tools. Only in development builds (App.vue loads this file behind import.meta.env.DEV).
+// Demo tools. Only in development builds and in production builds made with VITE_DEMO_TOOLS=1 (App.vue loads this file
+// behind DEMO_TOOLS_BUILT, lib/tourFlag.js).
 // Friends cannot act in a single-user build, so these buttons act for them through lib/api.js,
 // the same way their own phones would.
 import { coins } from '@/lib/currency.js'
