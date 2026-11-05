@@ -114,11 +114,14 @@ const { detail, outing, open: openPlace, close: closePlace, reset: resetPlace } 
 const detailFrom = computed(() => (centre.value.mode === 'here' ? 'you' : centreName.value))
 
 // The places with the plan and the proposals as they are now, so a proposal made elsewhere shows without asking again.
+// The planner's rain swap is left off ("Swap for ..."): it is for a confirmed stop, which What next has none of, so nothing here answers
+// it, and it can name a Google place, which may not be shown beside this OneMap map. The rain tag on the card still warns (Darius, 5
+// November 2026).
 const stopIds = computed(() => (session.value?.plan?.stops || []).map((s) => s.venueId))
 const places = computed(() =>
   (answer.value?.places || []).filter((place) => !isGooglePlace(place)).map((place) => {
     const { state, proposal } = placeState(place.id, stopIds.value, session.value?.proposals || [])
-    return { ...place, state, proposal: proposal && { id: proposal.id, by: proposal.by, byName: proposal.byName } }
+    return { ...place, swap: null, state, proposal: proposal && { id: proposal.id, by: proposal.by, byName: proposal.byName } }
   }),
 )
 // Why the tick is off, said in words on the page: the person is not in the meetup (or opted out of it), or the limits are reached.
