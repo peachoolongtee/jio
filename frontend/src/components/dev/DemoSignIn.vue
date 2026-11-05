@@ -1,6 +1,6 @@
 <script setup>
-// Two ways into the demo account, on the first question of sign-up. Only in development builds: AuthView loads this file
-// behind import.meta.env.DEV, so a production build has neither the buttons nor the words.
+// Two ways into the demo account, on the first question of sign-up. Only in development builds and in production builds made
+// with VITE_DEMO_TOOLS=1: AuthView loads this file behind DEMO_TOOLS_BUILT, so any other build has neither the buttons nor the words.
 //   <DemoSignIn />
 // "Use the demo account" signs up as Ian with the sample friends and history (demoAccount.js) and goes to Home.
 // "...with showcase data" does that, then fills the account with ten sessions in every state (showcase.js), which takes
@@ -28,7 +28,8 @@ const progress = ref('')
 const error = ref('')
 const stranded = computed(() => !!error.value && auth.signedIn)
 // A real account is only possible when Supabase is set up; the stand-in then answers for it.
-const canMakeUpReal = computed(() => auth.realAccounts)
+// Development builds only: the stand-in swaps the Supabase client, which a production build refuses (lib/auth.js useClient).
+const canMakeUpReal = computed(() => !!import.meta.env.DEV && auth.realAccounts)
 
 // How to call: await enter('showcase'), await enter('tour') or await enter('plain')
 async function enter(kind) {
@@ -38,7 +39,8 @@ async function enter(kind) {
   error.value = ''
   progress.value = ''
   try {
-    if (kind === 'madeup') {
+    // import.meta.env.DEV first, so a production build drops the stand-in's code (madeUpAccount.js) altogether.
+    if (import.meta.env.DEV && kind === 'madeup') {
       const { signUpAsMadeUp } = await import('./madeUpAccount.js')
       await signUpAsMadeUp(auth)
       // A made-up account that came from an invite link goes back to it, as a real sign-up does.

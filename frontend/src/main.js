@@ -4,7 +4,7 @@ import App from './App.vue'
 import UnavailableView from './views/UnavailableView.vue'
 import router from './router'
 import { mustRefuse } from './lib/supabase.js'
-import { TOUR_BUILT, tourMisconfigured } from './lib/tourFlag.js'
+import { DEMO_TOOLS_BUILT, TOUR_BUILT, demoToolsMisconfigured, tourMisconfigured } from './lib/tourFlag.js'
 
 // Design system: tokens first, then the base styles that use them.
 import './styles/tokens.css'
@@ -21,6 +21,10 @@ if (mustRefuse()) {
   // The demo tour (VITE_DEMO_TOUR=1) signs in as an account that lives in the browser, which a production build refuses
   // unless it is told to keep them. Say so, loudly, instead of showing a tour that cannot work.
   console.error('Jio: this build has the demo tour (VITE_DEMO_TOUR=1) but not local accounts. The tour needs them: set VITE_ALLOW_LOCAL_ACCOUNTS=1 as well (see frontend/.env.example) and build again.')
+  createApp(UnavailableView).mount('#app')
+} else if (DEMO_TOOLS_BUILT && demoToolsMisconfigured()) {
+  // The demo tools (VITE_DEMO_TOOLS=1) sign in as accounts that live in the browser, so they need local accounts too.
+  console.error('Jio: this build has the demo tools (VITE_DEMO_TOOLS=1) but not local accounts. They need them: set VITE_ALLOW_LOCAL_ACCOUNTS=1 as well (see frontend/.env.example) and build again.')
   createApp(UnavailableView).mount('#app')
 } else {
   // Not top-level await, which the build target may not allow: the app starts from a function.
