@@ -19,6 +19,7 @@ export function passwordChecks(password, realAccounts) {
 </script>
 
 <script setup>
+import { DEMO_TOOLS_BUILT } from '@/lib/tourFlag.js'
 // Sign-up: one question per screen, with a back arrow and a progress bar.
 // Email, password with a live checklist, name, date of birth, username, profile photo (can be skipped), home area, suggested
 // friends (local accounts only: a real account has no sample friends, so its last question is the home area). It ends on
@@ -308,13 +309,13 @@ const buttonLabel = computed(() => {
   return step.value === STEPS.at(-1) ? 'Finish' : 'Next'
 })
 
-// Development builds only: the first question also offers the demo account, with or without showcase data
-// (components/dev/DemoSignIn.vue). In a production build this is null, so the buttons and their words are left out.
-const DemoSignIn = import.meta.env.DEV ? defineAsyncComponent(() => import('@/components/dev/DemoSignIn.vue')) : null
+// Development builds, and production builds made with VITE_DEMO_TOOLS=1: the first question also offers the demo account, with
+// or without showcase data (components/dev/DemoSignIn.vue). In any other build this is null, so the buttons and their words are left out.
+const DemoSignIn = DEMO_TOOLS_BUILT ? defineAsyncComponent(() => import('@/components/dev/DemoSignIn.vue')) : null
 
-// Development builds only: skip the steps with a ready-made demo account. In a production build this is null, so the
-// button and the demo account are left out.
-const quickAccount = import.meta.env.DEV
+// Development builds, and production builds made with VITE_DEMO_TOOLS=1: skip the steps with a ready-made demo account. In any
+// other build this is null, so the button and the demo account are left out.
+const quickAccount = DEMO_TOOLS_BUILT
   ? async () => {
       busy.value = true
       demoError.value = ''

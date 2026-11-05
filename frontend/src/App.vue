@@ -11,11 +11,11 @@ import SyncNotice from '@/components/ui/SyncNotice.vue'
 import TabBar from '@/components/ui/TabBar.vue'
 import DietaryFirstAsk from '@/components/event/DietaryFirstAsk.vue'
 import { useAuthStore } from '@/stores/auth.js'
-import { TOUR_BUILT } from '@/lib/tourFlag.js'
+import { DEMO_TOOLS_BUILT, TOUR_BUILT } from '@/lib/tourFlag.js'
 import { useFollowRelease } from '@/lib/followRelease.js'
 
-// The demo tools exist only in development builds.
-const DemoPanel = import.meta.env.DEV ? defineAsyncComponent(() => import('@/components/dev/DemoPanel.vue')) : null
+// The demo tools exist in development builds, and in a production build made with VITE_DEMO_TOOLS=1 (lib/tourFlag.js).
+const DemoPanel = DEMO_TOOLS_BUILT ? defineAsyncComponent(() => import('@/components/dev/DemoPanel.vue')) : null
 
 // The demo tour's strip exists only in a build that has the tour (lib/tourFlag.js); it hides itself when the tour is not on.
 const TourStrip = TOUR_BUILT ? defineAsyncComponent(() => import('@/tour/TourStrip.vue')) : null
