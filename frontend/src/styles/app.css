@@ -232,7 +232,8 @@ svg { display: block; flex-shrink: 0; }
   .screen:has(.split--first) { --map-panel: 420px; --map-edge: var(--spacing-lg); }
   /* Vote, the itinerary and What next have more to show than Locate: a column 460px wide (Darius, 4 November 2026; it was 520 to 560). */
   .screen:has(.itin-split), .screen:has(.roam-split), .screen:has(.plan-split) { --map-panel: 460px; }
-  /* "What next?" keeps its sections in one wrapper (RoamPanel); it steps aside so each section is a card of its own. */
+  /* "What next?" keeps its sections in one wrapper (RoamPanel), and the proposed stops theirs (ProposedStops): both are display: contents, so
+     the wrapper draws nothing, and each section inside is the card, raised above the map and slid away with the others. */
   .screen:has(.split--first) .roam-panel { display: contents; }
 
   .screen:has(.split--first) > .session-head { position: fixed; z-index: 15; top: var(--map-edge); right: var(--map-edge); left: var(--map-edge); flex-direction: row; align-items: flex-start; gap: var(--spacing-sm); padding: 0; pointer-events: none; }
@@ -257,8 +258,8 @@ svg { display: block; flex-shrink: 0; }
   .screen:has(.split--first) > .screen__body > *, .screen:has(.split--first) .split__list > * { pointer-events: auto; }
   .screen:has(.split--first) .split--first { pointer-events: none; }
   /* Each section a white card of its own over the map, raised above it (the map is fixed inside the same column). */
-  .screen:has(.split--first) > .screen__body > :not(.split):not(.sr-only):not(.roam-panel), .screen:has(.split--first) .roam-panel > :not(.split):not(.sr-only), .screen:has(.split--first) .split__list > :not(.sr-only) { position: relative; z-index: 1; flex-shrink: 0; border-radius: var(--rounded-lg); background: var(--canvas); box-shadow: var(--shadow-float); }
-  .screen:has(.split--first) > .screen__body > :not(.split):not(.card):not(.sr-only):not(.roam-panel), .screen:has(.split--first) .roam-panel > :not(.split):not(.card):not(.sr-only), .screen:has(.split--first) .split__list > :not(.card):not(.sr-only) { padding: var(--spacing-base); }
+  .screen:has(.split--first) > .screen__body > :not(.split):not(.sr-only):not(.roam-panel):not(.proposed-wrap), .screen:has(.split--first) :is(.roam-panel, .proposed-wrap) > :not(.split):not(.sr-only), .screen:has(.split--first) .split__list > :not(.sr-only) { position: relative; z-index: 1; flex-shrink: 0; border-radius: var(--rounded-lg); background: var(--canvas); box-shadow: var(--shadow-float); }
+  .screen:has(.split--first) > .screen__body > :not(.split):not(.card):not(.sr-only):not(.roam-panel):not(.proposed-wrap), .screen:has(.split--first) :is(.roam-panel, .proposed-wrap) > :not(.split):not(.card):not(.sr-only), .screen:has(.split--first) .split__list > :not(.card):not(.sr-only) { padding: var(--spacing-base); }
   .screen:has(.split--first) .split__list { gap: var(--spacing-sm); }
 
   /* The map's colour key: at the top left, under the header's card, clear of the zoom buttons at the bottom left. */
@@ -271,8 +272,8 @@ svg { display: block; flex-shrink: 0; }
      footer's button stays, as the way on. */
   /* The cards move, not the column: the full-screen map is inside the column, and moving it would move the map. "What next?" keeps its
      cards and its map in one wrapper (.roam-panel), so the wrapper is left alone and its cards move instead: hiding it would hide the map. */
-  .screen:has(.split--first) > .screen__body > :not(.split):not(.roam-panel), .screen:has(.split--first) .roam-panel > :not(.split), .screen:has(.split--first) .split__list { transition: transform 360ms var(--ease-out), opacity 360ms var(--ease-out), visibility 0s linear 0s; }
-  .screen:has(.session-head.is-panel-hidden) > .screen__body > :not(.split):not(.roam-panel), .screen:has(.session-head.is-panel-hidden) .roam-panel > :not(.split), .screen:has(.session-head.is-panel-hidden) .split__list { transform: translateX(calc(100% + var(--map-edge) * 2)); opacity: 0; visibility: hidden; transition: transform 360ms var(--ease-out), opacity 360ms var(--ease-out), visibility 0s linear 360ms; }
+  .screen:has(.split--first) > .screen__body > :not(.split):not(.roam-panel):not(.proposed-wrap), .screen:has(.split--first) :is(.roam-panel, .proposed-wrap) > :not(.split), .screen:has(.split--first) .split__list { transition: transform 360ms var(--ease-out), opacity 360ms var(--ease-out), visibility 0s linear 0s; }
+  .screen:has(.session-head.is-panel-hidden) > .screen__body > :not(.split):not(.roam-panel):not(.proposed-wrap), .screen:has(.session-head.is-panel-hidden) :is(.roam-panel, .proposed-wrap) > :not(.split), .screen:has(.session-head.is-panel-hidden) .split__list { transform: translateX(calc(100% + var(--map-edge) * 2)); opacity: 0; visibility: hidden; transition: transform 360ms var(--ease-out), opacity 360ms var(--ease-out), visibility 0s linear 360ms; }
   .screen:has(.session-head.is-panel-hidden) > .screen__body { overflow: hidden; }
   .screen:has(.split--first) > .session-head .session-head__panel { position: fixed; top: calc(var(--map-edge) + 136px + var(--spacing-sm)); right: calc(var(--map-edge) + var(--map-panel) + var(--spacing-sm)); display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: var(--rounded-full); background: var(--canvas); color: var(--ink); box-shadow: var(--shadow-float); cursor: pointer; pointer-events: auto; transition: right 360ms var(--ease-out); }
   .screen:has(.split--first) > .session-head .session-head__panel :is(svg, .icon) { transition: transform 360ms var(--ease-out); }
@@ -281,6 +282,6 @@ svg { display: block; flex-shrink: 0; }
   .screen:has(.split--first) > .session-head .session-head__panel:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
   @media (hover: hover) { .screen:has(.split--first) > .session-head .session-head__panel:hover { background: var(--surface-soft, var(--canvas)); } }
   @media (prefers-reduced-motion: reduce) {
-    .screen:has(.split--first) > .screen__body > :not(.split):not(.roam-panel), .screen:has(.split--first) .roam-panel > :not(.split), .screen:has(.split--first) .split__list, .screen:has(.split--first) > .session-head .session-head__panel, .screen:has(.split--first) > .session-head .session-head__panel :is(svg, .icon) { transition: none; }
+    .screen:has(.split--first) > .screen__body > :not(.split):not(.roam-panel):not(.proposed-wrap), .screen:has(.split--first) :is(.roam-panel, .proposed-wrap) > :not(.split), .screen:has(.split--first) .split__list, .screen:has(.split--first) > .session-head .session-head__panel, .screen:has(.split--first) > .session-head .session-head__panel :is(svg, .icon) { transition: none; }
   }
 }
