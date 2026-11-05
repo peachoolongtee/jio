@@ -5,8 +5,10 @@
 //   seed point -> hard filters -> expanding radius -> prune (cap routing cost) -> route -> score -> rank -> explain
 
 import { centroid, fairnessWeights, minimaxCenter, radiusSearch, mockTravelMinutes, haversineKm, walkMinutes } from './geo.js';
-import { filterByConstraints, countReasons, relaxationHints, needsVerification, unknownDietNeeds } from './filters.js';
+import { filterByConstraints, countReasons, relaxationHints, needsVerification, unknownDietNeeds, dietMisses } from './filters.js';
 import * as S from './scoring.js';
+import { diversify } from './diversity.js';
+import { BALANCE, balanceWeights, choicesOf, measure, pickBalanced, rankBalanced } from './balance.js';
 
 /** Apply per-plan overrides (start/end) and drop members who opted out. Default start and end = home.
  *  With no home, end = start: the API accepts a member with only a start point. */
@@ -46,12 +48,31 @@ const occasionFitOf = (venue, occasion, profile) => venue.occasionFit?.[occasion
  * Travel time for one leg. Real routing can fail (OneMap down, no route found) and return null or NaN.
  * Instead of crashing, fall back to the straight-line estimate and count the leg, so the UI can label
  * the result "approximate".
+ *
+ * When the caller says where its times come from (`kinds`, a Set, and `kindOf(from, to)`: 'routed' or 'table'), the kind of this leg is
+ * added to the set, and a leg that fell back to the straight line adds 'estimate'. See sourceOf().
  */
-function routedMinutes(tm, from, to, diagnostics) {
+function routedMinutes(tm, from, to, diagnostics, estimate = mockTravelMinutes, kinds = null, kindOf = null) {
   const minutes = tm(from, to);
-  if (Number.isFinite(minutes) && minutes >= 0) return minutes;
+  if (Number.isFinite(minutes) && minutes >= 0) {
+    kinds?.add(kindOf(from, to));
+    return minutes;
+  }
   diagnostics.approximateLegs = (diagnostics.approximateLegs ?? 0) + 1;
-  return mockTravelMinutes(from, to);
+  kinds?.add('estimate');
+  return estimate(from, to);
+}
+
+/**
+ * Where the times of one result came from, from the kinds of its legs: 'estimate' if any leg is the straight line, else 'table' if any
+ * leg is a table time (real transit minutes between the areas, planner/area-times.js), else 'routed' (a live OneMap route, a cached one or a
+ * short walk). A result is only as good as its weakest leg. `approximate` stays about the straight line alone.
+ *
+ * How to call:
+ *   sourceOf(new Set(['routed', 'table'])) // 'table'
+ */
+function sourceOf(kinds) {
+  return kinds.has('estimate') ? 'estimate' : kinds.has('table') ? 'table' : 'routed';
 }
 
 /** Penalties that do not depend on travel time. */
@@ -60,29 +81,47 @@ function staticFactors(venue, c) {
     weather: S.weatherPenalty(venue, c.weatherByArea),
     preference: S.preferencePenalty(venue, c.members),
     occasion: 100 - occasionFitOf(venue, c.occasion, c.profile),
-    rating: S.ratingPenalty(venue),
     price: S.pricePenalty(venue, c.members),
     cdc: S.cdcPenalty(venue),
     antiRepeat: S.antiRepeatPenalty(venue.id, c.history, { today: c.today, groupId: c.groupId }),
     crowd: S.crowdPenalty(venue, c.hour),
+    rating: S.ratingPenalty(venue),
   };
+}
+
+// The pre-score's shares. Distance and fit keep the ratio they had before ratings counted (0.625 : 0.375, as 0.53125 :
+// 0.31875), and the rating takes 0.15 of the whole, so a request with no ratings anywhere shortlists as it always did.
+const PRUNE_DISTANCE = 0.53125, PRUNE_FIT = 0.31875, PRUNE_RATING = 0.15;
+
+/**
+ * The same rows, those that likely meet more of the group's dietary needs first (ticket #107): every need met, then all but
+ * one, and so on down to none known. Within a tier the order given is kept (the sort is stable), so a tier stays best first.
+ * With no needs, or in strict mode (every place left meets them all), nothing moves. `rows` each have `.venue`.
+ * How to call: byDietFit(diversify(rows), members)
+ */
+function byDietFit(rows, members) {
+  const misses = new Map(rows.map(r => [r, dietMisses(r.venue, members)]));
+  return [...rows].sort((a, b) => misses.get(a) - misses.get(b));
 }
 
 /**
  * Cheap pre-score using straight-line distance only (no routing). Keeps the best N so we make
  * at most N x members routing calls. It uses fit and rating as well as distance, so a close but
- * poor-fit venue cannot push a much better one out of the shortlist.
+ * poor-fit venue cannot push a much better one out of the shortlist, and a place that is close only
+ * because it has one five-star review cannot beat a well-reviewed one (the rating is the weighted one).
  * Occasion fit is computed the same way as in the final score, so a venue without a precomputed
- * occasionFit is not mistaken for a zero fit and cut here.
+ * occasionFit is not mistaken for a zero fit and cut here. Places in one building, and more than 2 Google
+ * places among a category's first 5, rank below the rest (diversity.js), so the N are not all look-alikes.
  */
 function prune(candidates, c, keep) {
   if (candidates.length <= keep) return candidates;
   const dn = S.normalizeMinMax(candidates.map(x => x.distanceKm));
-  return candidates
-    .map((x, i) => ({ x, pre: 0.5 * dn[i] + 0.3 * (100 - occasionFitOf(x.venue, c.occasion, c.profile)) + 0.2 * S.ratingPenalty(x.venue) }))
+  const sorted = candidates
+    .map((x, i) => ({ x, pre: PRUNE_DISTANCE * dn[i] + PRUNE_FIT * (100 - occasionFitOf(x.venue, c.occasion, c.profile)) + PRUNE_RATING * S.ratingPenalty(x.venue) }))
     .sort((a, b) => a.pre - b.pre)
-    .slice(0, keep)
     .map(o => o.x);
+  // Places that likely meet more of the group's dietary needs are kept first (c.members; none in strict mode).
+  return byDietFit(diversify(sorted), c.members ?? []).slice(0, keep);
 }
 
 /**
@@ -104,7 +143,7 @@ function context(input, data, members) {
   return {
     members, occasion: input.occasion, profile: data.occasionProfiles[input.occasion],
     weatherByArea: data.weatherCases[input.weatherCase ?? 'clear'],
-    history: data.visitHistory ?? [], today: input.today ?? data._meta.today, groupId: input.groupId ?? null,
+    history: data.visitHistory ?? [], today: input.today ?? data._meta?.today ?? S.singaporeToday(), groupId: input.groupId ?? null,
     hour: Number(input.dateTime.slice(11, 13)), time: input.dateTime.slice(11, 16),
   };
 }
@@ -116,13 +155,14 @@ function context(input, data, members) {
  *   reasons      up to two short tags ("Near MRT", "Budget friendly"...)
  *   warnings     ['rain'] when rain is likely and the venue is exposed
  *   swap         for a rain warning, the indoor alternative from indoorSwap() below
+ *   weather      { state, phrase, rainLikely } where this venue is (scoring.js weatherOf)
  */
 function optionLabels(r, from, c, swap, homeMaxMinutes = null) {
   const walk = walkMinutes(from, r.venue);
   const crowd = S.crowdLevel(r.venue, c.hour);
   const warnings = S.rainWarning(r.venue, c.weatherByArea) ? ['rain'] : [];
   return {
-    walkMinutes: walk, crowd, warnings, swap: warnings.length ? swap : null,
+    walkMinutes: walk, crowd, warnings, swap: warnings.length ? swap : null, weather: S.weatherOf(r.venue, c.weatherByArea),
     reasons: S.reasonTags({ venue: r.venue, walkMinutes: walk, crowd, rainy: S.rainLikelyAt(r.venue, c.weatherByArea), homeMaxMinutes, time: c.time }),
   };
 }
@@ -135,17 +175,17 @@ function optionLabels(r, from, c, swap, homeMaxMinutes = null) {
  *      never scored), the nearest indoor venue that passed the hard filters, within the 3 km cap;
  *   3. otherwise null.
  */
-function indoorSwap(rows, shownRows, passed, from, input) {
+function indoorSwap(rows, shownRows, passed, from, input, weatherByArea) {
   const taken = new Set([...shownRows.map(r => r.venue.id), ...(input.currentOptionIds ?? [])]);
   const ranked = rows.find(x => x.venue.setting === 'indoor' && !taken.has(x.venue.id));
-  if (ranked) return { venueId: ranked.venue.id, name: ranked.venue.name };
+  if (ranked) return { venueId: ranked.venue.id, name: ranked.venue.name, weather: S.weatherOf(ranked.venue, weatherByArea) };
   let nearest = null, nearestKm = 3;
   for (const v of passed) {
     if (v.setting !== 'indoor' || taken.has(v.id)) continue;
     const km = haversineKm(from, v);
     if (km <= nearestKm) [nearest, nearestKm] = [v, km];
   }
-  return nearest ? { venueId: nearest.id, name: nearest.name } : null;
+  return nearest ? { venueId: nearest.id, name: nearest.name, weather: S.weatherOf(nearest, weatherByArea) } : null;
 }
 
 /**
@@ -158,6 +198,26 @@ function lastStopRules(input, weights) {
   return {
     constraints: [...(input.groupConstraints ?? []).filter(c => !c.startsWith('near_mrt:')), `near_mrt:${walk}`],
     weights: { returnWorst: 15, ...weights },
+  };
+}
+
+/**
+ * The hard filters a request is filtered with, as the context filterByConstraints() takes. Converge and Roam build their
+ * filter from this, and so does the route that decides whether Google is worth asking (it counts our own places that
+ * would pass), so the two can never disagree about what fits. `members` are the active ones (resolveMembers() for
+ * Converge). Converge adds the near-MRT rule of a last stop (lastStopRules); Roam does not. Categories default to eat
+ * and drink for Converge, and to eat, drink and activity for Roam.
+ *
+ * How to call:
+ *   const ctx = hardFilterContext(input, resolveMembers(input.members, input.overrides, input.optedOut), 'converge')
+ *   filterByConstraints(venues, ctx).passed
+ */
+function hardFilterContext(input, members, mode) {
+  const roaming = mode === 'roam';
+  return {
+    members, groupConstraints: roaming ? input.groupConstraints ?? [] : lastStopRules(input, {}).constraints, dateTime: input.dateTime,
+    categories: input.categories ?? (roaming ? ['eat', 'drink', 'activity'] : ['eat', 'drink']), excludeVenueIds: input.excludeVenueIds ?? [],
+    unknownPolicy: input.unknownPolicy ?? 'strict', dietPolicy: input.dietPolicy, durationMinutes: input.durationMinutes ?? 0,
   };
 }
 
@@ -174,12 +234,13 @@ function emptyResult(reason, extra) {
 /**
  * Converge: several people, one fair place.
  * @param {object} input  { members, overrides?, optedOut?, occasion, dateTime, groupConstraints?, categories?,
- *                          weatherCase?, groupId?, unknownPolicy? ('strict' default | 'lenient'), seed?, pruneTo?, topN?,
+ *                          weatherCase?, groupId?, unknownPolicy? ('strict' default | 'lenient'), dietPolicy? (the same, for dietary needs alone; follows unknownPolicy), seed?, pruneTo?, topN?,
  *                          weights?, radius?, fairnessScaleMinutes?,
  *                          travelCeilingMinutes? (default 60) }
  *                        seed: 'weighted_centroid' (default) | 'centroid' | 'minimax'
  * @param {object} data   { venues, occasionProfiles, weatherCases, visitHistory, _meta }
- * @param {object} deps   { travelMinutes?(from, to) }
+ * @param {object} deps   { travelMinutes?(from, to), travelSource?(from, to) } travelSource says where a time came from ('routed' or 'table'); with
+ *                        it each result carries `travelSource`, the weakest of its legs ('routed' | 'table' | 'estimate'). Roam takes the same.
  */
 function converge(input, data, deps = {}) {
   const tm = deps.travelMinutes ?? mockTravelMinutes;
@@ -201,11 +262,7 @@ function converge(input, data, deps = {}) {
     centroid(starts, fw);
 
   // 2. hard filters
-  const ctx = {
-    members, groupConstraints: last.constraints, dateTime: input.dateTime,
-    categories: input.categories ?? ['eat', 'drink'], excludeVenueIds: input.excludeVenueIds ?? [],
-    unknownPolicy: input.unknownPolicy ?? 'strict', durationMinutes: input.durationMinutes ?? 0,
-  };
+  const ctx = hardFilterContext(input, members, 'converge');
   const filt = filterByConstraints(data.venues, ctx);
   const diagnostics = {
     rejectedCounts: countReasons(filt.rejected), passedFilters: filt.passed.length,
@@ -225,17 +282,29 @@ function converge(input, data, deps = {}) {
 
   // 4. prune, then route. The options the group is already voting on are always routed and scored too.
   const pruned = withCurrentOptions(
-    prune(rs.candidates, { occasion: input.occasion, profile: data.occasionProfiles[input.occasion] }, pruneTo),
+    prune(rs.candidates, { occasion: input.occasion, profile: data.occasionProfiles[input.occasion], members }, pruneTo),
     filt.passed, centre, input.currentOptionIds, (input.radiusMeters ?? 3000) / 1000,
   );
   diagnostics.routingCalls = pruned.length * members.length * 2;
   const c = context(input, data, members);
-  const weights = occasionWeights(baseWeights, c.profile);
+  const rule = input.rule ?? 'longest';
+  const bw = balanceWeights(members, input.fairnessScaleMinutes ?? 60);
+  // The balanced rule adds the gap between people to a venue's score and counts a person's past travel as its own term, `debt`: the
+  // minutes the longest weighted trip adds to the longest real trip. `worst` and `gap` stay in real minutes, so a weight on a trip
+  // never pushes them past the ceiling (balance.js). `debt` weighs as `worst` does for each extra multiple of a trip, and is left out
+  // when nobody is owed anything.
+  const owed = rule === 'balanced' && bw.some(w => w > 1);
+  const weights = {
+    ...S.withRatingWeight(occasionWeights(baseWeights, c.profile), 'converge'),
+    ...(rule === 'balanced' && { gap: BALANCE.gapWeight }),
+  };
+  if (owed) weights.debt = (weights.worst ?? 0) * (BALANCE.maxWeight - 1);
 
   let rows = pruned.map(({ venue, distanceKm }) => {
     const fallbacksBefore = diagnostics.approximateLegs ?? 0;
-    const travel = members.map(m => routedMinutes(tm, m.start, venue, diagnostics));
-    const back = members.map(m => routedMinutes(tm, venue, m.end, diagnostics));
+    const kinds = deps.travelSource ? new Set() : null; // where this venue's times came from, when the caller says (deps.travelSource)
+    const travel = members.map(m => routedMinutes(tm, m.start, venue, diagnostics, undefined, kinds, deps.travelSource));
+    const back = members.map(m => routedMinutes(tm, venue, m.end, diagnostics, undefined, kinds, deps.travelSource));
     const worstIdx = travel.indexOf(Math.max(...travel));
     const wSum = fw.reduce((a, b) => a + b, 0);
     return {
@@ -247,6 +316,7 @@ function converge(input, data, deps = {}) {
       meanFair: travel.reduce((s, t, i) => s + fw[i] * t, 0) / wSum, // fairness-weighted mean
       factors: staticFactors(venue, c),
       approximate: (diagnostics.approximateLegs ?? 0) > fallbacksBefore,
+      ...(kinds && { travelSource: sourceOf(kinds) }),
     };
   });
 
@@ -259,32 +329,47 @@ function converge(input, data, deps = {}) {
   // 6. score. Travel is an absolute penalty against a ceiling (default 60 min), not stretched across candidates.
   const ceiling = input.travelCeilingMinutes ?? 60;
   rows.forEach(r => {
-    r.factors.worst = S.travelPenalty(r.worstMinutes, ceiling);
-    r.factors.mean = S.travelPenalty(r.meanFair, ceiling);
+    if (rule === 'balanced') {
+      const trips = members.map(mm => r.travelByMember[mm.id]);
+      const weighted = measure(trips, bw), real = measure(trips, trips.map(() => 1));
+      r.factors.worst = S.travelPenalty(real.longest, ceiling);
+      r.factors.gap = S.travelPenalty(real.gap, ceiling);
+      // The most a weight can add to a trip is (maxWeight - 1) times it, so this ceiling keeps the term from saturating.
+      if (owed) r.factors.debt = S.travelPenalty(Math.max(0, weighted.longest - real.longest), ceiling * (BALANCE.maxWeight - 1));
+      r.factors.mean = S.travelPenalty(weighted.mean, ceiling);
+      r.gapMinutes = real.gap;
+    } else {
+      r.factors.worst = S.travelPenalty(r.worstMinutes, ceiling);
+      r.factors.mean = S.travelPenalty(r.meanFair, ceiling);
+    }
     r.factors.returnWorst = S.travelPenalty(Math.max(...r.back), ceiling);
     const { score, breakdown } = S.combine(r.factors, weights);
     r.score = score; r.breakdown = breakdown; r.weights = weights;
-    r.hasHistory = c.history.length > 0;
+    r.hasHistory = c.groupId !== null && c.history.some(h => h.groupId === c.groupId);
   });
   rows.sort((a, b) => a.score - b.score);
+  // One place per building, and Google only as a top-up (diversity.js); then places that likely meet more of the group's
+  // dietary needs first (lenient mode only), each tier keeping that order.
+  rows = byDietFit(diversify(rows), members);
 
   // 7. explain
   const names = Object.fromEntries(members.map(m => [m.id, m.name]));
   const label = c.profile?.label ?? 'meetup';
-  const shown = rows.slice(0, topN), swap = indoorSwap(rows, shown, filt.passed, centre, input);
+  const shown = rows.slice(0, topN), swap = indoorSwap(rows, shown, filt.passed, centre, input, c.weatherByArea);
   const toResult = (r, i) => ({
     rank: i + 1, venueId: r.venue.id, name: r.venue.name, venue: r.venue, score: r.score,
     worstMinutes: r.worstMinutes, worstMember: names[r.worstMemberId], meanMinutes: r.meanRaw,
     travelByMember: r.travelByMember, returnByMember: r.returnByMember, distanceFromCentreKm: r.distanceKm,
+    ...(rule === 'balanced' && { gapMinutes: r.gapMinutes }),
     breakdown: r.breakdown, explanation: S.explain(r, label), verify: needsVerification(r.venue, members),
-    approximate: r.approximate, dietUnknown: unknownDietNeeds(r.venue, members),
+    approximate: r.approximate, ...(r.travelSource && { travelSource: r.travelSource }), dietUnknown: unknownDietNeeds(r.venue, members),
     ...optionLabels(r, centre, c, swap, input.lastStop ? Math.max(...r.back) : null),
   });
   const results = shown.map(toResult);
   // Every current option that still fits, in rank order, ranked among all scored venues. An id missing here no longer fits.
   const currentIds = new Set(input.currentOptionIds ?? []);
   const current = rows.map(toResult).filter(r => currentIds.has(r.venueId));
-  return { status: 'ok', centre, results, current, regret: S.regretCounterfactual(rows, names), notice: fewOptions(rs), diagnostics };
+  return { status: 'ok', centre, results, current, regret: S.regretCounterfactual(rows, names), notice: fewOptions(rs), ...(rule === 'balanced' && { rule }), diagnostics };
 }
 
 /**
@@ -298,11 +383,7 @@ function roam(input, data, deps = {}) {
   const members = input.members.map(m => ({ ...m }));
   const { pruneTo = 10, topN = 5 } = input;
   const baseWeights = input.weights ?? S.DEFAULT_WEIGHTS.roam;
-  const ctx = {
-    members, groupConstraints: input.groupConstraints ?? [], dateTime: input.dateTime,
-    categories: input.categories ?? ['eat', 'drink', 'activity'], excludeVenueIds: input.excludeVenueIds ?? [],
-    unknownPolicy: input.unknownPolicy ?? 'strict', durationMinutes: input.durationMinutes ?? 0,
-  };
+  const ctx = hardFilterContext(input, members, 'roam');
   const filt = filterByConstraints(data.venues, ctx);
   const diagnostics = { rejectedCounts: countReasons(filt.rejected), passedFilters: filt.passed.length };
   if (filt.passed.length === 0) {
@@ -313,32 +394,80 @@ function roam(input, data, deps = {}) {
   if (rs.candidates.length === 0) {
     return emptyResult('outside_max_radius', { hints: { nearestKm: rs.nearestKm, widenToKm: Math.ceil(rs.nearestKm) }, diagnostics });
   }
-  const pruned = prune(rs.candidates, { occasion: input.occasion, profile: data.occasionProfiles[input.occasion] }, pruneTo);
+  const pruned = prune(rs.candidates, { occasion: input.occasion, profile: data.occasionProfiles[input.occasion], members }, pruneTo);
   diagnostics.routingCalls = pruned.length;
   const c = context(input, data, members);
-  const weights = occasionWeights(baseWeights, c.profile);
+  const weights = S.withRatingWeight(occasionWeights(baseWeights, c.profile), 'roam');
 
-  const rows = pruned.map(({ venue, distanceKm }) => {
+  let rows = pruned.map(({ venue, distanceKm }) => {
     const fallbacksBefore = diagnostics.approximateLegs ?? 0;
-    const travelMinutes = routedMinutes(tm, input.current, venue, diagnostics);
-    return { venue, distanceKm, travelMinutes, factors: staticFactors(venue, c), approximate: (diagnostics.approximateLegs ?? 0) > fallbacksBefore };
+    const kinds = deps.travelSource ? new Set() : null;
+    const travelMinutes = routedMinutes(tm, input.current, venue, diagnostics, undefined, kinds, deps.travelSource);
+    return { venue, distanceKm, travelMinutes, factors: staticFactors(venue, c), approximate: (diagnostics.approximateLegs ?? 0) > fallbacksBefore, ...(kinds && { travelSource: sourceOf(kinds) }) };
   });
   const ceiling = input.travelCeilingMinutes ?? 30; // Roam is "nearby", so a tighter ceiling than Converge
   rows.forEach(r => {
     r.factors.distance = S.travelPenalty(r.travelMinutes, ceiling);
     const { score, breakdown } = S.combine(r.factors, weights);
-    r.score = score; r.breakdown = breakdown; r.weights = weights; r.hasHistory = c.history.length > 0;
+    r.score = score; r.breakdown = breakdown; r.weights = weights;
+    r.hasHistory = c.groupId !== null && c.history.some(h => h.groupId === c.groupId);
   });
   rows.sort((a, b) => a.score - b.score);
+  // As in converge: places that likely meet more of the group's dietary needs first, each tier in the order diversify gives.
+  rows = byDietFit(diversify(rows), members);
   const label = c.profile?.label ?? 'meetup';
-  const shown = rows.slice(0, topN), swap = indoorSwap(rows, shown, filt.passed, input.current, input);
+  const shown = rows.slice(0, topN), swap = indoorSwap(rows, shown, filt.passed, input.current, input, c.weatherByArea);
   const results = shown.map((r, i) => ({
     rank: i + 1, venueId: r.venue.id, name: r.venue.name, venue: r.venue, score: r.score,
     travelMinutes: r.travelMinutes, distanceKm: r.distanceKm, breakdown: r.breakdown, explanation: S.explain(r, label),
-    verify: needsVerification(r.venue, members), approximate: r.approximate, dietUnknown: unknownDietNeeds(r.venue, members),
+    verify: needsVerification(r.venue, members), approximate: r.approximate, ...(r.travelSource && { travelSource: r.travelSource }), dietUnknown: unknownDietNeeds(r.venue, members),
     ...optionLabels(r, input.current, c, swap),
   }));
   return { status: 'ok', centre: input.current, results, notice: fewOptions(rs), diagnostics };
+}
+
+/**
+ * The areas the station rule compares: those nearest the fairest point, at most input.maxCandidates of them
+ * (all of them by default). With `estimate`, a guess at a trip (planner/area-times.js), those with the shortest estimated
+ * longest trip instead.
+ *
+ * How to call:
+ *   const tried = areasToTry(input, data, members.map(m => m.start));
+ */
+function areasToTry(input, data, starts, estimate = null) {
+  if (estimate) {
+    // With a guess at the trips (planner/area-times.js), the areas nearest in TIME come first, not the nearest on the map.
+    const key = area => {
+      const trips = starts.map(start => estimate(start, area));
+      return [Math.max(...trips), trips.reduce((a, b) => a + b, 0) / trips.length];
+    };
+    return data.areas
+      .map((area, order) => ({ area, order, k: key(area) }))
+      .sort((x, y) => x.k[0] - y.k[0] || x.k[1] - y.k[1] || x.order - y.order)
+      .slice(0, input.maxCandidates ?? data.areas.length)
+      .map(x => x.area);
+  }
+  const fairest = starts.length <= 12 ? minimaxCenter(starts).center : centroid(starts);
+  return [...data.areas]
+    .sort((a, b) => haversineKm(fairest, a) - haversineKm(fairest, b))
+    .slice(0, input.maxCandidates ?? data.areas.length);
+}
+
+/**
+ * Which areas meetingArea() evaluates for a request, so the route can decide which of them get real routes.
+ *   tried    ids of the areas the ranking compares. For method station always; for another method only when the
+ *            request asks for alternatives (it then ranks areas for the runners-up).
+ *   outside  ids of included areas that are not in `tried`: evaluated for the answer, never part of the ranking.
+ *
+ * How to call:
+ *   const { tried, outside } = meetingAreaPlan(input, data); // outside: ['bishan'] when bishan is included but not tried
+ */
+function meetingAreaPlan(input, data, estimate = null) {
+  const members = resolveMembers(input.members, input.overrides, input.optedOut);
+  if (members.length === 0) return { tried: [], outside: [] };
+  const ranks = (input.method ?? 'station') === 'station' || (input.alternatives ?? 0) > 0;
+  const tried = ranks ? areasToTry(input, data, members.map(m => m.start), estimate).map(a => a.id) : [];
+  return { tried, outside: (input.include ?? []).filter(id => !tried.includes(id)) };
 }
 
 /**
@@ -348,17 +477,41 @@ function roam(input, data, deps = {}) {
  * method:
  *   'station' (default, the frontend team's rule): try candidate areas and pick the one where the LONGEST
  *     journey is shortest; a tie goes to the lower fairness-weighted average, so travel debt only breaks ties.
- *     By default EVERY area is tried (exact). That is members x areas routing calls (37 areas today), so with real
+ *     By default EVERY area is tried (exact). That is members x areas routing calls (145 areas today, every open MRT station), so with real
  *     OneMap routing pass maxCandidates to try only the areas nearest the minimax centre. Measured on 2,000 random
- *     groups: 8 candidates missed the fairest area 3.4% of the time (up to 7.5 min worse); 16 never did.
+ *     groups: on the first 37 areas 8 candidates missed the fairest area 3.4% of the time (up to 7.5 min worse) and 16 never did;
+ *     on all 145 (straight-line times, 30 October 2026) 16 missed it in 5 groups of 2,000 (0.25%, at most 0.5 min worse) and 24 never did.
+ *     With the table of area times the 16 are the nearest in time, not on the map (areasToTry), which the real server uses.
  *   'weighted_centroid' | 'centroid' | 'minimax': the engine's own seed points (debt pulls the weighted centroid
  *     toward people who travelled more), then named after the nearest area. The meeting point is the exact centre.
  *
- * @param input { members, overrides?, optedOut?, method?, maxCandidates?, fairnessScaleMinutes? }
+ * Runners-up and named areas (both optional; with neither, the answer has no `candidates`):
+ *   input.alternatives  0 to 3, default 0: how many runners-up to add after the chosen area. They are ranked by the
+ *     station rule (shortest longest trip, then the lower fairness-weighted mean) among the areas it tries, and the
+ *     chosen area is left out. For another method the chosen area is the one named after the centre.
+ *   input.include       area ids to evaluate whatever their rank, in the order given.
+ *   result.candidates   the chosen area first, then the runners-up, then included areas that are neither:
+ *     [{ area, worstMinutes, meanMinutes, travelByMember, approximate, source: 'ranked' | 'included' }].
+ *     Each `approximate` is about that area alone: true when one of its own trips used the estimate.
+ *   The top-level answer and the ranked candidates are exactly what they would be without `include`: an included
+ *   area is only ever measured for its own entry, and its times never reach the ranking. One outside the areas
+ *   the station rule tries is counted apart (diagnostics.extraRoutingCalls). When the caller supplies
+ *   deps.includedTravelMinutes (real routes that the ranking must not read), included areas are measured with it
+ *   and the ranking with deps.travelMinutes; otherwise both use the same times.
+ *
+ * @param input { members, overrides?, optedOut?, method?, maxCandidates?, fairnessScaleMinutes?, alternatives?, include? }
  * @param data  { areas: [{ id, name, lat, lng }] }
+ * @param deps  { travelMinutes?, includedTravelMinutes?, estimateMinutes?, travelSource?(from, to, included) }
+ *   travelSource says where a time came from, 'routed' (OneMap, cached or a walk) or 'table' (planner/area-times.js). With it every
+ *   candidate and the answer carry `travelSource` ('routed' | 'table' | 'estimate', the weakest of their trips), and the diagnostics
+ *   list the areas the ranking compared (`rankedAreaIds`). Without it the answer is exactly what it always was.
+ *
+ * How to call:
+ *   meetingArea({ members, alternatives: 2, include: ['bishan'] }, data, { travelMinutes: ranking, includedTravelMinutes: all })
  */
 function meetingArea(input, data, deps = {}) {
-  const tm = deps.travelMinutes ?? mockTravelMinutes;
+  const estimate = deps.estimateMinutes ?? mockTravelMinutes; // a better guess than the straight line, when the caller has one (planner/area-times.js)
+  const tm = deps.travelMinutes ?? estimate;
   const members = resolveMembers(input.members, input.overrides, input.optedOut);
   if (members.length === 0) throw new Error('meetingArea: no active members');
   if (!data.areas?.length) throw new Error('meetingArea: data.areas is empty');
@@ -366,25 +519,40 @@ function meetingArea(input, data, deps = {}) {
   const starts = members.map(m => m.start);
   const fw = fairnessWeights(members, input.fairnessScaleMinutes ?? 60);
   const wSum = fw.reduce((a, b) => a + b, 0);
+  const rule = input.rule ?? 'longest'; // 'balanced': see balance.js. Left out, the station rule is exactly what it always was.
+  const bw = balanceWeights(members, input.fairnessScaleMinutes ?? 60);
   const nearestArea = p => data.areas.reduce((best, a) => (haversineKm(p, a) < haversineKm(p, best) ? a : best));
 
   const diagnostics = { routingCalls: 0 };
-  const journeys = point => {
-    const travel = members.map(m => routedMinutes(tm, m.start, point, diagnostics));
-    diagnostics.routingCalls += travel.length;
-    return { travel, worst: Math.max(...travel), fairMean: travel.reduce((s, t, i) => s + fw[i] * t, 0) / wSum };
+  // `diag` is the count the trips are added to: the answer's own, or a separate one for the areas that only fill
+  // `candidates`, so they never change the top-level answer. `approximate` is true when one of THIS journey's trips
+  // used the estimate.
+  const journeys = (point, diag = diagnostics, ask = tm) => {
+    const fallbacksBefore = diag.approximateLegs ?? 0;
+    const kinds = deps.travelSource ? new Set() : null; // where this journey's times came from, when the caller says (deps.travelSource)
+    const kindOf = kinds && ((from, to) => deps.travelSource(from, to, ask === deps.includedTravelMinutes));
+    const travel = members.map(m => routedMinutes(ask, m.start, point, diag, estimate, kinds, kindOf));
+    diag.routingCalls += travel.length;
+    return {
+      travel, worst: Math.max(...travel), fairMean: travel.reduce((s, t, i) => s + fw[i] * t, 0) / wSum,
+      approximate: (diag.approximateLegs ?? 0) > fallbacksBefore,
+      ...(kinds && { travelSource: sourceOf(kinds) }),
+    };
   };
+  const wantsCandidates = input.alternatives !== undefined || input.include !== undefined;
+  const extra = { routingCalls: 0 };
+  const measuredAside = a => ({ a, j: journeys(a, extra) });
+  const evaluated = []; // { a, j } for every area the ranking compared, in the order tried
 
   let area, centre, best;
   if (method === 'station') {
-    const fairest = starts.length <= 12 ? minimaxCenter(starts).center : centroid(starts);
-    const candidates = [...data.areas]
-      .sort((a, b) => haversineKm(fairest, a) - haversineKm(fairest, b))
-      .slice(0, input.maxCandidates ?? data.areas.length);
+    const candidates = areasToTry(input, data, starts, deps.estimateMinutes);
     for (const a of candidates) {
       const j = journeys(a);
+      evaluated.push({ a, j });
       if (!best || j.worst < best.j.worst || (j.worst === best.j.worst && j.fairMean < best.j.fairMean)) best = { a, j };
     }
+    if (rule === 'balanced') best = pickBalanced(evaluated, bw) ?? best; // the balanced rule chooses among the same measured areas; none comparable: today's pick
     area = best.a;
     centre = { lat: area.lat, lng: area.lng };
   } else {
@@ -396,10 +564,48 @@ function meetingArea(input, data, deps = {}) {
     if (!centre) throw new Error(`meetingArea: unknown method "${method}"`);
     area = nearestArea(centre);
     best = { j: journeys(centre) };
+    // The runners-up of another method are the station rule's, so the areas it would try are measured too.
+    if ((input.alternatives ?? 0) > 0) evaluated.push(...areasToTry(input, data, starts, deps.estimateMinutes).map(measuredAside));
   }
 
   const { travel, worst } = best.j;
   const worstIdx = travel.indexOf(worst);
+
+  // Candidates: the chosen area (the numbers above), the runners-up, then the included areas that are neither.
+  let candidateList;
+  if (wantsCandidates) {
+    const row = (a, j, source) => ({
+      area: { id: a.id, name: a.name, lat: a.lat, lng: a.lng },
+      worstMinutes: j.worst,
+      meanMinutes: j.travel.reduce((x, y) => x + y, 0) / j.travel.length,
+      travelByMember: Object.fromEntries(members.map((m, i) => [m.id, j.travel[i]])),
+      approximate: j.approximate,
+      ...(j.travelSource && { travelSource: j.travelSource }),
+      source,
+    });
+    const byStationRule = (x, y) => x.j.worst - y.j.worst || x.j.fairMean - y.j.fairMean; // a tie keeps the order tried
+    const inOrder = rule === 'balanced' ? rankBalanced(evaluated, bw) : [...evaluated].sort(byStationRule);
+    candidateList = [
+      row(area, best.j, 'ranked'),
+      ...inOrder
+        .filter(e => e.a.id !== area.id)
+        .slice(0, input.alternatives ?? 0)
+        .map(e => row(e.a, e.j, 'ranked')),
+    ];
+    for (const id of input.include ?? []) {
+      if (candidateList.some(c => c.area.id === id)) continue;
+      const known = data.areas.find(a => a.id === id);
+      if (!known) throw new Error(`meetingArea: unknown area "${id}" in include`);
+      // Measured for this entry alone. Times the ranking did not use (real routes for a named area) stay out of it.
+      const ranked = evaluated.find(e => e.a.id === id);
+      const found = deps.includedTravelMinutes
+        ? { a: known, j: journeys(known, ranked ? { routingCalls: 0 } : extra, deps.includedTravelMinutes) }
+        : ranked ?? measuredAside(known);
+      candidateList.push(row(found.a, found.j, 'included'));
+    }
+    diagnostics.extraRoutingCalls = extra.routingCalls;
+  }
+
   return {
     method,
     area: { id: area.id, name: area.name, lat: area.lat, lng: area.lng },
@@ -409,44 +615,104 @@ function meetingArea(input, data, deps = {}) {
     meanMinutes: travel.reduce((a, b) => a + b, 0) / travel.length,
     travelByMember: Object.fromEntries(members.map((m, i) => [m.id, travel[i]])),
     approximate: (diagnostics.approximateLegs ?? 0) > 0,
-    diagnostics: { ...diagnostics, activeMembers: members.map(m => m.id) },
+    ...(best.j.travelSource && { travelSource: best.j.travelSource }),
+    ...(rule === 'balanced' && { rule }),
+    ...(candidateList && { candidates: candidateList }),
+    ...(input.choices && evaluated.length > 0 && {
+      choices: choicesOf(evaluated, members, bw, (a, j) => ({ area: { id: a.id, name: a.name, lat: a.lat, lng: a.lng }, approximate: j.approximate })),
+    }),
+    diagnostics: {
+      ...diagnostics, activeMembers: members.map(m => m.id),
+      // The areas the ranking compared, best first, for a caller that routes only the best few (services/travel-times.js). Only when it says
+      // where its times come from (deps.travelSource), so no other answer changes.
+      ...(deps.travelSource && method === 'station' && { rankedAreaIds: [area.id, ...(rule === 'balanced' ? rankBalanced(evaluated, bw) : [...evaluated].sort((x, y) => x.j.worst - y.j.worst || x.j.fairMean - y.j.fairMean)).map(e => e.a.id).filter(id => id !== area.id)] }),
+    },
   };
 }
 
+// An address is matched only by a query this long: "mrt" or "rd" would otherwise match the address of half the island.
+const MIN_ADDRESS_QUERY = 3;
+
 /**
  * Search by name, to add an option by hand (the frontend's searchVenuesForSlot). Matches the venue name, its
- * area, or the name of a stall at a CDC site. Every match says whether it fits the slot and, if not, why:
+ * area, its address (so a postal code finds it), the name of a stall at a CDC site, or any id in `alsoMatch` (places
+ * the route found another way: by Google, or at a postal code's building). Every match says whether it fits the slot and, if not, why:
  * the hard-filter reasons ('closed', 'diet:halal', 'category', 'near_mrt'...) plus 'far' when it is more than
- * maxKm (default 3, the engine's cap) from the meeting point. Fitting places first, then by walking time.
+ * maxKm (default 3, the engine's cap) from the meeting point, and 'not_an_outing' (first in the list) for a searched
+ * Google place that is not something to do (a bank, a clinic: venue.notAnOuting). Fitting places first; among those of
+ * the same fit, a place whose name (or a stall's name) holds the words before one matched by area, address or `alsoMatch`;
+ * then by walking time. An address is matched only by a query of 3 or more characters. With `cdcOnly`, only places that take
+ * CDC vouchers are kept, before the limit is applied; every row says whether it does (`cdcAccepted`). With `browse` and nothing typed,
+ * it suggests instead: the places of the asked categories within maxKm that fit, nearest first.
  * @param input { query, centre, dateTime, members?, durationMinutes?, categories?, lastStop?, groupConstraints?,
- *                unknownPolicy?, maxKm?, limit? (default 12) }
+ *                unknownPolicy?, dietPolicy?, maxKm?, limit? (default 12), alsoMatch? (venue ids), cdcOnly?, browse? }
  */
 function searchVenues(input, data) {
-  const q = input.query.trim().toLowerCase();
-  if (!q) return [];
+  const q = (input.query ?? '').trim().toLowerCase();
+  if (!q) return input.browse ? suggestVenues(input, data) : [];
+  // A place matches by its name, area, address (so a postal code finds it) or a stall's name, or because the caller
+  // already knows it is a match (`alsoMatch`: ids found by Google or at a postal code's building).
+  const alsoMatch = new Set(input.alsoMatch ?? []);
+  const addressToo = q.length >= MIN_ADDRESS_QUERY;
   const matches = data.venues
     .map(v => ({ v, stall: v.stalls?.find(st => st.name.toLowerCase().includes(q))?.name ?? null }))
-    .filter(({ v, stall }) => v.name.toLowerCase().includes(q) || (v.area ?? '').toLowerCase().includes(q) || stall);
+    .map(m => ({ ...m, byName: m.v.name.toLowerCase().includes(q) || m.stall !== null }))
+    .filter(({ v, byName }) => byName || alsoMatch.has(v.id) || (v.area ?? '').toLowerCase().includes(q) || (addressToo && typeof v.address === 'string' && v.address.toLowerCase().includes(q)))
+    .filter(({ v }) => !input.cdcOnly || !!v.cdcAccepted);
 
   const ctx = {
     members: input.members ?? [], groupConstraints: lastStopRules(input, {}).constraints, dateTime: input.dateTime,
     categories: input.categories ?? ['eat', 'drink', 'shop', 'activity'],
-    unknownPolicy: input.unknownPolicy ?? 'strict', durationMinutes: input.durationMinutes ?? 0,
+    unknownPolicy: input.unknownPolicy ?? 'strict', dietPolicy: input.dietPolicy, durationMinutes: input.durationMinutes ?? 0,
   };
   const reasonsById = new Map(filterByConstraints(matches.map(m => m.v), ctx).rejected.map(r => [r.venue.id, r.reasons]));
   const maxKm = input.maxKm ?? 3;
 
   return matches
-    .map(({ v, stall }) => {
+    .map(({ v, stall, byName }) => {
       const distanceKm = haversineKm(input.centre, v);
-      const unfit = [...(reasonsById.get(v.id) ?? []), ...(distanceKm > maxKm ? ['far'] : [])];
+      const unfit = [...(v.notAnOuting ? ['not_an_outing'] : []), ...(reasonsById.get(v.id) ?? []), ...(distanceKm > maxKm ? ['far'] : [])];
       return {
-        venueId: v.id, name: v.name, area: v.area, category: v.category, source: v.source, matchedStall: stall,
-        walkMinutes: walkMinutes(input.centre, v), distanceKm, fits: unfit.length === 0, unfit,
+        row: {
+          venueId: v.id, name: v.name, area: v.area, category: v.category, source: v.source, matchedStall: stall,
+          walkMinutes: walkMinutes(input.centre, v), distanceKm, fits: unfit.length === 0, unfit, cdcAccepted: !!v.cdcAccepted,
+          // The same caveats as a ranked result: needs only 'likely' met, and needs with no data (lenient only).
+          verify: needsVerification(v, ctx.members), dietUnknown: unknownDietNeeds(v, ctx.members),
+        },
+        byName,
       };
     })
-    .sort((a, b) => Number(!a.fits) - Number(!b.fits) || a.walkMinutes - b.walkMinutes)
-    .slice(0, input.limit ?? 12);
+    .sort((a, b) => Number(!a.row.fits) - Number(!b.row.fits) || Number(!a.byName) - Number(!b.byName) || a.row.walkMinutes - b.row.walkMinutes)
+    .slice(0, input.limit ?? 12)
+    .map(({ row }) => row);
 }
 
-export { converge, roam, meetingArea, searchVenues, resolveMembers, occasionWeights };
+/**
+ * The search box's suggestions before anything is typed: the places of the asked categories within maxKm (default 3) of the centre
+ * that fit the slot, nearest first, in the same row shape as searchVenues. With `cdcOnly`, only places that take CDC vouchers.
+ * @param input the searchVenues input, with an empty query
+ */
+function suggestVenues(input, data) {
+  const categories = input.categories ?? ['eat', 'drink', 'shop', 'activity'];
+  const maxKm = input.maxKm ?? 3;
+  const near = data.venues
+    .filter(v => categories.includes(v.category) && !v.notAnOuting && (!input.cdcOnly || !!v.cdcAccepted))
+    .map(v => ({ v, distanceKm: haversineKm(input.centre, v) }))
+    .filter(n => n.distanceKm <= maxKm);
+  const ctx = {
+    members: input.members ?? [], groupConstraints: lastStopRules(input, {}).constraints, dateTime: input.dateTime,
+    categories, unknownPolicy: input.unknownPolicy ?? 'strict', dietPolicy: input.dietPolicy, durationMinutes: input.durationMinutes ?? 0,
+  };
+  const fitting = new Set(filterByConstraints(near.map(n => n.v), ctx).passed.map(v => v.id));
+  return near
+    .filter(n => fitting.has(n.v.id))
+    .sort((a, b) => a.distanceKm - b.distanceKm)
+    .slice(0, input.limit ?? 12)
+    .map(({ v, distanceKm }) => ({
+      venueId: v.id, name: v.name, area: v.area, category: v.category, source: v.source, matchedStall: null,
+      walkMinutes: walkMinutes(input.centre, v), distanceKm, fits: true, unfit: [], cdcAccepted: !!v.cdcAccepted,
+      verify: needsVerification(v, ctx.members), dietUnknown: unknownDietNeeds(v, ctx.members),
+    }));
+}
+
+export { converge, roam, hardFilterContext, meetingArea, meetingAreaPlan, searchVenues, resolveMembers, occasionWeights };

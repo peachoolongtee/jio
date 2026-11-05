@@ -1,63 +1,116 @@
 <script setup>
-// The session: people, locations and the meeting area (steps 2 to 5).
-//   Inviting  the people list with an Invite button. Below 2 people the main button is "Invite friends";
-//             from 2 people (including Ian) it is "Start session"
-//   Locating  Ian's start and end, the meeting area with a map, and one list of everyone with
-//             their area, travel time (coloured by length, with a key) and status. While the planner works
-//             out the area, the card and the map say so.
-//             While the meeting area waits for people who have not set a start, a card lists them. The host can
-//             carry on without each one (after a confirmation); others only see who it is waiting for.
-//   Later     the same, read-only once the plan is confirmed
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+// The session: people, locations and the meeting spot (the Locate step).
+//   Inviting  the people list with an Invite button. The host's main button is "Next", which opens the Start choice (how to pick
+//             the meeting point; views/StartView.vue) and starts the session from there; it says when a second person is needed. In a shared session (one kept on the server) only the host
+//             starts it; a guest sees who it is waiting for and Leave session, and a refusal is said under the list
+//   Locating  Ian's start and end (a guest first reads what the host chose: "Ian chose to find the fairest spot"), then "Where to meet": the meeting spots (the app's three and each member's own
+//             suggestion) with everyone's travel time, "Vote" on each, and a map with a pin for every spot.
+//             From two starts on the list opens; the host confirms a spot at any time ("Confirm <area>", the one
+//             main action; others see who they are waiting for) or names the place itself ("Pick the place yourself", which opens StartView's area step).
+//             While the planner works the spots out, the list and the map say so.
+//             While some people have not set a start, one line says who. The host never waits for them: confirming a spot
+//             asks once and goes on without their trips (SpotConfirm). In a shared session the host can remove anyone from the
+//             people list, a guest can leave, and a person who opted out can rejoin.
+//   Voting+   the same page, settled: one card with the confirmed meeting spot, everyone's travel time to it in the
+//             people list (coloured; no votes ring and no status icons, which belong to the Vote step),
+//             and the map with the meeting pin and a line from each person's start. The other spots are gone. The
+//             footer's button is named for where it goes: "Choose places", then "Today's plan" or "See the plan".
+//             Confirming a spot, or naming a known place, leaves the person here; it does not jump to Vote. The host can change
+//             the meeting spot from its card ("Change meeting spot", the Start choice again), and is asked whether to after
+//             changing their own start or end, since the fairest spot may have moved (Faith's walkthrough, 30 October 2026). That
+//             question offers "Vote on new spots" (the new spots with the old one still listed) and "Use the fairest spot"
+//             (confirmed at once, no vote; Faith, 31 October 2026); keeping the spot is the dialog's ×. From the swap button it
+//             offers "Vote on new spots" and "Pick the place yourself" only (Darius, 4 November 2026).
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import IconButton from '@/components/ui/IconButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
 import ProgressDonut from '@/components/ui/ProgressDonut.vue'
 import SegmentedProgress from '@/components/ui/SegmentedProgress.vue'
 import ModalDialog from '@/components/ui/ModalDialog.vue'
+import ClashDialog from '@/components/group/ClashDialog.vue'
+import EmptyState from '@/components/ui/EmptyState.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import SplitView from '@/components/ui/SplitView.vue'
+import BannerNote from '@/components/ui/BannerNote.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
 import InviteDialog from '@/components/group/InviteDialog.vue'
+import LeaveSession from '@/components/group/LeaveSession.vue'
+import RemoveMember from '@/components/group/RemoveMember.vue'
+import TakeBackInvite from '@/components/group/TakeBackInvite.vue'
 import LocationSheet from '@/components/group/LocationSheet.vue'
 import MemberList from '@/components/group/MemberList.vue'
+import MapLoading from '@/components/map/MapLoading.vue'
 import PlannerMap from '@/components/map/PlannerMap.vue'
+import SpotConfirm from '@/components/spots/SpotConfirm.vue'
+import SpotList from '@/components/spots/SpotList.vue'
+import SpotPins from '@/components/spots/SpotPins.vue'
+import { confirmedAreaId, myTripLine, settledView, shownFor, spotsToShow } from '@/components/spots/spotText.js'
 import NotFoundView from './NotFoundView.vue'
+import { watchSessions } from '@/lib/api.js'
 import { voters as votersOf } from '@/lib/planner/confirm.js'
-import { TRAVEL_TONES } from '@/lib/planner/travel.js'
+import { directionsUrl } from '@/lib/maps.js'
+import { locateNext } from '@/lib/session.js'
+import { takeBackNotice } from '@/lib/takeBackNotice.js'
+import { useReturnFocus } from '@/lib/useReturnFocus.js'
+import { guestLine, hostPendingLine } from '@/lib/startChoice.js'
 import { useAuthStore } from '@/stores/auth.js'
-import { useEventsStore, waitingFor } from '@/stores/events.js'
+import { startsShared, useEventsStore, waitingFor } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
 
 const props = defineProps({ id: { type: String, required: true } })
 
-const router = useRouter()
 const auth = useAuthStore()
 const events = useEventsStore()
 const groups = useGroupsStore()
 
+// The session does not exist, or the person is not in it (the data layer's `not_found`), and why the page could not load it at
+// all (no connection, the server down) with a Retry. The two are different pages: only the first is "not found".
 const missing = ref(false)
+const loadError = ref('')
 const busy = ref(false)
 const error = ref('')
+// A quiet notice, not a failure: the person's start is saved but the spots have not been worked out yet.
+const note = ref('')
 const sheet = ref({ open: false, which: 'start' })
 const view = ref('list')
+const mapRef = ref(null)
+const pinsRef = ref(null)
+// The spot the person picked in the list or on the map; empty until they pick one (see shown).
+const picked = ref('')
 
 async function load() {
   missing.value = false
+  loadError.value = ''
   try {
     await Promise.all([events.loadSession(props.id), groups.loadPeople()])
-  } catch {
-    missing.value = true
+  } catch (err) {
+    if (err?.code === 'not_found') missing.value = true
+    else loadError.value = err?.message || 'The session could not be loaded.'
   }
 }
-onMounted(load)
-watch(() => props.id, load)
+// A shared session changes under this page (someone joins or leaves, the host renames it or calls it off): it is read again
+// as it happens. Stops when the page is left.
+let stopWatching = () => {}
+onMounted(() => {
+  stopWatching = watchSessions()
+  load()
+})
+onBeforeUnmount(() => stopWatching())
+watch(() => props.id, () => { picked.value = ''; load() })
 
 const session = computed(() => events.byId[props.id])
+// A session that arrives (the person was added, a live update, a retry) ends any "not found" or failed load.
+watch(session, (found) => {
+  if (found) {
+    missing.value = false
+    loadError.value = ''
+  }
+})
 const status = computed(() => session.value?.status)
-const nameOf = (id) => (id === 'ian' ? auth.user.name : groups.nameOf(id))
+const nameOf = (id) => (id === auth.myId ? auth.user?.name ?? '' : groups.nameOf(id))
 const active = computed(() => session.value?.activeIds || [])
 const voterIds = computed(() => (session.value ? votersOf(session.value.votes, active.value) : []))
 const locked = computed(() => ['confirmed', 'completed', 'cancelled'].includes(status.value))
@@ -67,14 +120,16 @@ const lobby = computed(() =>
   (session.value?.members || [])
     .filter((m) => ['joined', 'invited'].includes(m.state))
     .map((m) => {
-      const p = m.id === 'ian' ? { username: auth.user.username, homeArea: auth.user.homeAreaName } : groups.people.find((x) => x.id === m.id) || {}
-      return { id: m.id, name: nameOf(m.id), host: m.role === 'host', joined: m.state === 'joined', username: p.username || '', homeArea: p.homeArea || '' }
+      const p = m.id === auth.myId ? { username: auth.user?.username, homeArea: auth.user?.homeAreaName } : groups.people.find((x) => x.id === m.id) || {}
+      return { id: m.id, name: nameOf(m.id), host: m.role === 'host', me: m.id === auth.myId, joined: m.state === 'joined', username: p.username || '', homeArea: p.homeArea || '' }
     }),
 )
 const lobbyRing = computed(() => lobby.value.map((p) => ({ name: p.name, done: p.joined })))
 const inviteOpen = ref(false)
+// The people list of a session that is still inviting, or of a shared one that was cancelled before it started.
+const lobbyShown = computed(() => status.value === 'inviting' || (status.value === 'cancelled' && !!session.value?.remote))
 
-const myLoc = computed(() => session.value?.locations?.ian || { start: null, end: null })
+const myLoc = computed(() => session.value?.locations?.[auth.myId] || { start: null, end: null })
 const homeArea = computed(() => (auth.user?.homeAreaId ? { id: auth.user.homeAreaId, name: auth.user.homeAreaName } : null))
 
 // The donut follows the step: locations while locating, votes after that.
@@ -87,13 +142,58 @@ const progress = computed(() => {
   return { title: 'Locations', label: 'Submitted', people: people.map((p) => ({ name: p.name, done: !!session.value.locations?.[p.id]?.start })) }
 })
 
-// Map pins: each person's start AREA, with their travel time to the meeting area.
+const myId = computed(() => auth.myId)
+// The group is choosing where to meet: the spots are listed, and the meeting area is what the host confirms.
+const choosing = computed(() => status.value === 'locating')
+// The spots as the list shows them: while choosing, as the data layer keeps them; after a spot is confirmed, the same
+// spots with the confirmed one first.
+const spotList = computed(() => (session.value ? spotsToShow(session.value) : []))
+const confirmedId = computed(() => (session.value ? confirmedAreaId(session.value) : ''))
+// The spot shown as chosen: the one picked, otherwise the confirmed one, otherwise the one most people said works for them.
+const shown = computed(() => (session.value ? shownFor(session.value, picked.value) : null))
+const shownSpot = computed(() => spotList.value.find((s) => s.areaId === shown.value) || null)
+// The map keeps every spot in view.
+const keepPoints = computed(() => spotList.value.map((s) => ({ lat: s.area.lat, lng: s.area.lng })))
+// On a phone the map frames the meeting spots alone: framed with everyone's starts across the island, spots a few streets apart
+// sat on top of each other and could not be tapped. A wider screen frames everything, as before.
+const phone = typeof matchMedia === 'function' && matchMedia('(max-width: 743px)').matches
+const mapFit = computed(() => (phone && keepPoints.value.length > 1 ? 'keep' : 'all'))
+// Where a point is on the map, for the pins laid over it.
+// How to call: projectPoint(1.35, 103.82) -> { x, y }
+const projectPoint = (lat, lng) => mapRef.value?.project(lat, lng) ?? null
+const refreshPins = () => pinsRef.value?.refresh()
+
+// Once a spot is confirmed: the meeting area and everyone's trip to it. Null while the group is choosing.
+const settled = computed(() => (session.value ? settledView(session.value, nameOf) : null))
+
+// On the meeting spot card: your own trip to it, and directions there by public transport (Google Maps, in a new tab).
+// The link goes to the area's centre: a meeting spot is an area, not an address.
+const myTrip = computed(() => myTripLine(settled.value, myId.value))
+const spotDirections = computed(() => (settled.value ? directionsUrl({ name: settled.value.area.name, lat: settled.value.area.lat, lng: settled.value.area.lng }) : ''))
+
+// The footer's button once settled, named for where it goes.
+const next = computed(() => (session.value ? locateNext(session.value) : null))
+
+// Map pins: each person's start AREA, with their travel time to the spot shown (the confirmed one once settled).
+// What the floating cards cover of the full-screen map from 1128px (app.css "Map-first pages"): the header's card at the top, the column of
+// cards on the right (420 px wide) and the button at the foot, so the map frames everyone in the rest. Nothing below 1128px.
+const mapCover = ref({})
+function syncCover() {
+  const wide = (globalThis.innerWidth || 0) >= 1128
+  mapCover.value = wide ? { top: 170, right: 420 + 48, bottom: 72 } : {}
+}
+onMounted(() => {
+  syncCover()
+  globalThis.addEventListener?.('resize', syncCover)
+})
+onBeforeUnmount(() => globalThis.removeEventListener?.('resize', syncCover))
 const mapPeople = computed(() =>
-  active.value
+  settled.value ? settled.value.people : active.value
     .filter((id) => session.value.locations?.[id]?.start)
     .map((id) => {
       const start = session.value.locations[id].start
-      return { id, name: nameOf(id), lat: start.lat, lng: start.lng, areaName: start.name, minutes: session.value.meeting?.times?.[id] ?? null }
+      const times = shownSpot.value?.times
+      return { id, name: nameOf(id), lat: start.lat, lng: start.lng, areaName: start.name, minutes: times?.[id] ?? null }
     }),
 )
 
@@ -147,15 +247,45 @@ function openSheet(which) {
   sheet.value = { open: true, which }
 }
 
+// Save the person's start or end. A start that is saved while the server could not be reached to work the spots out is a notice, not
+// an error: it stays, and the times follow. How to call: await saveLocation({ areaId: 'bugis', label: 'Bugis Junction' })
 async function saveLocation(place) {
   error.value = ''
+  note.value = ''
+  const settledBefore = canChangeSpot.value
   try {
     await events.setMyLocation(props.id, sheet.value.which, place)
+    // The spot was already confirmed: it stays where it is, and the host is asked whether to choose it again from new suggestions. Not
+    // with fewer than two starts, when no spot can be worked out.
+    if (settledBefore && startsShared(session.value) >= 2) openAgain('trip')
   } catch (e) {
-    error.value = e.message
+    if (e.code === 'saved_not_priced') note.value = e.message
+    else error.value = e.message
   }
 }
 
+// The host may choose the meeting spot again once it is confirmed (voting, or a confirmed plan), from one dialog on this page: after their
+// own trip changed (`trip`), or from the card's "Change meeting spot" (`change`, which also offers to pick the place yourself: the Start
+// choice's area step, whose back arrow comes back here). Nothing is let go until a choice is pressed, so "Keep" leaves the page as it was
+// (Faith, 31 October 2026: the link used to leave this page, and the way back went to Vote).
+const canChangeSpot = computed(() => isHost.value && !session.value?.light && ['voting', 'confirmed'].includes(status.value))
+const pickYourselfPath = computed(() => ({ path: `/sessions/${props.id}/change-place`, query: { where: '1', from: 'locate' } }))
+const againOpen = ref(false)
+const againWhy = ref('trip')
+// New spots can be worked out only from two starts.
+const canWorkOut = computed(() => !!session.value && startsShared(session.value) >= 2)
+// How to call: openAgain('change')
+function openAgain(why) {
+  error.value = ''
+  againWhy.value = why
+  againOpen.value = true
+}
+// The host's answer in that dialog: 'vote' works out new spots for the group to vote on, the spot they had kept on the list; 'fairest' confirms the
+// new fairest spot straight away (events.chooseSpotAgain). Either way the votes for places are cleared. How to call: chooseAgain('vote')
+const chooseAgain = (mode) => run(() => events.chooseSpotAgain(props.id, mode), () => { againOpen.value = false })
+
+// Run one change with the busy flag on; the flag is cleared whatever happens, and a failure is the screen's error line.
+// How to call: run(() => events.start(props.id), () => { dialogOpen.value = false })
 async function run(fn, after) {
   busy.value = true
   error.value = ''
@@ -164,157 +294,315 @@ async function run(fn, after) {
     if (after) after()
   } catch (e) {
     error.value = e.message
+  } finally {
+    busy.value = false
   }
-  busy.value = false
 }
 
 // Who the meeting area is waiting for. Only the host can carry on without someone, and never without themself.
 const waiting = computed(() => (session.value ? waitingFor(session.value) : []).map((id) => ({ id, name: nameOf(id), me: id === auth.user?.id })))
 const isHost = computed(() => !!session.value && session.value.hostId === auth.user?.id)
-const skipOpen = ref(false)
-const skipTarget = ref(null)
-function askSkip(person) {
+// The signed-in person opted out of this shared session: they keep their place in it and can come back.
+const optedOut = computed(() => !!session.value?.remote && (session.value.members || []).some((m) => m.id === auth.myId && m.state === 'opted_out'))
+// The meetup in the way when coming back would put the person in two at once (the popup).
+const rejoinClash = ref(null)
+const showRejoinClash = ref(false)
+// Rejoin is disabled while it runs, so it hands focus back when the popup closes.
+const { remember: rememberRejoin } = useReturnFocus(showRejoinClash)
+// Come back after opting out. How to call: rejoin()
+async function rejoin() {
+  busy.value = true
   error.value = ''
-  skipTarget.value = person
-  skipOpen.value = true
+  try {
+    await events.rejoin(props.id)
+  } catch (e) {
+    if (e?.code === 'schedule_clash') {
+      rejoinClash.value = e.clash || null
+      showRejoinClash.value = true
+    } else {
+      error.value = e.message
+    }
+  } finally {
+    busy.value = false
+  }
 }
-const continueWithout = () => run(() => events.optOut(props.id, skipTarget.value.id), () => { skipOpen.value = false })
 
-const startSession = () => run(() => events.start(props.id))
-const useArea = () => run(() => events.useArea(props.id), () => router.push(`/sessions/${props.id}/plan`))
+
+const hostName = computed(() => nameOf(session.value?.hostId) || 'the host')
+// The meeting spots changed what the people card shows: while choosing, their trips are to each spot, not to a meeting
+// area, so the card does not claim one.
+const peopleSession = computed(() => (choosing.value ? { ...session.value, meeting: null } : session.value))
+// Approvals that went with a spot that left the list, or the host changing the meeting place (`released`): the data layer leaves a banner that says so.
+const approvalsBanner = computed(() => (choosing.value && (session.value?.banner?.approvalsRemoved || session.value?.banner?.released) ? session.value.banner : null))
+async function dismissBanner() {
+  try {
+    await events.dismissBanner(props.id)
+  } catch {
+    // The banner stays; dismissing it again is the retry.
+  }
+}
+
+// Confirming a spot (or naming a known place) moves the session on to Voting, and the person stays on this page: the list
+// stays, the confirmed spot is marked, and the footer's button becomes "Next". Say so to a screen reader, and put focus on
+// "Next" when it was on the button or dialog that has just gone (otherwise it would fall to the top of the page).
+const announcement = ref('')
+const nextButton = ref(null)
+// While a confirm runs, say so too: the map's spinner is out of view in the list view, where phones and tablets start, and the
+// buttons' new words ("Confirming…") are not announced on their own. The line is cleared when it ends (a failure says why in its
+// own alert; a success replaces it with the line above).
+const CONFIRMING_SAID = 'Confirming the meeting spot…'
+watch(() => events.confirming, (on) => {
+  if (on) announcement.value = CONFIRMING_SAID
+  else if (announcement.value === CONFIRMING_SAID) announcement.value = ''
+})
+watch(() => [props.id, status.value], async ([id, now], [beforeId, before]) => {
+  if (id !== beforeId || before !== 'locating' || now !== 'voting') return
+  const name = session.value?.area?.name
+  announcement.value = `${name || 'The spot'} is confirmed. Press ${next.value?.label || 'Choose places'} to carry on.`
+  await nextTick()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  const at = document.activeElement
+  if (!at || at === document.body || at.closest?.('[role="dialog"], .screen__footer')) nextButton.value?.$el?.focus?.({ preventScroll: true })
+})
+
+// Start session opens the Start choice (views/StartView.vue): the host says how to pick the meeting point, and the start is saved with
+// that choice, so the session opens on this page, now the Locate step. Nothing is saved by pressing this.
+const startPath = computed(() => `/sessions/${props.id}/start`)
+
+// What the host chose, told to the guests on the Locate step; and the host's own reminder when they chose "We already know where" and
+// have not named the area yet. Nothing for a session that started before the choice existed.
+const meetByNote = computed(() => (session.value ? guestLine(session.value, hostName.value, auth.myId) : null))
+const hostPending = computed(() => (session.value ? hostPendingLine(session.value, auth.myId) : null))
+// The host's change of the meeting place released the area, but naming the new one failed: the error is kept by the store, because the screen
+// the host changed it on was left for this one. Shown to the host only, while the group is still choosing where to meet.
+const placeFailure = computed(() => (isHost.value && choosing.value ? events.placeFailure[props.id] || '' : ''))
 </script>
 
 <template>
   <NotFoundView v-if="missing" />
   <main v-else-if="session" class="screen" data-testid="group-detail-view">
-    <SessionHeader :session="session" back="/" />
+    <SessionHeader :session="session" />
 
     <div class="screen__body">
+      <p class="sr-only" role="status">{{ announcement }}</p>
+      <p class="sr-only" role="status">{{ takeBackNotice }}</p>
       <SessionNotices :session="session" />
+      <BannerNote v-if="approvalsBanner" icon="info" dismissible @dismiss="dismissBanner">{{ approvalsBanner.text }}</BannerNote>
+      <!-- The host's choice of how to pick the meeting point, for a guest while the group is choosing where to meet. -->
+      <BannerNote v-if="meetByNote" icon="info" data-testid="meet-by-note"><strong>{{ meetByNote.title }}.</strong> {{ meetByNote.text }}</BannerNote>
+      <BannerNote v-if="placeFailure" tone="error" icon="warning" role="alert" dismissible data-testid="place-failure" @dismiss="events.dismissPlaceFailure(props.id)">
+        The meeting place was released, but the new area could not be set: {{ placeFailure }}
+      </BannerNote>
+      <BannerNote v-if="!meetByNote && hostPending" icon="info" data-testid="meet-by-pending">
+        {{ hostPending }}
+        <template #actions><AppButton variant="secondary" small :to="`/sessions/${props.id}/start?where=1`">Pick the area</AppButton></template>
+      </BannerNote>
 
-      <!-- Inviting: who is in, whether the session can start, and Start session below. -->
-      <section v-if="status === 'inviting'" class="card lobby" aria-labelledby="lobby-head">
+      <!-- Inviting: who is in, whether the session can start, and Start session below. A shared session that was called off
+           while it was still inviting shows the same list, read-only, under the "Session cancelled" note. -->
+      <section v-if="lobbyShown" class="card lobby" aria-labelledby="lobby-head">
         <header class="lobby__head">
           <h2 id="lobby-head" class="sr-only">Who is in</h2>
           <ProgressDonut compact title="Joined" :people="lobbyRing" done-label="Joined" />
-          <AppButton variant="secondary" small @click="inviteOpen = true"><AppIcon name="user-plus" :size="16" />Invite</AppButton>
+          <AppButton v-if="status === 'inviting'" variant="secondary" small @click="inviteOpen = true"><AppIcon name="user-plus" :size="16" />Invite</AppButton>
         </header>
 
         <div class="lobby__group">
-          <h3 class="caption text-muted">In this session <span class="tnum">· {{ lobby.length }}</span></h3>
+          <h3 id="lobby-members" class="caption text-muted" tabindex="-1">In this session <span class="tnum">· {{ lobby.length }}</span></h3>
           <ul class="lobby__list">
             <li v-for="(person, i) in lobby" :key="person.id" class="lobby__row rise" :class="{ 'is-pending': !person.joined }" :style="{ '--i': i }">
               <UserAvatar :name="person.name" :person="person.id" :size="44" />
-              <RouterLink :to="person.host ? '/profile' : `/people/${person.id}`" class="lobby__who">
-                <span class="title-sm truncate">{{ person.name }}<template v-if="person.host"> (you)</template></span>
+              <RouterLink :to="person.me ? '/profile' : `/people/${person.id}`" class="lobby__who">
+                <span class="title-sm truncate">{{ person.name }}<template v-if="person.me"> (you)</template></span>
                 <span class="caption-sm text-muted truncate"><template v-if="person.username">@{{ person.username }}</template><template v-if="person.username && person.homeArea"> · </template>{{ person.homeArea }}</span>
               </RouterLink>
               <span v-if="person.host" class="lobby__tag lobby__tag--host"><AppIcon name="crown" :size="14" />Host</span>
               <span v-else-if="person.joined" class="lobby__tag"><AppIcon name="check" :size="14" />Joined</span>
               <span v-else class="lobby__tag lobby__tag--pending"><AppIcon name="clock" :size="14" />Invited</span>
+              <RemoveMember v-if="session.remote && status === 'inviting' && isHost && person.joined && !person.host" :session-id="session.id" :person="person" />
+              <TakeBackInvite v-if="status === 'inviting' && isHost && !person.joined && !person.host" :session-id="session.id" :person="person" :remote="!!session.remote" focus-id="lobby-members" />
             </li>
           </ul>
         </div>
+        <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
       </section>
 
       <template v-else>
-        <!-- Ian's own start and end, like a ride's pickup and drop-off: two rows joined by a dotted line. Each whole
-             row is the button for its own place, so it is clear which one you are changing. Only he sees the exact place. -->
-        <div class="route" role="group" aria-label="Your locations">
-          <component
-            :is="locked ? 'div' : 'button'"
-            :type="locked ? undefined : 'button'"
-            class="route__row"
-            :class="{ 'is-empty': !myLoc.start }"
-            @click="!locked && openSheet('start')"
-          >
-            <span class="route__mark route__mark--from" aria-hidden="true" />
-            <span class="route__text">
-              <span class="caption-sm text-muted">Starting from</span>
-              <span class="route__value truncate">{{ myLoc.start?.label || 'Add where you are starting' }}</span>
-            </span>
-            <AppIcon v-if="!locked" class="route__go" :name="myLoc.start ? 'chevron-right' : 'plus'" :size="18" />
-          </component>
-          <component
-            :is="locked ? 'div' : 'button'"
-            :type="locked ? undefined : 'button'"
-            class="route__row"
-            @click="!locked && openSheet('end')"
-          >
-            <span class="route__mark route__mark--to" aria-hidden="true" />
-            <span class="route__text">
-              <span class="caption-sm text-muted">Heading to after</span>
-              <span class="route__value truncate">{{ myLoc.end ? myLoc.end.label : 'Back to where you started' }}</span>
-            </span>
-            <AppIcon v-if="!locked" class="route__go" name="chevron-right" :size="18" />
-          </component>
-        </div>
-
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
+        <BannerNote v-if="note" icon="info" dismissible @dismiss="note = ''">{{ note }}</BannerNote>
 
-        <SplitView v-model:view="view" label="Meeting area">
+        <!-- Map first (Darius, 4 November 2026, as Home): from 1128px the map on the left and this list docked on the right, full height,
+             with the page's footer at the panel's foot. -->
+        <SplitView v-model:view="view" label="Meeting area" map-first>
           <template #list>
-            <!-- Step 5: the meeting point. While the planner works it out a segmented bar fills up; at 100% the place
-                 appears. -->
-            <section v-if="loading || session.meeting" class="area" :class="{ 'is-finding': loading }" aria-labelledby="area-head" :role="loading ? 'status' : undefined">
-              <template v-if="loading">
-                <h2 id="area-head" class="title-md">Finding the meeting point</h2>
-                <SegmentedProgress :value="loadPct" label="Checking everyone's travel time" />
-              </template>
-              <div v-else class="area__main area__main--reveal">
-                <span class="area__pin"><AppIcon name="pin" :size="20" /></span>
-                <h2 id="area-head" class="display-lg">{{ session.area.name }}</h2>
-              </div>
+            <!-- While the planner works out the meeting point a segmented bar fills up. -->
+            <section v-if="loading" class="area is-finding" aria-labelledby="area-head" role="status">
+              <h2 id="area-head" class="title-md">Finding the meeting point</h2>
+              <SegmentedProgress :value="loadPct" label="Checking everyone's travel time" />
             </section>
             <p v-if="session.areaNote" class="caption-sm text-muted">{{ session.areaNote }}</p>
 
-            <!-- Locating, and the meeting area is waiting for people who have not set a start. -->
-            <section v-if="waiting.length && !loading" class="section card" aria-labelledby="waiting-head">
-              <h2 id="waiting-head" class="title-md">Waiting for {{ waiting.length }} {{ waiting.length === 1 ? 'person' : 'people' }}</h2>
-              <p class="body-sm text-muted">The meeting point appears once everyone has shared where they start.<template v-if="isHost"> If someone is not going to, you can carry on without them.</template></p>
-              <ul class="waiting" aria-label="People who have not set a start">
-                <li v-for="person in waiting" :key="person.id" class="waiting__row">
-                  <UserAvatar :name="person.name" :person="person.id" :size="36" />
-                  <span class="title-sm truncate waiting__name">{{ person.me ? 'You' : person.name }}</span>
-                  <span v-if="person.me" class="caption-sm text-muted">Add where you are starting, above</span>
-                  <AppButton v-else-if="isHost" small variant="secondary" :disabled="busy" @click="askSkip(person)">Continue without {{ person.name }}</AppButton>
-                </li>
-              </ul>
+            <!-- Settled: the confirmed meeting spot on its own, like a reservation card. Everyone's trip to it is in
+                 the people list below and drawn on the map. -->
+            <section v-if="settled && !loading" class="area" aria-labelledby="area-head">
+              <div class="area__main area__main--reveal">
+                <span class="area__pin" aria-hidden="true"><AppIcon name="pin" :size="20" /></span>
+                <div class="area__text">
+                  <span class="caption-sm text-muted">Meeting spot</span>
+                  <!-- The name, and beside it the swap button that changes the meeting spot (Darius, 4 November 2026: it was a "Change meeting
+                       spot" link under the card). -->
+                  <div class="area__name">
+                    <h2 id="area-head" class="display-lg truncate">{{ settled.area.name }}</h2>
+                    <IconButton v-if="canChangeSpot" label="Change meeting spot" class="area__swap" data-testid="change-spot" @click="openAgain('change')"><AppIcon name="swap" :size="18" /></IconButton>
+                  </div>
+                  <span v-if="myTrip" class="caption-sm text-muted">{{ myTrip }}</span>
+                </div>
+              </div>
+              <div class="area__actions">
+                <AppButton variant="secondary" small class="area__go" :href="spotDirections" target="_blank" :aria-label="`Directions to ${settled.area.name}, opens Google Maps in a new tab`">
+                  <AppIcon name="route" :size="16" />Directions
+                </AppButton>
+              </div>
             </section>
 
-            <section class="section card" aria-label="People">
-              <ProgressDonut v-if="progress" compact :title="progress.title" :people="progress.people" :done-label="progress.label" />
-              <MemberList :session="session" :names="nameOf" :voters="voterIds" />
-              <p v-if="session.meeting && !loading" class="travel-key" aria-label="Travel time colours">
-                <span v-for="t in TRAVEL_TONES" :key="t.id" class="travel-key__item"><span class="travel-key__dot" :class="`is-${t.id}`" />{{ t.label }}</span>
-              </p>
+            <!-- The meeting spots, while locating: members say which work for them and the host confirms one at any time. -->
+            <SpotList
+              v-else-if="!settled"
+              :session="session"
+              :my-id="myId"
+              :names="nameOf"
+              :selected-id="shown || ''"
+              :is-host="isHost"
+              :host-name="hostName"
+              @select="picked = $event"
+              @error="error = $event"
+            />
+
+            <BannerNote v-if="optedOut && ['inviting', 'locating', 'voting'].includes(status)" icon="info">
+              You opted out of this session, so your trips are not counted.
+              <template #actions><AppButton small variant="secondary" :disabled="busy" @click="rememberRejoin($event); rejoin()">Rejoin</AppButton></template>
+            </BannerNote>
+
+            <section class="section card people-card" aria-label="People">
+            <!-- Ian's own start and end, like a ride's pickup and drop-off: two rows joined by a dotted line. Each whole
+                 row is the button for its own place, so it is clear which one you are changing. Only he sees the exact place.
+                 At the top of the People card, over everyone's progress, so the column is one card beside the map (Darius,
+                 4 November 2026). -->
+            <div class="route" role="group" aria-label="Your locations">
+              <component
+                :is="locked ? 'div' : 'button'"
+                :type="locked ? undefined : 'button'"
+                class="route__row"
+                :class="{ 'is-empty': !myLoc.start }"
+                @click="!locked && openSheet('start')"
+              >
+                <span class="route__mark route__mark--from" aria-hidden="true" />
+                <span class="route__text">
+                  <span class="caption-sm text-muted">Starting from</span>
+                  <span class="route__value truncate">{{ myLoc.start?.label || 'Add where you are starting' }}</span>
+                </span>
+                <AppIcon v-if="!locked" class="route__go" :name="myLoc.start ? 'chevron-right' : 'plus'" :size="18" />
+              </component>
+              <component
+                :is="locked ? 'div' : 'button'"
+                :type="locked ? undefined : 'button'"
+                class="route__row"
+                @click="!locked && openSheet('end')"
+              >
+                <span class="route__mark route__mark--to" aria-hidden="true" />
+                <span class="route__text">
+                  <span class="caption-sm text-muted">Heading to after</span>
+                  <span class="route__value truncate">{{ myLoc.end ? myLoc.end.label : 'Back to where you started' }}</span>
+                </span>
+                <AppIcon v-if="!locked" class="route__go" name="chevron-right" :size="18" />
+              </component>
+            </div>
+              <!-- Once the spot is confirmed this card is about the trips: no votes ring, no status icons. -->
+              <ProgressDonut v-if="progress && !settled" compact :title="progress.title" :people="progress.people" :done-label="progress.label" />
+              <MemberList :session="peopleSession" :names="nameOf" :my-id="myId" :voters="voterIds" :statuses="!settled">
+                <!-- A shared session, while locating: the host can take anyone but themselves out of it. -->
+                <template #action="{ id, label, host, out }">
+                  <RemoveMember v-if="session.remote && choosing && isHost && !host && !out && (session.activeIds || []).length > 2" :session-id="session.id" :person="{ id, name: label }" />
+                </template>
+              </MemberList>
             </section>
+
+            <!-- A guest of a shared session can leave while the group is choosing where to meet. -->
+            <div v-if="session.remote && choosing && !isHost" class="leave"><LeaveSession :session-id="session.id" /></div>
           </template>
           <template #map>
-            <PlannerMap :people="mapPeople" :area="loading ? null : session.area" :finding="loading" spokes label="Meeting area map" />
+            <PlannerMap ref="mapRef" :cover="mapCover" :people="mapPeople" :area="settled && !loading ? settled.area : null" :finding="loading" spokes :keep="settled ? [] : keepPoints" :fit-to="settled ? 'all' : mapFit" label="Meeting area map" @view="refreshPins" />
+            <SpotPins v-if="!settled && spotList.length" ref="pinsRef" :spots="spotList" :session="session" :selected-id="shown || ''" :confirmed-id="confirmedId" :project="projectPoint" :names="nameOf" :my-id="myId" :is-host="isHost" @select="picked = $event" />
             <div v-if="loading" class="map-wait map-wait--finding title-sm" role="status">Finding the meeting point… {{ Math.round(loadPct) }}%</div>
+            <!-- Confirming the meeting spot, once it has taken 600 ms: a spinner over the map only (the list view says it on the buttons). -->
+            <MapLoading />
           </template>
         </SplitView>
       </template>
     </div>
 
-    <footer v-if="status !== 'cancelled'" class="screen__footer">
-      <AppButton v-if="status === 'inviting' && active.length < 2" block @click="inviteOpen = true">Invite friends</AppButton>
-      <AppButton v-else-if="status === 'inviting'" next block :disabled="busy" @click="startSession">Start session</AppButton>
-      <AppButton v-else-if="status === 'locating'" next block :disabled="!session.meeting || busy || loading" @click="useArea">
-        {{ loading ? 'Finding the meeting point…' : session.meeting ? 'Confirm location' : 'Waiting for everyone' }}
-      </AppButton>
-      <AppButton v-else-if="status === 'voting'" next block :to="`/sessions/${id}/plan`">Vote on places</AppButton>
-      <AppButton v-else next block :to="`/sessions/${id}/itinerary`">{{ session.isToday && status === 'confirmed' ? "Today's plan" : 'Itinerary' }}</AppButton>
+    <!-- No footer for a cancelled outing, or one that closed by itself with no plan (there is nothing to go on to). -->
+    <footer v-if="status !== 'cancelled' && !(status === 'completed' && !session.plan)" class="screen__footer">
+      <!-- A shared session (one kept on the server) is started by its host; a guest waits, or leaves. -->
+      <!-- The host goes on to the Start choice whoever is in (it says when a second person is needed); inviting is the card's Invite button,
+           so the footer never repeats it (Faith's walkthrough, 30 October 2026). -->
+      <template v-if="status === 'inviting' && session.remote && !isHost">
+        <p class="body-sm text-muted lobby__held">Waiting for {{ hostName }} to start the session.</p>
+        <LeaveSession :session-id="session.id" />
+      </template>
+      <AppButton v-else-if="status === 'inviting' && isHost" next block :disabled="busy" :to="startPath" data-testid="lobby-next">Next</AppButton>
+      <SpotConfirm
+        v-else-if="status === 'locating'"
+        :session="session"
+        :is-host="isHost"
+        :host-name="hostName"
+        :selected-id="shown || ''"
+        :disabled="loading || busy"
+        :names="nameOf"
+        @error="error = $event"
+      />
+      <AppButton v-else ref="nextButton" next block :to="next.to">{{ next.label }}</AppButton>
     </footer>
 
     <InviteDialog v-model:open="inviteOpen" :session="session" />
-    <ModalDialog v-model:open="skipOpen" :title="`Continue without ${skipTarget?.name || 'them'}?`" text="They leave this session, and the meeting point is worked out from the people who have shared where they start. This cannot be undone.">
-      <template #content><p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p></template>
-      <AppButton block variant="secondary" @click="skipOpen = false">Keep waiting</AppButton>
-      <AppButton block variant="danger" :disabled="busy" @click="continueWithout">Continue without {{ skipTarget?.name }}</AppButton>
+    <ClashDialog v-model:open="showRejoinClash" :clash="rejoinClash" mode="join" />
+    <!-- Choosing the meeting spot again: after the host's own trip changed, or from "Change meeting spot". Have the group vote on new spots
+         (the one they had stays on the list), or (from the swap button) pick the place yourself; after the host's trip changed, also take
+         the new fairest spot at once. Keeping the spot is the dialog's ×, so there is no "Keep" button; and "Use the fairest spot" is not
+         offered from the swap button, where nobody's trip changed and it only found the same spot again (Darius, 4 November 2026). -->
+    <ModalDialog
+      v-model:open="againOpen"
+      closable
+      :title="againWhy === 'trip' ? 'Choose the meeting spot again?' : 'Change the meeting spot?'"
+      :text="againWhy === 'trip' ? `Your trip changed, so a fairer spot than ${settled?.area.name || 'this one'} may now be suggested. Choosing again clears the votes for places.` : `Changing it clears the votes for places. Everyone keeps where they start.`"
+    >
+      <template v-if="canWorkOut">
+        <AppButton block variant="secondary" :disabled="busy" :aria-busy="busy ? 'true' : undefined" data-testid="choose-again-vote" @click="chooseAgain('vote')">Vote on new spots</AppButton>
+        <template v-if="againWhy === 'trip'">
+          <AppButton block :disabled="busy" :aria-busy="busy ? 'true' : undefined" data-testid="choose-again-fairest" @click="chooseAgain('fairest')">Use the fairest spot</AppButton>
+        </template>
+      </template>
+      <template v-if="againWhy === 'change'">
+        <AppButton block :disabled="busy" :to="pickYourselfPath" data-testid="choose-again-pick" @click="againOpen = false">Pick the place yourself</AppButton>
+      </template>
+      <p v-if="error" class="body-sm text-error again__note" role="alert">{{ error }}</p>
     </ModalDialog>
     <LocationSheet v-model:open="sheet.open" :which="sheet.which" :home="homeArea" @select="saveLocation" />
+  </main>
+  <!-- The person is not in this shared session any more: they left, or the host took them out. -->
+  <main v-else-if="events.gone[props.id]" class="screen" data-testid="session-gone">
+    <div class="screen__body" style="padding-top: var(--spacing-xl)">
+      <EmptyState title="You are not in this session any more" text="You left it, or the host took you out of it.">
+        <AppButton to="/">Back to Home</AppButton>
+      </EmptyState>
+    </div>
+  </main>
+  <main v-else-if="loadError" class="screen" data-testid="session-load-error">
+    <div class="screen__body" style="padding-top: var(--spacing-xl)">
+      <EmptyState title="Could not load this session" :text="loadError" role="alert">
+        <AppButton variant="secondary" @click="load">Retry</AppButton>
+      </EmptyState>
+    </div>
   </main>
   <main v-else class="screen" data-testid="group-detail-view">
     <div class="screen__body" style="padding-top: var(--spacing-xl)">
@@ -324,6 +612,15 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
 </template>
 
 <style scoped>
+/* The people under the spots: the same light grey card as the spots, so the two read as one set (walkthrough, 1 November 2026). */
+/* White with a thin grey border, not a grey fill; the bold ink outline is for things that are selected (Darius, 4 November 2026). */
+.people-card { border: 1px solid var(--border-strong); background: var(--canvas); }
+/* Map first (from 1128px): the page floats over the full-screen map; its rules are in app.css ("Map-first pages"). */
+
+/* Inside the People card the route is not a card of its own: no border, a hairline under it, then the progress and the people. */
+.people-card .route { max-width: none; padding: 0 0 var(--spacing-sm); border: 0; border-bottom: 1px solid var(--hairline); border-radius: 0; background: none; }
+.people-card .route::before { left: calc(var(--spacing-base) + 5px); margin-top: calc(-15px - var(--spacing-sm) / 2); }
+/* (The taller card for a column with no spots is gone: from 1128px the map fills the page and this list floats on it.) */
 /* Inviting: a card like the invite page's. A header with a ring of who has joined out of everyone invited, and
    Invite; then who is in, each with a Host, Joined or Invited tag. */
 .lobby { gap: var(--spacing-lg); }
@@ -335,11 +632,24 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
 .lobby__row + .lobby__row { border-top: 1px solid var(--hairline-soft); }
 .lobby__who { flex: 1 1 0; display: flex; flex-direction: column; min-width: 0; color: var(--ink); text-decoration: none; }
 @media (hover: hover) { .lobby__who:hover .title-sm { text-decoration: underline; } }
+.lobby__held { margin: 0; }
+.leave { display: flex; justify-content: center; }
+@media (min-width: 744px) { .lobby__held { margin-right: auto; max-width: 56ch; } }
+/* Phones: the tag (Host, Joined, Invited) goes under the name, so the name keeps the room beside the 44px picture and the 44px ×. */
+@media (max-width: 479px) {
+  .lobby__row { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; column-gap: var(--spacing-md); row-gap: 2px; padding: var(--spacing-xs) 0; }
+  .lobby__row > :deep(.avatar) { grid-row: 1 / span 2; align-self: center; }
+  .lobby__row > .lobby__who { grid-column: 2; grid-row: 1; align-self: end; }
+  .lobby__row > .lobby__tag { grid-column: 2; grid-row: 2; justify-self: start; align-self: start; height: 24px; padding: 0 8px; gap: 4px; }
+  .lobby__row > :deep(.icon-btn) { grid-column: 3; grid-row: 1 / span 2; align-self: center; }
+}
 .lobby__tag { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--hairline); border-radius: var(--rounded-full); color: var(--body); font: var(--text-caption); }
 .lobby__tag--host { border-color: color-mix(in srgb, var(--primary) 35%, var(--canvas)); color: var(--primary-active); }
-/* Invited, not joined yet: a dashed tag and a faded row, until they accept. */
+/* Invited, not joined yet: a dashed tag, a faded picture and a softer name, until they accept. The text is never faded with opacity:
+   --body on white is 10.5:1 and the --muted line under it 5.4:1. */
 .lobby__tag--pending { border-style: dashed; color: var(--muted); }
-.lobby__row.is-pending .lobby__who, .lobby__row.is-pending :deep(.avatar) { opacity: 0.55; }
+.lobby__row.is-pending :deep(.avatar) { opacity: 0.55; }
+.lobby__row.is-pending .lobby__who .title-sm { color: var(--body); }
 /* Your route: a plain white card with two rows, start over end, like a ride's pickup and drop-off. A filled Rausch
    dot marks the start, an ink ring the end, and a dotted line joins them down the left. */
 .route { position: relative; display: flex; flex-direction: column; max-width: 560px; padding: var(--spacing-xs); border: 1px solid var(--hairline); border-radius: var(--rounded-lg); background: var(--canvas); }
@@ -356,27 +666,28 @@ button.route__row:focus-visible { outline: 2px solid var(--ink); outline-offset:
 .route__go { color: var(--muted); }
 /* No start yet: the row asks for it, in Rausch. */
 .route__row.is-empty .route__value, .route__row.is-empty .route__go { color: var(--primary); }
-/* The meeting area: a reservation-card style block. The pin is the screen's Rausch moment besides the CTA. */
+/* The meeting spot once it is confirmed: a reservation-card style block. The pin is the screen's Rausch moment besides
+   the CTA. While the planner is finding it, the same card holds a title over the segmented bar. */
 .area { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); padding: var(--spacing-lg); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); box-shadow: var(--shadow-float); }
+.area.is-finding { flex-direction: column; align-items: stretch; gap: var(--spacing-base); }
 .area__main { display: flex; align-items: center; gap: var(--spacing-md); min-width: 0; }
 .area__pin { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); }
-/* Finding the meeting point: a title over the segmented bar. When it is found, the place pops in. */
-.area.is-finding { flex-direction: column; align-items: stretch; gap: var(--spacing-base); }
+.area__text { display: flex; flex-direction: column; min-width: 0; }
+.area__text h2 { margin: 0; }
+/* The spot's name with the swap button beside it. The arrows are mirrored to read left on top, right below. */
+.area__name { display: flex; align-items: center; gap: var(--spacing-sm); min-width: 0; }
+.area__swap { flex-shrink: 0; }
+.area__swap :deep(svg) { transform: scaleX(-1); }
+/* Settled: the name gets the card's full width, and Directions sits under it. Beside it, the button squeezed the name
+   to a few letters in the list column and on a phone. */
+.area:not(.is-finding) { flex-direction: column; align-items: stretch; }
+.area__go { align-self: flex-start; }
+.area__actions { align-self: flex-start; }
 .area__main--reveal { animation: area-reveal 420ms var(--ease-spring) both; }
 @keyframes area-reveal { from { opacity: 0; transform: translateY(6px) scale(0.97); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .area__main--reveal { animation: none; } }
-/* Who the meeting area is waiting for: name on the left, the host's action after it (it wraps under the name on a narrow screen). */
-.waiting { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
-.waiting__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-sm) var(--spacing-md); padding: var(--spacing-sm) 0; }
-.waiting__row + .waiting__row { border-top: 1px solid var(--hairline-soft); }
-.waiting__name { flex: 1 1 120px; min-width: 0; }
-/* The key for the travel-time colours in the people list. */
-.travel-key { display: flex; flex-wrap: wrap; gap: var(--spacing-xs) var(--spacing-base); margin: 0; font: var(--text-caption-sm); color: var(--muted); }
-.travel-key__item { display: inline-flex; align-items: center; gap: var(--spacing-xs); }
-.travel-key__dot { width: 10px; height: 10px; border-radius: var(--rounded-full); }
-.travel-key__dot.is-short { background: var(--travel-short); }
-.travel-key__dot.is-medium { background: var(--travel-medium); }
-.travel-key__dot.is-long { background: var(--travel-long); }
+.area__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-xs) var(--spacing-base); }
 .map-wait { position: absolute; left: 50%; top: 50%; z-index: 500; transform: translate(-50%, -50%); padding: var(--spacing-md) var(--spacing-base); border-radius: var(--rounded-md); background: var(--canvas); box-shadow: var(--shadow-float); text-align: center; }
 .map-wait--finding { top: var(--spacing-md); transform: translateX(-50%); }
+.again__note { margin: calc(var(--spacing-xs) * -1) 0 var(--spacing-xs); text-align: center; }
 </style>

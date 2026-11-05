@@ -11,6 +11,16 @@ import { VENUES } from '../mock/venues.js'
 
 export const STORAGE_KEY = 'jio-demo-v1'
 
+// A day's length in milliseconds, for building a "tomorrow" from the clock.
+const DAY_MS = 24 * 60 * 60 * 1000
+
+// Tomorrow's date in Singapore (yyyy-MM-dd), on whatever the clock says now, for a test that needs a session the form would accept
+// and does not care which day it is. How to call: await api.createSession({ title: 'Lunch', date: tomorrow(), start: '12:00', end: '15:00' })
+export function tomorrow() {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en', { timeZone: 'Asia/Singapore', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(Date.now() + DAY_MS)).map(({ type, value }) => [type, value]))
+  return `${parts.year}-${parts.month}-${parts.day}`
+}
+
 // A local storage that holds a map. `limit` is the most characters the demo's own save may take: a bigger write
 // throws the way a full browser storage does. Small writes (the probe) always work.
 // How to call: const storage = fakeStorage({ limit: 50_000 }); vi.stubGlobal('localStorage', storage)
@@ -68,8 +78,24 @@ export function stubPlanner(planner) {
 // Built once per test file by running the real flow; the planner must be stubbed already. Returns { text, id },
 // the stored text and the session's id.
 let built = null
+// The session is made on 9 October 2026 for 10 October (a session cannot start in the past), so the clock is set to that moment while
+// it is built and put back after, whatever it was (real, or already faked by the test).
 export async function confirmedSave() {
   if (built) return built
+  const faked = vi.isFakeTimers()
+  const before = Date.now()
+  if (!faked) vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-10-09T10:00:00+08:00'))
+  try {
+    return await buildConfirmedSave()
+  } finally {
+    if (faked) vi.setSystemTime(before)
+    else vi.useRealTimers()
+  }
+}
+
+// How to call: const { text, id } = await buildConfirmedSave()
+async function buildConfirmedSave() {
   const api = await loadApi()
   await api.signUp({ email: 'ian@example.com', name: 'Ian', username: 'ian', dob: '2000-01-31', homeAreaId: 'tampines' })
   const { id } = await api.createSession({ title: 'Saturday', date: '2026-10-10', start: '12:00', end: '20:00' })
@@ -87,6 +113,59 @@ export async function confirmedSave() {
   await api.confirmPlan(id)
   built = { text: api.storage.store[STORAGE_KEY], id }
   return built
+}
+
+// The backend's answer to a request for an order: the stops in the reverse order, one after the other, a meal never before
+// its time. `hold` is minutes the Eat stop waits after the stop before it (its table is booked for later), so it starts
+// later than the travel alone would have it.
+// How to call: planner.arrangeItinerary.mockImplementation(async (request) => reversedOrder(request, 60))
+export function reversedOrder(request, hold = 0) {
+  const order = request.stops.map((s) => s.id).reverse()
+  let freeFrom = request.startAt
+  const stops = order.map((id) => {
+    const s = request.stops.find((x) => x.id === id)
+    const start = Math.max(freeFrom + (s.category === 'eat' ? hold : 0), s.category === 'eat' ? s.start : 0)
+    freeFrom = start + s.duration + 10
+    return { id, start, end: start + s.duration }
+  })
+  return { status: 'ok', order, stops, reason: 'Shops first while you are fresh.', source: 'ai', restarted: false, others: 3 }
+}
+
+// A save in which three people voted for Eat, Activity and Shop, the Eat vote split (Ian for the third Eat place, the other two
+// for the first), and the plan was confirmed with the suggested order (reversedOrder: Shop, Activity, then Eat held at its
+// time, after a wait of an hour). The planner must be stubbed. Built once per test file. Returns { text, id }.
+let builtOrdered = null
+export async function orderedSave(planner) {
+  if (builtOrdered) return builtOrdered
+  planner.arrangeItinerary.mockReset().mockImplementation(async (request) => reversedOrder(request, 60))
+  const api = await loadApi()
+  await api.signUp({ email: 'ian@example.com', name: 'Ian', username: 'ian', dob: '2000-01-31', homeAreaId: 'tampines' })
+  const { id } = await api.createSession({ title: 'Saturday', date: '2026-10-10', start: '12:00', end: '20:00' })
+  await api.inviteFriends(id, ['jonathan', 'darius'])
+  await api.startSession(id)
+  await api.setLocation(id, 'ian', 'start', { areaId: 'tampines' })
+  await api.setLocation(id, 'jonathan', 'start', { areaId: 'jurong-east' })
+  await api.setLocation(id, 'darius', 'start', { areaId: 'bugis' })
+  await api.useMeetingArea(id)
+  for (const person of ['ian', 'jonathan', 'darius']) await api.setPreferences(id, person, { categories: ['eat', 'activity', 'shop'], until: null })
+  const { slots } = await api.getPlan(id)
+  for (const slot of slots.filter((s) => ['eat', 'activity', 'shop'].includes(s.category))) {
+    for (const person of ['ian', 'jonathan', 'darius']) {
+      const pick = slot.category === 'eat' && person === 'ian' ? slot.options[2] : slot.options[0]
+      await api.vote(id, slot.id, person, pick.id)
+    }
+  }
+  await api.confirmPlan(id, await api.suggestOrder(id))
+  builtOrdered = { text: api.storage.store[STORAGE_KEY], id }
+  return builtOrdered
+}
+
+// api.js loaded on top of orderedSave.
+// How to call: const { api, id } = await loadOrdered(planner)
+export async function loadOrdered(planner, options = {}) {
+  const { text, id } = await orderedSave(planner)
+  const api = await loadApi({ ...options, data: { [STORAGE_KEY]: options.text ?? text } })
+  return { api, id }
 }
 
 // api.js loaded on top of the confirmed save.

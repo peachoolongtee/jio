@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { FAN_PX, activeMeetups, dayLabel, nextStepFor, pinName, pinsFor, placeCard, routesFor, selectMeetup, whenLine, whereStands } from '../homeMeetups.js'
+import { FAN_PX, HOME_MEETUPS_SHOWN, MEETUP_RANGES, activeMeetups, allMeetupsLabel, dayLabel, defaultRange, homeList, inRange, isOverdue, pinnedMeetups, layoutPins, meetupsIn, rangeCounts, nextStepFor, homeStatus, needsMe, stageOf, pinName, pinsFor, placeCard, routesFor, selectMeetup, homeSelection, whenLine, whereStands } from '../homeMeetups.js'
 
-const NOW = new Date('2026-10-10T09:00:00')
+const NOW = new Date('2026-10-10T09:00:00+08:00')
 const BUGIS = { id: 'bugis', name: 'Bugis', lat: 1.30065, lng: 103.85585 }
 const TAMPINES = { id: 'tampines', name: 'Tampines', lat: 1.35408, lng: 103.94535 }
 const start = (area) => ({ areaId: area.id, name: area.name, lat: area.lat, lng: area.lng })
@@ -86,12 +86,13 @@ describe('selectMeetup', () => {
 })
 
 describe('dayLabel and whenLine', () => {
-  it('says Today, a weekday inside the week, then the date', () => {
+  // Every pin carries its weekday and the day of the month since 4 November 2026 (Darius, "give every home pin the weekday and date").
+  it('says Today, then the weekday and the day of the month', () => {
     expect(dayLabel(make({ date: '2026-10-10' }), NOW)).toBe('Today')
-    expect(dayLabel(make({ date: '2026-10-11' }), NOW)).toBe('Sun')
-    expect(dayLabel(make({ date: '2026-10-16' }), NOW)).toBe('Fri')
-    expect(dayLabel(make({ date: '2026-10-17' }), NOW)).toBe('17 Oct')
-    expect(dayLabel(make({ date: '2026-10-03' }), NOW)).toBe('3 Oct')
+    expect(dayLabel(make({ date: '2026-10-11' }), NOW)).toBe('Sun 11')
+    expect(dayLabel(make({ date: '2026-10-16' }), NOW)).toBe('Fri 16')
+    expect(dayLabel(make({ date: '2026-10-17' }), NOW)).toBe('Sat 17')
+    expect(dayLabel(make({ date: '2026-10-03' }), NOW)).toBe('Sat 3')
   })
   it('says Today for the demo session day', () => {
     expect(dayLabel(make({ date: '2026-12-25', isToday: true }), NOW)).toBe('Today')
@@ -166,12 +167,20 @@ describe('nextStepFor', () => {
     expect(nextStepFor({ ...s, hostId: 'darius' }, 'ian')).toMatchObject({ label: 'Waiting for the host', tone: 'wait' })
   })
   it('asks for a vote, and opens the voting screen', () => {
-    const s = make({ ...two, status: 'voting', locations: located, votes: { eat: { darius: 'v1' } } })
+    const s = make({ ...two, status: 'voting', locations: located, meeting: { areaId: 'bugis' }, area: BUGIS, votes: { eat: { darius: 'v1' } } })
     expect(nextStepFor(s, 'ian')).toEqual({ label: 'Vote', tone: 'action', to: '/sessions/s1/plan' })
   })
   it('waits for the others once you have voted', () => {
-    const s = make({ ...two, status: 'voting', locations: located, votes: { eat: { ian: 'v1' } } })
+    const s = make({ ...two, status: 'voting', locations: located, meeting: { areaId: 'bugis' }, area: BUGIS, votes: { eat: { ian: 'v1' } } })
     expect(nextStepFor(s, 'ian')).toMatchObject({ label: 'Waiting for others', tone: 'wait', to: '/sessions/s1/plan' })
+  })
+  it('does not ask for a vote when voting has no meeting area (nobody has a start): it waits, or asks for your start', () => {
+    // Two joined, only Darius has a start: there is nothing to vote on until a second start is shared.
+    const paused = make({ ...two, remote: true, status: 'voting', locations: { darius: { start: start(TAMPINES), end: null } }, meeting: null, area: null })
+    expect(nextStepFor(paused, 'ian')).toEqual({ label: 'Share your start', tone: 'action', to: '/sessions/s1' })
+    expect(nextStepFor(paused, 'darius')).toMatchObject({ label: 'Waiting for others', tone: 'wait' })
+    expect(nextStepFor(paused, 'ian').label).not.toBe('Vote')
+    expect(nextStepFor(paused, 'darius').label).not.toBe('Vote')
   })
   it('points at the plan once it is confirmed', () => {
     const s = make({ ...two, status: 'confirmed', locations: located })
@@ -313,5 +322,182 @@ describe('placeCard', () => {
     const c = placeCard({ tip: { x: 100, y: 120 }, pin, size, bounds: tiny })
     expect(c.inside).toBe(false)
     expect(c.top).toBeGreaterThanOrEqual(tiny.top)
+  })
+})
+
+// Walkthrough, 30 October 2026: Home lists a few meetups and points to the rest with "See all N meetups".
+describe('the meetups Home lists', () => {
+  const m = (id) => ({ id })
+  const six = ['a', 'b', 'c', 'd', 'e', 'f'].map(m)
+
+  it('lists at most four, soonest first as given', () => {
+    expect(HOME_MEETUPS_SHOWN).toBe(4)
+    expect(homeList(six).map((x) => x.id)).toEqual(['a', 'b', 'c', 'd'])
+    expect(homeList(six.slice(0, 2)).map((x) => x.id)).toEqual(['a', 'b'])
+  })
+
+  it('does not change with the selected one, so picking a pin moves nothing', () => {
+    expect(homeList(six).map((x) => x.id)).toEqual(['a', 'b', 'c', 'd'])
+  })
+
+  it('says how many there are in all', () => {
+    expect(allMeetupsLabel(9)).toBe('See all meetups')
+    expect(allMeetupsLabel(1)).toBe('See all meetups')
+  })
+})
+
+// Walkthrough, 30 October 2026: chips choose which meetups Home's list and map show. Friday 30 October 2026 in Singapore; this week
+// runs Monday 26 October to Sunday 1 November, next week 2 to 8 November.
+describe('the week chips on Home', () => {
+  const NOW = new Date('2026-10-30T10:00:00+08:00')
+  const on = (id, date) => ({ id, date })
+  const list = [on('overdue', '2026-10-28'), on('today', '2026-10-30'), on('sun', '2026-11-01'), on('mon', '2026-11-02'), on('nextsun', '2026-11-08'), on('later', '2026-11-09')]
+  const ids = (xs) => xs.map((x) => x.id)
+
+  it('are This week, Next week, After next week and All', () => {
+    expect(MEETUP_RANGES.map((r) => r.label)).toEqual(['This week', 'Next week', 'After next week', 'All'])
+  })
+
+  it('put each meetup in exactly one of the first three, Monday to Sunday in Singapore, an overdue one in this week', () => {
+    expect(ids(meetupsIn(list, 'week', NOW))).toEqual(['overdue', 'today', 'sun'])
+    expect(ids(meetupsIn(list, 'next', NOW))).toEqual(['mon', 'nextsun'])
+    expect(ids(meetupsIn(list, 'later', NOW))).toEqual(['later'])
+    expect(ids(meetupsIn(list, 'all', NOW))).toEqual(ids(list))
+    const counts = rangeCounts(list, NOW)
+    expect(counts).toEqual({ week: 3, next: 2, later: 1, all: 6 })
+    expect(counts.week + counts.next + counts.later).toBe(counts.all)
+  })
+
+  it('reads the day in Singapore, whatever the browser\'s zone: late Sunday night there is next week already', () => {
+    const sundayNight = new Date('2026-11-01T16:30:00Z') // 00:30 on Monday 2 November in Singapore
+    expect(inRange(on('mon', '2026-11-02'), 'week', sundayNight)).toBe(true)
+    expect(inRange(on('nextmon', '2026-11-09'), 'next', sundayNight)).toBe(true)
+  })
+
+  it('start on This week, or All when nothing is on this week', () => {
+    expect(defaultRange(list, NOW)).toBe('week')
+    expect(defaultRange([on('mon', '2026-11-02')], NOW)).toBe('all')
+    expect(defaultRange([], NOW)).toBe('all')
+  })
+})
+
+// Walkthrough, 30 October 2026: nearby pins covered each other on Home's small map. They now stand in a row, which does not move when
+// another pin is selected (an earlier version kept the selected pin on its spot, and pins swapped places at each pick).
+describe('laying out the pins on Home', () => {
+  const ROW = { fan: 58, width: 60, height: 76 }
+  const at = (moves, points) => Object.fromEntries(points.map((p) => [p.id, { x: p.x + moves.get(p.id).x, y: p.y + moves.get(p.id).y }]))
+  const overlaps = (spots) => {
+    const list = Object.values(spots)
+    // Drawn, a pin is 50px wide and the selected one 60px, so two tips closer than 55px across (and a pin's height down) touch.
+    return list.some((a, i) => list.slice(i + 1).some((b) => Math.abs(a.x - b.x) < 55 && Math.abs(a.y - b.y) < ROW.height))
+  }
+
+  it('leaves pins that are far apart where they are', () => {
+    const points = [{ id: 'a', x: -200, y: 0 }, { id: 'b', x: 200, y: 50 }]
+    const moves = layoutPins(points, ROW)
+    expect([...moves.values()]).toEqual([{ x: 0, y: 0 }, { x: 0, y: 0 }])
+  })
+
+  it('puts nearby pins in a row in list order, centred on them, none covering another', () => {
+    const points = [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 10, y: 8 }, { id: 'c', x: -4, y: 4 }]
+    const spots = at(layoutPins(points, ROW), points)
+    expect(spots.a.x).toBeCloseTo(2 - 58)
+    expect(spots.b.x).toBeCloseTo(2)
+    expect(spots.c.x).toBeCloseTo(2 + 58)
+    expect(new Set(Object.values(spots).map((p) => p.y)).size).toBe(1)
+    expect(overlaps(spots)).toBe(false)
+  })
+
+  it('does not depend on which pin is selected: it takes no selection at all', () => {
+    const points = [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 20, y: 0 }]
+    expect([...layoutPins(points, ROW).entries()]).toEqual([...layoutPins([...points], ROW).entries()])
+  })
+
+  it('joins a row to another group it would run into, until nothing overlaps', () => {
+    const points = [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 5, y: 5 }, { id: 'c', x: 70, y: 10 }, { id: 'd', x: 300, y: 0 }]
+    const spots = at(layoutPins(points, ROW), points)
+    expect(overlaps(spots)).toBe(false)
+    expect(spots.d).toEqual({ x: 300, y: 0 })
+  })
+
+  it('slides a row back inside the box when it would run past an edge', () => {
+    const points = [{ id: 'a', x: 140, y: 0 }, { id: 'b', x: 145, y: 0 }, { id: 'c', x: 150, y: 0 }]
+    const spots = at(layoutPins(points, { ...ROW, maxX: 150 }), points)
+    expect(Math.max(...Object.values(spots).map((p) => p.x))).toBeLessThanOrEqual(150)
+    expect(overlaps(spots)).toBe(false)
+  })
+})
+
+describe('homeStatus', () => {
+  const two = { activeIds: ['ian', 'darius'], members: [{ id: 'ian', state: 'joined' }, { id: 'darius', state: 'joined' }] }
+
+  it('names the stage in one word', () => {
+    expect(['inviting', 'locating', 'voting', 'confirmed', 'completed', 'cancelled'].map((status) => stageOf(make({ status })))).toEqual(['Planning', 'Planning', 'Voting', 'Ready', 'Done', 'Cancelled'])
+  })
+  it('says "your turn" only when the next step is the person\'s', () => {
+    expect(homeStatus(make(two), 'ian')).toEqual({ stage: 'Planning', turn: 'Start session', waiting: '', to: '/sessions/s1' })
+    expect(needsMe(make(two), 'ian')).toBe(true)
+    const guest = make({ ...two, hostId: 'darius' })
+    expect(homeStatus(guest, 'ian')).toMatchObject({ stage: 'Planning', turn: '', waiting: 'Waiting for the host' })
+    expect(needsMe(guest, 'ian')).toBe(false)
+  })
+})
+
+// Review of 1 November 2026: four forgotten outings filled Home's list and pins, the oldest was selected, and each had its own banner.
+describe('outings past their end time', () => {
+  const late = (id, date) => make({ id, date, end: '15:00', status: 'voting' })
+  const coming = (id, date) => make({ id, date, status: 'voting' })
+
+  it('come after the ones still to come, the most recent first, whatever order they were made in', () => {
+    const list = [late('old', '2026-10-01'), late('older', '2026-09-20'), coming('b', '2026-10-17'), coming('a', '2026-10-12'), late('recent', '2026-10-08')]
+    expect(ids(activeMeetups(list, NOW))).toEqual(['a', 'b', 'recent', 'old', 'older'])
+    expect(isOverdue(late('x', '2026-10-01'), NOW)).toBe(true)
+    expect(isOverdue(coming('y', '2026-10-17'), NOW)).toBe(false)
+  })
+
+  it('leave the next real meetup selected, and in Home\'s four, when there are four of them', () => {
+    const list = [late('o1', '2026-10-01'), late('o2', '2026-10-02'), late('o3', '2026-10-03'), late('o4', '2026-10-04'), coming('next', '2026-10-12')]
+    const meetups = activeMeetups(list, NOW)
+    expect(selectMeetup(homeList(meetups), undefined).id).toBe('next')
+    expect(ids(homeList(meetups))).toEqual(['next', 'o4', 'o3', 'o2'])
+  })
+
+  it('keep a meetup that keeps the session open (the demo) in its place', () => {
+    const list = [coming('b', '2026-10-17'), make({ id: 'demo', date: '2026-10-01', status: 'voting', keepOpen: true })]
+    expect(ids(activeMeetups(list, NOW))).toEqual(['demo', 'b'])
+  })
+
+  it('take no pin while a meetup still to come can have it, and are pinned when nothing else is', () => {
+    const o = late('o', '2026-10-01')
+    const n = coming('n', '2026-10-12')
+    expect(ids(pinnedMeetups([n, o], NOW))).toEqual(['n'])
+    expect(ids(pinnedMeetups([o], NOW))).toEqual(['o'])
+  })
+
+  it('do not send Home to This week when the only one this week is past its end and the next real one is later', () => {
+    const list = activeMeetups([late('o', '2026-10-01'), coming('n', '2026-10-30')], NOW)
+    expect(defaultRange(list, NOW)).toBe('all')
+    expect(defaultRange(activeMeetups([late('o', '2026-10-01')], NOW), NOW)).toBe('week')
+    expect(defaultRange(activeMeetups([late('o', '2026-10-01'), coming('n', '2026-10-11')], NOW), NOW)).toBe('week')
+  })
+})
+
+describe('homeSelection', () => {
+  // Saturday 31 October 2026, 13:00 in Singapore.
+  const now = new Date('2026-10-31T13:00:00+08:00')
+  const later = { id: 'later', status: 'voting', date: '2026-11-03', start: '12:00', end: '15:00' }
+  const live = { id: 'live', status: 'confirmed', date: '2026-10-31', start: '12:00', end: '15:00' }
+  it('is the meetup the address names, if it is listed', () => {
+    expect(homeSelection([later, live], 'later', now).id).toBe('later')
+    expect(homeSelection([later, live], ['later', 'live'], now).id).toBe('later')
+  })
+  it('is otherwise the one happening now, unless it was closed', () => {
+    expect(homeSelection([later, live], undefined, now).id).toBe('live')
+    expect(homeSelection([later, live], 'gone', now).id).toBe('live')
+    expect(homeSelection([later, live], undefined, now, { liveDismissed: true })).toBeNull()
+  })
+  it('is none when nothing is happening now', () => {
+    expect(homeSelection([later], undefined, now)).toBeNull()
+    expect(homeSelection([], 'later', now)).toBeNull()
   })
 })

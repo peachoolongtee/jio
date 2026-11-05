@@ -87,16 +87,73 @@ const TEXTS = {
     'Worth visiting at least once. The evening is especially nice.',
     'Busy on weekends. Weekday visits are much calmer.',
   ],
+  // The sets below are for places the planner can return that the sets above do not fit: a theatre, a place to play
+  // (karaoke, an arcade, an escape room, board games), a bowling alley, and any other activity. None of them talk about food.
+  theatre: [
+    'Booked ahead so the group could sit together. Good seats and the show started on time.',
+    'A relaxed evening out, and easy to get to by MRT. Check what is on before you go.',
+    'Seated and quiet during the show, so save the chatting for before and after.',
+    'Picked a show everyone would enjoy. A good plan for a rainy evening.',
+  ],
+  games: [
+    'Great for a group: we split into teams and the time went by fast.',
+    'Booked a slot ahead, which was easy to do. Best with four to six people.',
+    'Loud and silly in the best way. Everyone joined in, even the shy ones.',
+    'Costs more per person than a walk, but worth it for a birthday or a celebration.',
+  ],
+  bowling: [
+    'Lanes were free on a weekday evening. Shoe rental was quick.',
+    'Easy for mixed skill levels. We laughed more than we scored.',
+    'Book a lane ahead on weekends so the whole group can play together.',
+  ],
+  activity: [
+    'Easy to find and easy to get to. A good plan for a group that wants to do something together.',
+    'Booked ahead for the group and it was quick to sort out.',
+    'We spent a couple of hours here without noticing. Check opening hours first.',
+    'Better with friends than on your own. Allow more time than you think.',
+  ],
+}
+
+// The sets written about food and drink. A place that is not food never gets one of these.
+export const FOOD_KINDS = ['hawker', 'restaurant', 'cafe', 'dessert', 'bar']
+// The kinds of review text there are.
+export const REVIEW_KINDS = Object.keys(TEXTS)
+
+// What a place with no kind of its own is, by its category. Eating and drinking places are food, the others are not.
+const FROM_CATEGORY = { eat: 'restaurant', drink: 'cafe', shop: 'mall', activity: 'activity' }
+// What the planner's own list calls a place that has a cuisine and no kind (backend/src/db/mock/mock-data.json), and
+// what Google calls the places that are played at.
+const FROM_CUISINE = { hawker: 'hawker', cafe: 'cafe', bar: 'bar', park: 'park', museum: 'museum', bowling: 'bowling', board_games: 'games', escape_room: 'games' }
+const GAMES = new Set(['karaoke', 'video_arcade', 'amusement_center', 'escape_room', 'board_games'])
+const BOWLING = new Set(['bowling', 'bowling_alley'])
+
+// Which set of review texts fits a place. Food places get food texts and no other place does: the category settles it
+// when the kind and the category disagree. A place with no kind is told apart by its cuisine, a CDC site is a hawker
+// centre's stalls, and anything else falls to its category (a place with none is "activity", which has no food in it).
+// How to call: reviewKind({ kind: 'sports', cuisine: 'bowling_alley', category: 'activity' }) -> 'bowling'
+export function reviewKind(venue) {
+  const { kind, cuisine, category, source } = venue || {}
+  let key
+  if (kind === 'attraction' && GAMES.has(cuisine)) key = 'games'
+  else if (kind === 'sports' && BOWLING.has(cuisine)) key = 'bowling'
+  else if (kind && TEXTS[kind]) key = kind
+  else if (source === 'cdc') key = 'hawker'
+  else key = FROM_CUISINE[cuisine] || FROM_CATEGORY[category] || 'activity'
+  const food = category === 'eat' || category === 'drink'
+  const place = category === 'shop' || category === 'activity'
+  if ((food && !FOOD_KINDS.includes(key)) || (place && FOOD_KINDS.includes(key))) return FROM_CATEGORY[category]
+  return key
 }
 
 const CIRCLE = PEOPLE.filter((p) => p.id !== 'ian' && !isCommunity(p.id))
 const OTHERS = PEOPLE.filter((p) => isCommunity(p.id))
 
 // 3 to 5 reviews for a venue, newest first: one or two from Ian's circle, the rest from other people on Jio.
-// Ratings sit around the venue's own rating.
+// Ratings sit around the venue's own rating. The texts fit the kind of place (see reviewKind).
+// How to call: reviewsFor({ id: 'maxwell', kind: 'hawker', category: 'eat', rating: 8.4 })
 export function reviewsFor(venue, today = new Date()) {
   const random = seeded(`reviews:${venue.id}`)
-  const texts = [...(TEXTS[venue.kind] || TEXTS.restaurant)]
+  const texts = [...TEXTS[reviewKind(venue)]]
   const count = Math.min(texts.length, 3 + Math.floor(random() * 3))
   const pick = (list, n) => {
     const pool = [...list]

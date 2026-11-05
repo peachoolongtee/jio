@@ -8,11 +8,17 @@
 // center: the place that sits in the middle of the box (Singapore's middle by default), so something laid over the
 // box's centre lines up with it. span: how much around it always shows; the map scales to fit that and fills the
 // rest of the box with whatever is beyond. Give the box a size.
+// rain: [{ lat, lng }] the places where rain is likely: each is a feathered blue wash over about one forecast area, and slanted
+// streaks of rain fall over the whole map (lib/rainLook.js; DESIGN.md, "Weather"). Home draws it only for an outing
+// within two hours; the words for it are on the page, and so is the chip, as the map is hidden from screen readers. It fades in
+// over 900 ms (`fadeRain` turns that off) and the drops fall; under reduced motion neither happens and the wash and drops stand still. It is under the routes
+// and the pins, and takes no pointer events.
 // quick: draw the routes in about twice as fast, for a map that redraws when the choice changes (give it a new
 // :key to redraw it): <SingaporeMap :key="selected.id" :routes="routes" quick />
 // Built after Aceternity's World Map, with Singapore from lib/singaporeDots.js instead of the world.
 import { computed, useId } from 'vue'
 import { DOT_STEP, NEARBY_DOTS, SINGAPORE_DOTS, project } from '@/lib/singaporeDots.js'
+import { MAX_RAIN_PATCHES, WASH_STOPS, rainSeed, rainStreaks } from '@/lib/rainLook.js'
 
 const DOT = DOT_STEP * 0.42
 
@@ -25,7 +31,17 @@ const props = defineProps({
   // Hide the meeting point (when something on top of the map marks it instead).
   hideMeet: { type: Boolean, default: false },
   quick: { type: Boolean, default: false },
+  rain: { type: Array, default: () => [] },
+  // Fade the rain in over 900 ms. A map that is drawn again for the same rain (Home picks another meetup) turns it off, so the rain does not
+  // fade out and in again.
+  fadeRain: { type: Boolean, default: true },
 })
+
+// How far the rain wash reaches around a place, in map units (6.2 km: a forecast area and the ground around it, wide enough to
+// show round a pin, with a soft edge), and how the look's pixel sizes (lib/rainLook.js) map to map
+// units.
+const RAIN_R = 56
+const RAIN_K = 0.7
 
 const MIDDLE = { x: 395, y: 205 }
 // Gradient ids must be unique on the page, so each map gets its own prefix.
@@ -49,6 +65,21 @@ const lines = computed(() =>
     return { a, b, d: curve(a, b) }
   }),
 )
+// Each patch with its streaks, in map units (RAIN_K map units to a rain unit), picked by where it is so a redraw keeps them.
+// The rainy places: a wash over each, so the map still shows where the rain is.
+const patches = computed(() => props.rain.slice(0, MAX_RAIN_PATCHES).map((p, i) => ({ ...project(p.lat, p.lng), i })))
+// The streaks fall over the whole map, not only round the rainy places (Darius, 4 November 2026): one square sheet of them, centred on
+// the view and wide enough for the box beyond the view box too (the map fills a wide box with what is beyond), at the patches' speed.
+const RAIN_SHEET = 2.4
+const RAIN_SHEET_MAX = 380
+const sheet = computed(() => {
+  if (!patches.value.length) return null
+  const [x, y, w, h] = viewBox.value.split(' ').map(Number)
+  const size = Math.max(w, h) * RAIN_SHEET
+  const first = props.rain[0]
+  return { x: x + w / 2 - size / 2, y: y + h / 2 - size / 2, size, rain: rainStreaks({ size, scale: RAIN_K, seed: rainSeed(first.lat, first.lng), max: RAIN_SHEET_MAX, pace: true }) }
+})
+
 // Every route ends at the same place, so draw the meeting point once.
 const meet = computed(() => (props.hideMeet ? null : lines.value[0]?.b || null))
 </script>
@@ -60,6 +91,14 @@ const meet = computed(() => (props.hideMeet ? null : lines.value[0]?.b || null))
       <path class="sgmap__dots" :d="SINGAPORE_DOTS" :stroke-width="DOT" />
 
       <defs>
+        <!-- Rain: a wash and a white feather (both fade to nothing at the edge), and the streaks' fade from nothing at their top. -->
+        <radialGradient :id="`${uid}-wash`">
+          <stop v-for="[offset, opacity] in WASH_STOPS" :key="offset" :offset="offset" class="rain-wash" :stop-opacity="opacity" />
+        </radialGradient>
+        <linearGradient :id="`${uid}-streak`" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" class="rain-streak-stop" stop-opacity="0" />
+          <stop offset="1" class="rain-streak-stop" stop-opacity="1" />
+        </linearGradient>
         <!-- Each route: faint where someone starts, full colour where everyone meets. -->
         <linearGradient v-for="(line, i) in lines" :id="`${uid}-g${i}`" :key="`g${i}`" gradientUnits="userSpaceOnUse" :x1="line.a.x" :y1="line.a.y" :x2="line.b.x" :y2="line.b.y">
           <stop offset="0" class="sgmap__stop-start" />
@@ -67,6 +106,13 @@ const meet = computed(() => (props.hideMeet ? null : lines.value[0]?.b || null))
         </linearGradient>
         <filter :id="`${uid}-glow`" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="2.4" /></filter>
       </defs>
+      <g v-if="patches.length" class="sgmap__rain" data-testid="map-rain">
+        <circle v-for="p in patches" :key="`p${p.i}`" :class="{ 'rain-in': fadeRain }" :cx="p.x" :cy="p.y" :r="RAIN_R" :fill="`url(#${uid}-wash)`" data-testid="map-rain-patch" />
+        <!-- The streaks over the whole map, slanted by the wind (lib/rainLook.js rainStreaks). -->
+        <g :class="{ 'rain-in': fadeRain }" :transform="`translate(${sheet.x} ${sheet.y}) rotate(${sheet.rain.angle} ${sheet.size / 2} ${sheet.size / 2})`" :style="{ '--rain-travel': `${sheet.rain.travel}px` }" data-testid="map-rain-sheet">
+          <rect v-for="(d, k) in sheet.rain.drops" :key="k" class="rain-streak" :style="{ '--rain-s': `${d.seconds}s`, '--rain-d': `${d.delay}s`, '--rain-still': `${d.still}px` }" :x="d.x" :y="sheet.rain.top" :width="d.width" :height="d.length" :rx="d.width" :opacity="d.opacity" :fill="`url(#${uid}-streak)`" />
+        </g>
+      </g>
       <g v-for="(line, i) in lines" :key="`r${i}`" :style="{ '--i': i }">
         <path class="sgmap__glow" :d="line.d" pathLength="1" :stroke="`url(#${uid}-g${i})`" :filter="`url(#${uid}-glow)`" />
         <path class="sgmap__route" :d="line.d" pathLength="1" :stroke="`url(#${uid}-g${i})`" />
@@ -103,6 +149,7 @@ const meet = computed(() => (props.hideMeet ? null : lines.value[0]?.b || null))
   70% { stroke-dashoffset: -0.93; opacity: 1; }
   80%, 100% { stroke-dashoffset: -0.93; opacity: 0; }
 }
+/* Rain: the wash, the drops, the fade and the fall are in styles/rain.css, shared with the session map. */
 /* Where someone starts: a small open ring, not a station dot. */
 .sgmap__start { fill: var(--canvas); stroke: var(--primary); stroke-width: 1.1; opacity: 0; animation: sgmap-pop 400ms var(--ease-out) forwards; animation-delay: calc(0.1s + var(--i) * 0.2s); }
 @keyframes sgmap-pop { to { opacity: 0.9; } }

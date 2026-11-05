@@ -1,0 +1,15 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "text": "{\"places\": [{\"name\": \"Starlight Noodle House\", \"name_english\": \"Starlight Noodle House\", \"location_hint\": \"9 Example Road, #01-02, Singapore 000009\", \"has_address\": true, \"tip\": \"Order the dry noodles with extra chilli.\", \"status\": \"open\", \"opens_on\": \"\", \"closes_on\": \"\", \"availability_note\": \"\", \"comment_note\": \"\", \"source\": \"on_screen_text\", \"confidence\": 0.95}, {\"name\": \"Starlight Karaoke Box\", \"name_english\": \"Starlight Karaoke Box\", \"location_hint\": \"9 Example Road, #05-01\", \"has_address\": true, \"tip\": \"Cheap on weekdays.\", \"status\": \"open\", \"opens_on\": \"\", \"closes_on\": \"\", \"availability_note\": \"\", \"comment_note\": \"A viewer says the queue is long on weekends.\", \"source\": \"speech\", \"confidence\": 0.9}, {\"name\": \"Stub Pop-up Matcha Bar\", \"name_english\": \"Stub Pop-up Matcha Bar\", \"location_hint\": \"east side\", \"has_address\": false, \"tip\": \"Matcha latte and cookies.\", \"status\": \"temporary\", \"opens_on\": \"\", \"closes_on\": \"\", \"availability_note\": \"A pop-up with no dates given.\", \"comment_note\": \"\", \"source\": \"caption\", \"confidence\": 0.7}]}"
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP"
+    }
+  ]
+}

@@ -46,7 +46,7 @@ async function startApp({ stub }) {
     },
   })
 
-  const server = app.listen(0)
+  const server = app.listen(0, '127.0.0.1')
   await once(server, 'listening')
   return { server, base: `http://127.0.0.1:${server.address().port}` }
 }

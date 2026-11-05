@@ -6,7 +6,8 @@ const MODES = { walk: 'Walk', mrt: 'MRT', car: 'Car' }
 <script setup>
 // The link between two stops: a line and a visible three-way switch, Walk, MRT and Car,
 // each with its own time. Choosing one moves every later stop. The times are estimates from the distance between
-// the stops, so they read "about" (or are marked "est." beside the switch).
+// the stops, so screen readers hear "about". On screen each choice is its symbol and its time, with no word and no "est." (Darius,
+// 4 November 2026); the mode's name stays for screen readers and as a tooltip.
 //   <TravelConnector :options="{ walk: 12, mrt: 9, car: 7 }" mode="walk" @change="setMode(index, $event)" />
 // Set `readonly` where the mode cannot be changed: only the chosen mode is shown.
 // Two stops in the same place (every mode 0 min) just say so: there is nothing to choose.
@@ -39,14 +40,13 @@ const together = computed(() => Object.values(props.options).every((m) => m === 
     </span>
     <div v-else class="leg__group">
       <div class="leg__switch" role="radiogroup" :aria-label="label">
-        <label v-for="(text, key) in MODES" :key="key" class="leg__opt" :class="{ 'is-on': mode === key }">
+        <label v-for="(text, key) in MODES" :key="key" class="leg__opt" :class="{ 'is-on': mode === key }" :title="text">
           <input class="sr-only" type="radio" :name="`leg-${id}`" :value="key" :checked="mode === key" @change="$emit('change', key)" />
           <AppIcon :name="key" :size="14" />
-          <span class="leg__name">{{ text }}</span>
+          <span class="leg__name sr-only">{{ text }}</span>
           <span class="leg__min"><span class="sr-only">about </span>{{ options[key] }} min</span>
         </label>
       </div>
-      <span class="leg__est caption-sm text-muted" aria-hidden="true">est.</span>
     </div>
   </div>
 </template>

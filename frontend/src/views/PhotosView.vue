@@ -9,6 +9,11 @@
 //   - "Add photos" sits above the line (the Rausch camera floats while there are none). A session holds up to
 //     PHOTOS_MAX photos. Your own photos can be deleted in the viewer, after a question to make sure.
 //   - The pictures are not part of the session summary (it has photoCount): they load with events.loadPhotos.
+//   - Share (under the line, for the print in the middle, and in the viewer) hands a photo to the phone's share sheet, for
+//     WhatsApp, Instagram and the rest; where the browser cannot, a dialog offers to save it and open the app (ShareDialog).
+//   - Photos open on the outing's Singapore day, for every member, and not before: until then the page says so, with the way back.
+//   - A session on the server has no photos yet (they would need storage of their own, a later update): the page says so, with the way
+//     back to the itinerary, and offers no camera.
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -21,16 +26,19 @@ import PhotoViewer from '@/components/ui/PhotoViewer.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
+import ShareDialog from '@/components/event/ShareDialog.vue'
 import NotFoundView from './NotFoundView.vue'
 import { PHOTOS_MAX } from '@/lib/api.js'
 import { compressImage } from '@/lib/image.js'
-import { HOST_ID } from '@/lib/mock/people.js'
-import { sessionPath } from '@/lib/session.js'
+import { photosOpen, sessionPath, singaporeDate, singaporeMinutes } from '@/lib/session.js'
+import { useNow } from '@/lib/useNow.js'
+import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 
 const props = defineProps({ id: { type: String, required: true } })
 
 const events = useEventsStore()
+const auth = useAuthStore()
 const missing = ref(false)
 const viewing = ref(-1)
 // The print in the middle of the line.
@@ -47,9 +55,15 @@ let openedFrom = 'line'
 // The photo the question "Delete this photo?" is about.
 const confirming = ref(false)
 let toDelete = null
+const sharer = ref(null)
 
 const session = computed(() => events.byId[props.id])
-const open = computed(() => ['confirmed', 'completed'].includes(session.value?.status))
+// An outing that closed by itself never had a plan, so photos stay shut for it (lib/api.js addPhoto refuses too).
+const photosOff = computed(() => !!session.value?.remote)
+// Is there a plan to take pictures of? Photos then open on the outing's day (lib/api.js addPhoto refuses before it too).
+const planned = computed(() => ['confirmed', 'completed'].includes(session.value?.status) && session.value?.endedBy !== 'closed' && !photosOff.value)
+const now = useNow()
+const open = computed(() => planned.value && photosOpen(session.value, now.value))
 // undefined until the pictures have loaded.
 const loaded = computed(() => events.photos[props.id])
 
@@ -63,6 +77,12 @@ async function load() {
     return
   }
   if (!open.value) return
+  await loadPhotos()
+}
+// The pictures and the itinerary they hang on, once the page is open.
+// How to call: await loadPhotos()
+async function loadPhotos() {
+  loadError.value = ''
   try {
     await Promise.all([events.loadItinerary(props.id), events.loadPhotos(props.id)])
   } catch (e) {
@@ -71,15 +91,19 @@ async function load() {
 }
 onMounted(load)
 watch(() => props.id, load)
+// A page left open until the day begins (past midnight in Singapore) opens by itself, so it loads the pictures then; one that already has them
+// (or is loading them) does not ask again.
+watch(open, (now, was) => {
+  if (now && !was && !loaded.value) loadPhotos()
+})
 
 // Newest first, for the gallery and the viewer alike, so swiping on moves back in time.
 const ordered = computed(() => [...(loaded.value || [])].reverse())
 const full = computed(() => ordered.value.length >= PHOTOS_MAX)
 const contributors = computed(() => [...new Map(ordered.value.map((p) => [p.personId, { id: p.personId, name: p.name }])).values()])
 
-const time = (at) => new Date(at).toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', hour12: false })
-
-const dayKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+// Singapore's clock, as the session's own times are.
+const time = (at) => new Date(at).toLocaleTimeString('en-SG', { timeZone: 'Asia/Singapore', hour: '2-digit', minute: '2-digit', hour12: false })
 
 // The stop that was on when the photo was posted, if it was posted on the day of the session
 // (or today, while the demo treats today as the session day).
@@ -87,10 +111,10 @@ function placeOf(photo) {
   const stops = events.itineraries[props.id]?.stops
   if (!stops?.length || !session.value) return ''
   const at = new Date(photo.at)
-  const day = dayKey(at)
-  const onTheDay = day === session.value.date || (session.value.isToday && day === dayKey(new Date()))
+  const day = singaporeDate(at)
+  const onTheDay = day === session.value.date || (session.value.isToday && day === singaporeDate())
   if (!onTheDay) return ''
-  const minute = at.getHours() * 60 + at.getMinutes()
+  const minute = singaporeMinutes(at)
   const stop = stops.find((s, k) => minute >= s.start && minute < (stops[k + 1]?.start ?? s.end))
   return stop?.venue.name || ''
 }
@@ -133,6 +157,17 @@ async function onFiles(event) {
   }
 }
 
+// The photo a press of Share would send: the one open in the viewer, else the one in the middle of the line. Its file is made ahead
+// (ShareDialog.prepare), so the press can open the phone's share sheet at once.
+const shareable = computed(() => ordered.value[viewing.value >= 0 ? viewing.value : current.value] || null)
+watch([shareable, sharer], ([photo, dialog]) => dialog?.prepare(photo), { immediate: true, flush: 'post' })
+
+// Share a photo, with where it was taken when that is known.
+// How to call: share(photo)
+function share(photo) {
+  if (photo) sharer.value?.share(photo, placeOf(photo))
+}
+
 // The viewer asks to delete a photo: ask first. Cancelling leaves the viewer open, focus back on its Delete button.
 function askDelete(photo) {
   toDelete = photo
@@ -162,13 +197,19 @@ async function confirmDelete() {
 <template>
   <NotFoundView v-if="missing" />
   <main v-else-if="session" class="screen" data-testid="photos-view">
-    <SessionHeader :session="session" back="/" />
+    <SessionHeader :session="session" />
 
     <div class="screen__body">
       <SessionNotices :session="session" />
       <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
 
-      <EmptyState v-if="!open" title="Photos open once the plan is confirmed" text="Everyone in the session can post pictures from the day after that.">
+      <EmptyState v-if="photosOff" title="Photos are not shared yet" text="They come in a later update. Everyone in the session will be able to post pictures from the day." data-testid="photos-later">
+        <AppButton variant="secondary" :to="`/sessions/${id}/itinerary`">Back to the itinerary</AppButton>
+      </EmptyState>
+      <EmptyState v-else-if="!planned" title="Photos open once the plan is confirmed" text="Everyone in the session can post pictures from the day after that.">
+        <AppButton variant="secondary" :to="sessionPath(session)">Back to the session</AppButton>
+      </EmptyState>
+      <EmptyState v-else-if="!open" title="Photos open on the day" text="Everyone in the session can post pictures from the day of the outing." data-testid="photos-before-day">
         <AppButton variant="secondary" :to="sessionPath(session)">Back to the session</AppButton>
       </EmptyState>
       <div v-else-if="loadError" class="stack gap-md" role="alert">
@@ -194,7 +235,12 @@ async function confirmDelete() {
         </div>
 
         <PolaroidLine v-model:index="current" class="rise" :photos="prints" label="Photos from the day" @open="openPhoto($event, 'line')" />
-        <p class="caption text-muted">Select the photo in the middle, or any photo below, to open it larger.</p>
+        <div class="gallery__line">
+          <AppButton variant="secondary" small data-testid="share-current" @click="share(ordered[current])">
+            <AppIcon name="share" :size="16" />
+            Share this photo
+          </AppButton>
+        </div>
 
         <section class="thumbs" aria-labelledby="thumbs-head">
           <h2 id="thumbs-head" class="title-md">All photos</h2>
@@ -222,9 +268,12 @@ async function confirmDelete() {
       :photos="ordered"
       :origin="tileImage"
       :place="placeOf"
-      :can-delete="(p) => p.personId === HOST_ID"
+      :can-delete="(p) => p.personId === auth.myId"
+      can-share
       @delete="askDelete"
+      @share="share"
     />
+    <ShareDialog ref="sharer" :session="session" />
 
     <ModalDialog v-model:open="confirming" title="Delete this photo?" text="It is removed for everyone in the session.">
       <AppButton block variant="secondary" @click="confirming = false">Keep photo</AppButton>
@@ -240,6 +289,8 @@ async function confirmDelete() {
 .gallery { display: flex; flex-direction: column; gap: var(--spacing-md); }
 .gallery__sum { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-sm); min-height: 28px; }
 .gallery__add { margin-left: auto; }
+.gallery__line { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-sm); }
+.gallery__line .caption { margin: 0; flex: 1 1 16rem; }
 
 /* All photos: small square thumbnails; the one on the line in the middle is ringed. */
 .thumbs { display: flex; flex-direction: column; gap: var(--spacing-md); margin-top: var(--spacing-base); }

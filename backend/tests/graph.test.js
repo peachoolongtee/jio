@@ -46,6 +46,13 @@ test('estimateTransitMinutes: far trips use transit, very short trips just walk'
   assert.ok(far.minutes > 30 && far.minutes < 150, `got ${far.minutes}`);
   const near = G.estimateTransitMinutes({ lat: 1.3008, lng: 103.8555 }, { lat: 1.3012, lng: 103.8560 }, n);
   assert.strictEqual(near.mode, 'walk');
+  const shortWalk = G.estimateTransitMinutes(
+    { lat: 1.3008, lng: 103.8555 },
+    { lat: 1.3012, lng: 103.8560 },
+    n,
+    { waitMinutes: 1000 },
+  );
+  assert.ok(Math.abs(shortWalk.minutes - (haversineKm({ lat: 1.3008, lng: 103.8555 }, { lat: 1.3012, lng: 103.8560 }) * 1.3 * 12)) < 1e-9);
 });
 
 // ---- ordering stops: greedy vs exact ----

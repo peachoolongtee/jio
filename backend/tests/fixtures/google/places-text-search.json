@@ -1,0 +1,226 @@
+{
+  "places": [
+    {
+      "id": "stub_text_01",
+      "displayName": {
+        "text": "Starlight Karaoke Box",
+        "languageCode": "en"
+      },
+      "location": {
+        "latitude": 1.3046,
+        "longitude": 103.8318
+      },
+      "types": [
+        "karaoke",
+        "point_of_interest",
+        "establishment"
+      ],
+      "primaryType": "karaoke",
+      "formattedAddress": "9 Example Road, #05-01, Singapore 000009",
+      "priceLevel": "PRICE_LEVEL_MODERATE",
+      "rating": 4.1,
+      "userRatingCount": 12,
+      "regularOpeningHours": {
+        "periods": [
+          {
+            "open": {
+              "day": 0,
+              "hour": 12,
+              "minute": 0
+            },
+            "close": {
+              "day": 1,
+              "hour": 2,
+              "minute": 0
+            }
+          },
+          {
+            "open": {
+              "day": 1,
+              "hour": 12,
+              "minute": 0
+            },
+            "close": {
+              "day": 2,
+              "hour": 2,
+              "minute": 0
+            }
+          },
+          {
+            "open": {
+              "day": 2,
+              "hour": 12,
+              "minute": 0
+            },
+            "close": {
+              "day": 3,
+              "hour": 2,
+              "minute": 0
+            }
+          },
+          {
+            "open": {
+              "day": 3,
+              "hour": 12,
+              "minute": 0
+            },
+            "close": {
+              "day": 4,
+              "hour": 2,
+              "minute": 0
+            }
+          },
+          {
+            "open": {
+              "day": 4,
+              "hour": 12,
+              "minute": 0
+            },
+            "close": {
+              "day": 5,
+              "hour": 2,
+              "minute": 0
+            }
+          },
+          {
+            "open": {
+              "day": 5,
+              "hour": 12,
+              "minute": 0
+            },
+            "close": {
+              "day": 6,
+              "hour": 2,
+              "minute": 0
+            }
+          },
+          {
+            "open": {
+              "day": 6,
+              "hour": 12,
+              "minute": 0
+            },
+            "close": {
+              "day": 0,
+              "hour": 2,
+              "minute": 0
+            }
+          }
+        ]
+      },
+      "businessStatus": "OPERATIONAL"
+    },
+    {
+      "id": "stub_text_02",
+      "displayName": {
+        "text": "Starlight Noodle House",
+        "languageCode": "en"
+      },
+      "location": {
+        "latitude": 1.3049,
+        "longitude": 103.8322
+      },
+      "types": [
+        "noodle_shop",
+        "restaurant",
+        "food",
+        "point_of_interest",
+        "establishment"
+      ],
+      "primaryType": "noodle_shop",
+      "formattedAddress": "9 Example Road, #01-02, Singapore 000009",
+      "priceLevel": "PRICE_LEVEL_INEXPENSIVE",
+      "rating": 4.3,
+      "userRatingCount": 340,
+      "regularOpeningHours": {
+        "periods": [
+          {
+            "open": {
+              "day": 0,
+              "hour": 9,
+              "minute": 0
+            },
+            "close": {
+              "day": 1,
+              "hour": 5,
+              "minute": 0
+            }
+          },
+          {
+            "open": {
+              "day": 1,
+              "hour": 11,
+              "minute": 0
+            },
+            "close": {
+              "day": 2,
+              "hour": 5,
+              "minute": 0
+            }
+          },
+          {
+            "open": {
+              "day": 2,
+              "hour": 11,
+              "minute": 0
+            },
+            "close": {
+              "day": 3,
+              "hour": 5,
+              "minute": 0
+            }
+          },
+          {
+            "open": {
+              "day": 3,
+              "hour": 11,
+              "minute": 0
+            },
+            "close": {
+              "day": 4,
+              "hour": 5,
+              "minute": 0
+            }
+          },
+          {
+            "open": {
+              "day": 4,
+              "hour": 11,
+              "minute": 0
+            },
+            "close": {
+              "day": 5,
+              "hour": 5,
+              "minute": 0
+            }
+          },
+          {
+            "open": {
+              "day": 5,
+              "hour": 11,
+              "minute": 0
+            },
+            "close": {
+              "day": 6,
+              "hour": 5,
+              "minute": 0
+            }
+          },
+          {
+            "open": {
+              "day": 6,
+              "hour": 9,
+              "minute": 0
+            },
+            "close": {
+              "day": 0,
+              "hour": 5,
+              "minute": 0
+            }
+          }
+        ]
+      },
+      "businessStatus": "OPERATIONAL"
+    }
+  ]
+}

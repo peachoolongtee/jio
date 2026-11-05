@@ -2,6 +2,8 @@
 // A place opened from its card on Home: the photo, name, rating and price, the exact address apart from the
 // distance, "Navigate" (Google Maps directions in a new tab), and sample reviews: your friends' first, then other
 // people on Jio. A friend's review is tagged Friend; anyone else's has Add friend, so you can add them from here.
+// Opened from the Vote page, `outing` lists the people in the outing: their reviews come first and are tagged
+// "In this outing", then friends, then everyone else. Without `outing` the order and tags are Home's.
 // A "Sample data for the demo" note under the name says the place details and reviews are demo content.
 //   <PlaceDetail :place="place" :reviews="reviews" @close="close" />
 // `place` is the card's own data, so the view draws at once; `reviews` follow from api.getPlace (null while loading).
@@ -22,9 +24,11 @@ import SampleNote from '../ui/SampleNote.vue'
 import SkeletonRow from '../ui/SkeletonRow.vue'
 import UserAvatar from '../ui/UserAvatar.vue'
 import { directionsUrl } from '@/lib/maps.js'
+import { useAuthStore } from '@/stores/auth.js'
 import { useGroupsStore } from '@/stores/groups.js'
 import { placeImage, placeKind } from '@/lib/placeImages.js'
 import { useFocusTrap } from '@/lib/useFocusTrap.js'
+import { orderReviews } from '@/lib/reviewPick.js'
 
 const KIND_LABELS = {
   hawker: 'Hawker centre', restaurant: 'Restaurant', cafe: 'Café', dessert: 'Dessert', bar: 'Bar', mall: 'Mall', market: 'Market',
@@ -37,6 +41,8 @@ const props = defineProps({
   // Where the distance is measured from: "home", or the meetup's area ("Serangoon").
   from: { type: String, default: 'home' },
   error: { type: String, default: '' },
+  // Ids of the people in the outing, when the view is opened from a session. Optional.
+  outing: { type: Array, default: () => [] },
 })
 const emit = defineEmits(['close'])
 
@@ -52,11 +58,17 @@ const { onKeydown } = useFocusTrap(open, panel, { restoreOnUnmount: true })
 
 // Who is a friend, from the people list (loaded here if Home has not yet).
 const groups = useGroupsStore()
-if (!groups.people.length) groups.loadPeople()
+const auth = useAuthStore()
+// A failure only leaves the friend marks out; nothing waits on it.
+if (!groups.people.length) groups.loadPeople().catch(() => {})
 const isFriend = (id) => !!groups.people.find((p) => p.id === id)?.isFriend
 const adding = ref('')
-const sorted = computed(() => (props.reviews ? [...props.reviews].sort((a, b) => isFriend(b.personId) - isFriend(a.personId)) : null))
+const inOuting = (id) => props.outing.includes(id)
+const friendIds = computed(() => groups.people.filter((p) => p.isFriend).map((p) => p.id))
+// People in the outing first, then friends, then everyone else; newest first inside each group.
+const sorted = computed(() => (props.reviews ? orderReviews(props.reviews, { outing: props.outing, friends: friendIds.value }) : null))
 const friendCount = computed(() => (props.reviews || []).filter((r) => isFriend(r.personId)).length)
+const outingCount = computed(() => (props.reviews || []).filter((r) => inOuting(r.personId)).length)
 async function addFriend(id) {
   adding.value = id
   await groups.setFriend(id, true)
@@ -90,7 +102,7 @@ onBeforeUnmount(() => {
           <header class="pd__head">
             <p class="pd__kind caption text-muted"><CategoryIcon :category="place.category" :size="24" /> {{ kind }}</p>
             <h2 :id="titleId" class="display-md pd__name">{{ place.name }}</h2>
-            <SampleNote />
+            <SampleNote v-if="!place.saved" />
             <div class="pd__facts">
               <RatingBadge v-if="place.rating != null" large :score="place.rating" />
               <PriceTier class="pd__price" :price="place.price" />
@@ -103,11 +115,11 @@ onBeforeUnmount(() => {
               <span class="pd__pin"><AppIcon name="pin" :size="18" /></span>
               <span class="pd__address-text">
                 <span class="caption text-muted">Address</span>
-                <span class="title-sm">{{ place.address || `${place.area}, Singapore` }}</span>
+                <span class="title-sm">{{ place.address || (place.saved ? 'No address saved' : `${place.area}, Singapore`) }}</span>
               </span>
             </div>
-            <div class="pd__distance">
-              <span class="pd__chip"><AppIcon name="route" :size="14" /><span class="tnum">{{ place.distanceKm }} km</span> from {{ from }}</span>
+            <div v-if="!place.noPin && (place.distanceKm != null || place.mrt)" class="pd__distance">
+              <span v-if="place.distanceKm != null" class="pd__chip"><AppIcon name="route" :size="14" /><span class="tnum">{{ place.distanceKm }} km</span> from {{ from }}</span>
               <span v-if="place.mrt" class="caption-sm text-muted">about {{ place.mrtWalk }} min walk from {{ place.mrt }} MRT</span>
             </div>
           </section>
@@ -117,13 +129,13 @@ onBeforeUnmount(() => {
               <AppIcon name="route" />
               Navigate
             </AppButton>
-            <p :id="`${titleId}-navigate`" class="caption-sm text-muted">Opens Google Maps in a new tab.</p>
+            <p :id="`${titleId}-navigate`" class="sr-only">Opens Google Maps in a new tab.</p>
           </div>
 
-          <section class="pd__reviews" :aria-labelledby="`${titleId}-reviews`">
+          <section v-if="!place.saved" class="pd__reviews" :aria-labelledby="`${titleId}-reviews`">
             <div class="pd__reviews-head">
               <h3 :id="`${titleId}-reviews`" class="title-md">Sample reviews</h3>
-              <span v-if="reviews" class="caption text-muted">{{ reviews.length }} {{ reviews.length === 1 ? 'review' : 'reviews' }} · {{ friendCount }} from friends</span>
+              <span v-if="reviews" class="caption text-muted">{{ reviews.length }} {{ reviews.length === 1 ? 'review' : 'reviews' }} · {{ friendCount }} from friends<template v-if="outingCount"> · {{ outingCount }} in this outing</template></span>
             </div>
             <div v-if="error" class="pd__error" role="alert">
               <p class="body-sm text-error">{{ error }}</p>
@@ -139,8 +151,9 @@ onBeforeUnmount(() => {
                   <span class="review__who">
                     <span class="review__name">
                       <RouterLink :to="`/people/${review.personId}`" class="title-sm review__link">{{ review.name }}</RouterLink>
-                      <span v-if="isFriend(review.personId)" class="review__friend caption-sm"><AppIcon name="check" :size="12" />Friend</span>
-                      <button v-else type="button" class="review__add caption" :disabled="adding === review.personId" @click="addFriend(review.personId)">
+                      <span v-if="inOuting(review.personId)" class="review__friend caption-sm"><AppIcon name="people" :size="12" />In this outing</span>
+                      <span v-else-if="isFriend(review.personId)" class="review__friend caption-sm"><AppIcon name="check" :size="12" />Friend</span>
+                      <button v-if="auth.sampleWorld && !isFriend(review.personId)" type="button" class="review__add caption" :disabled="adding === review.personId" @click="addFriend(review.personId)">
                         <AppIcon name="user-plus" :size="14" />Add friend
                       </button>
                     </span>
@@ -192,7 +205,7 @@ onBeforeUnmount(() => {
 .pd__list, .pd__reviews-head .caption { animation: pd-in 280ms var(--ease-out) both; }
 @keyframes pd-in { from { opacity: 0; transform: translateY(4px); } }
 @media (prefers-reduced-motion: reduce) { .pd__list, .pd__reviews-head .caption { animation: none; } }
-.pd__reviews-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--spacing-sm); }
+.pd__reviews-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--spacing-xxs) var(--spacing-sm); }
 .pd__list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
 .review { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-base) 0; }
 .review + .review { border-top: 1px solid var(--hairline-soft); }

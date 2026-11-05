@@ -90,8 +90,7 @@ export function buildSlots({ prefs, windowStart, windowEnd, deleted = [] }) {
   if (!responders.length) return []
 
   const counts = categoryCounts(prefs)
-  const top = Math.max(...Object.values(counts))
-  const needed = Math.min(Math.ceil(responders.length / 2), top)
+  const needed = Math.ceil(responders.length / 2)
   // Most picked first; ties follow the usual order of an outing.
   const rank = (c) => [...SEQUENCE, 'eat'].indexOf(c)
   let chosen = CATEGORIES.filter((c) => counts[c] >= needed && counts[c] > 0 && !deleted.includes(c)).sort(

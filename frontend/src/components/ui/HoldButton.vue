@@ -9,21 +9,24 @@ export function isAssistiveClick(event, keyHeld = false) {
 </script>
 
 <script setup>
-// A button you press and hold to confirm something that cannot be undone, such as ending a session. While held, a
+// A button you press and hold to confirm something that cannot be undone, such as cancelling an outing. While held, a
 // fill sweeps across it; letting go early runs it back. Held to the end, it emits `done` (follow it with a
 // confirmation). Works with a pointer (mouse, touch) and with Space or Enter held down. A screen reader, switch or
 // voice control cannot hold, so their activation (a click that is not from a pointer or a held key) emits `done` at
 // once: the confirmation that follows is what keeps it safe.
-//   <HoldButton label="Hold to end" @done="confirmOpen = true" />
+//   <HoldButton label="Hold to cancel" action="Cancel outing" @done="confirmOpen = true" />
 import { onBeforeUnmount, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
 
 const props = defineProps({
   label: { type: String, required: true },
-  // Said to screen readers, for example "End session".
+  // Said to screen readers, for example "Cancel outing".
   action: { type: String, default: '' },
   icon: { type: String, default: 'close' },
   duration: { type: Number, default: 1200 },
+  // A shorter word shown on the narrowest phones (under 360px), where the full label does not fit beside other buttons. The full label
+  // stays in the accessible name. For example "Hold to cancel" with short "Cancel".
+  short: { type: String, default: '' },
 })
 const emit = defineEmits(['done'])
 
@@ -108,12 +111,18 @@ onBeforeUnmount(() => cancelAnimationFrame(frame))
     <span class="hold__fill" aria-hidden="true" />
     <span class="hold__label" aria-hidden="true">
       <AppIcon :name="icon" :size="14" />
-      {{ holding ? 'Keep holding' : label }}
+      <template v-if="holding">Keep holding</template>
+      <template v-else><span class="hold__long">{{ label }}</span><span v-if="short" class="hold__short">{{ short }}</span></template>
     </span>
   </button>
 </template>
 
 <style scoped>
+.hold__short { display: none; }
+@media (max-width: 359.98px) {
+  .hold__short { display: inline; }
+  .hold__short + * , .hold__long:has(+ .hold__short) { display: none; }
+}
 .hold { position: relative; overflow: hidden; display: inline-flex; align-items: center; height: var(--tap-min); padding: 0 var(--spacing-base); border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--canvas)); border-radius: var(--rounded-full); background: var(--canvas); color: var(--primary); font: var(--text-button-sm); white-space: nowrap; cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
 /* The fill: grows from the left as you hold. No transition while holding (it follows the clock); letting go
    runs it back quickly. */

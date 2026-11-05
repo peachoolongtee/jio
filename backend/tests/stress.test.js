@@ -10,6 +10,7 @@ import { converge, roam, meetingArea } from '../src/planner/engine.js';
 import { filterByConstraints } from '../src/planner/filters.js';
 import { haversineKm, centroid, fairnessWeights, minimaxCenter } from '../src/planner/geo.js';
 import * as S from '../src/planner/scoring.js';
+import { buildingKey } from '../src/planner/diversity.js';
 import * as P from '../src/planner/postranking.js';
 
 // ---------------------------------------------------------------- seeded random mock data
@@ -89,7 +90,12 @@ function checkConverge(input, data, label, deps) {
   assert.ok(out.results.length <= (input.topN ?? 5), `${label}: more than topN`);
   out.results.forEach((r, i) => {
     assert.strictEqual(r.rank, i + 1, `${label}: rank numbering`);
-    if (i) assert.ok(r.score >= out.results[i - 1].score, `${label}: not sorted by score`);
+    // Tiered by how many of the group's diet needs a place is not known to meet (lenient only, ticket #107), then by score.
+    if (i) {
+      const prev = out.results[i - 1];
+      assert.ok(r.dietUnknown.length >= prev.dietUnknown.length, `${label}: a place meeting fewer diet needs ranks first`);
+      if (r.dietUnknown.length === prev.dietUnknown.length) assert.ok(r.score >= prev.score, `${label}: not sorted by score`);
+    }
     assert.ok(Number.isFinite(r.score) && r.score >= 0 && r.score <= 100, `${label}: score ${r.score}`);
     assert.ok(passed.has(r.venueId), `${label}: ${r.venueId} breaks a hard filter`);
     assert.ok(r.distanceFromCentreKm <= 3 + 1e-9, `${label}: beyond the 3 km cap`);
@@ -178,8 +184,24 @@ test('roam: 200 random points, results sorted, inside 3 km, no NaN', () => {
   for (let i = 0; i < 200; i++) {
     const input = { current: sgPoint(), members: Array.from({ length: int(1, 6) }, (_, j) => mockMember(j)), occasion: pick(OCCASIONS), dateTime: randomTime(), unknownPolicy: pick(['strict', 'lenient']) };
     const out = roam(input, realData);
-    out.results.forEach((r, j) => {
-      if (j) assert.ok(r.score >= out.results[j - 1].score, `roam#${i}: not sorted`);
+    // Tiered first by how many of the group's diet needs a place is not known to meet (lenient only, ticket #107). Within a
+    // tier, sorted by score, except that a second place in a building already shown moves below the others (#149): the
+    // places that keep their spot are sorted, so are the ones moved, and every moved one comes after every kept one.
+    out.results.forEach((r, j) => { if (j) assert.ok(r.dietUnknown.length >= out.results[j - 1].dietUnknown.length, `roam#${i}: a place meeting fewer diet needs ranks first`); });
+    // Which places are a second one in a building already shown is decided in score order, before the tiers (engine.js).
+    const seen = new Set(), movedIds = new Set();
+    [...out.results].sort((a, b) => a.score - b.score).forEach(r => {
+      const b = buildingKey(r.venue), k = b === null ? null : `${r.venue.category}|${b}`;
+      if (k !== null && seen.has(k)) movedIds.add(r.venueId);
+      else if (k !== null) seen.add(k);
+    });
+    for (const tier of new Set(out.results.map(r => r.dietUnknown.length))) {
+      const inTier = out.results.filter(r => r.dietUnknown.length === tier);
+      const kept = inTier.filter(r => !movedIds.has(r.venueId)), moved = inTier.filter(r => movedIds.has(r.venueId));
+      [kept, moved].forEach(list => list.forEach((r, j) => { if (j) assert.ok(r.score >= list[j - 1].score, `roam#${i}: not sorted`); }));
+      if (kept.length && moved.length) assert.ok(out.results.indexOf(moved[0]) > out.results.indexOf(kept[kept.length - 1]), `roam#${i}: a moved place ranks above a kept one`);
+    }
+    out.results.forEach(r => {
       assert.ok(r.distanceKm <= 3 + 1e-9, `roam#${i}: beyond 3 km`);
       assert.ok(Number.isFinite(r.score), `roam#${i}: score ${r.score}`);
     });

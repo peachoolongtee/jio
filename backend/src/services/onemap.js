@@ -1,6 +1,6 @@
 import { haversineKm, walkMinutes } from '../planner/geo.js'
 import { createCallBudget, DEFAULT_CALLS_PER_MINUTE, OneMapUnavailableError } from './budget.js'
-import { createCache } from './cache.js'
+import { createCache, queryKey } from './cache.js'
 import { ExternalApiError } from './http.js'
 import { currentScenario } from './scenario.js'
 
@@ -69,6 +69,21 @@ const round3 = (x) => Math.round(x * 1000) / 1000
 export function oneMapDateTime(dateTime) {
   const [y, m, d] = dateTime.slice(0, 10).split('-')
   return { date: `${m}-${d}-${y}`, time: `${dateTime.slice(11, 13)}:00:00` }
+}
+
+// Reads a search answer into plain places, or throws ExternalApiError when it cannot be read: not an object, a
+// `results` that is not a list, or a result that is not an object. `{}` and `{ results: [] }` are a good answer with
+// nothing in it. A result with no usable point is skipped, as it always was.
+//
+// How to call (inside this file):
+//   const places = readSearchAnswer(body)
+function readSearchAnswer(body) {
+  const bad = (why) => new ExternalApiError(`onemap sent a search answer that cannot be read (${why})`, { service: 'onemap', status: null, url: SEARCH_URL })
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) throw bad('not an object')
+  const results = body.results ?? []
+  if (!Array.isArray(results)) throw bad('results is not a list')
+  if (results.some((r) => r === null || typeof r !== 'object' || Array.isArray(r))) throw bad('a result is not an object')
+  return results.map(toPlace).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng))
 }
 
 // Reads one search result into a plain shape.
@@ -342,15 +357,16 @@ export function createOneMap({
   //   const places = await onemap.search('Bishan MRT')
   //   places[0] // { name: 'BISHAN MRT STATION', address: '...', postal: '...', lat: 1.35, lng: 103.84 }
   //
-  // Throws ExternalApiError when OneMap fails, and OneMapUnavailableError (a kind of ExternalApiError) with
-  // reason 'budget_empty' and retryAfterSeconds when the shared call budget is used up.
+  // Throws ExternalApiError when OneMap fails or answers with something that cannot be read (never cached), and
+  // OneMapUnavailableError (a kind of ExternalApiError) with reason 'budget_empty' and retryAfterSeconds when the
+  // shared call budget is used up. The array returned is the cache's own: copy it before changing it.
   async function search(query) {
     const q = query.trim()
-    const key = `search:${currentScenario()}:${q.toLowerCase()}`
+    const key = `search:${currentScenario()}:${queryKey(q)}`
     return searches.getOrSet(key, async () => {
       const url = `${SEARCH_URL}?searchVal=${encodeURIComponent(q)}&returnGeom=Y&getAddrDetails=Y&pageNum=1`
       const body = await budget.run(() => http.getJson(url))
-      return (body?.results ?? []).map(toPlace).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng))
+      return readSearchAnswer(body)
     })
   }
 
@@ -378,16 +394,19 @@ export function createOneMap({
   //
   // How to call:
   //   const minutes = await onemap.routeMinutes({ lat: 1.35, lng: 103.94 }, { lat: 1.30, lng: 103.85 }, '2026-10-10T19:00')
+  //   const private = await onemap.routeMinutes(position, venue, '2026-10-10T19:00', { cache: false }) // nothing of `position` is kept here
   //
   // Throws ExternalApiError when OneMap fails, and Error when routing is not enabled. When OneMap is not
   // available right now (budget used up, circuit open, login failed) it throws OneMapUnavailableError at once,
   // without waiting; the caller falls back to the estimate.
-  async function routeMinutes(from, to, dateTime) {
+  async function routeMinutes(from, to, dateTime, { cache = true } = {}) {
     if (!routingEnabled) throw new Error('OneMap routing is off: set ONEMAP_EMAIL and ONEMAP_PASSWORD')
     const d = describeRoute(from, to, dateTime)
     if (d.walk !== undefined) return d.walk
     try {
-      return await routes.getOrSet(d.key, () => fetchRoute(d.url))
+      // `cache: false` is for a trip from a point that must not be kept (a person's position for Roam): the answer is neither read from nor
+      // put in the route cache, so nothing of the point stays in this process.
+      return cache ? await routes.getOrSet(d.key, () => fetchRoute(d.url)) : await fetchRoute(d.url)
     } catch (err) {
       if (err instanceof OneMapUnavailableError) reportFallback(err.reason)
       else if (err instanceof ExternalApiError) reportFallback('upstream_error', err.status ? `HTTP ${err.status}` : 'no response')

@@ -4,11 +4,17 @@
 //   <InviteDialog v-model:open="inviteOpen" :session="session" />
 // A search box, then friends (and, when searching, other people on Jio) who are not in the session yet, each
 // picked with a tap. At the bottom: how many are picked and Send invites. Invites are pending until each accepts.
+// A shared session (session.remote, a real account's) lists its friends too, the people it has shared a session with (ticket
+// #125), with no search box: below them are the invite link and the invite by username (ShareLink, InviteByUsername), which
+// reach anyone else. Send invites shows only while there are friends to pick.
 import { computed, nextTick, ref, watch } from 'vue'
 import AppButton from '../ui/AppButton.vue'
 import AppIcon from '../ui/AppIcon.vue'
 import PopoverPanel from '../ui/PopoverPanel.vue'
 import UserAvatar from '../ui/UserAvatar.vue'
+import InviteByUsername from './InviteByUsername.vue'
+import ShareLink from './ShareLink.vue'
+import { canInviteByName } from '@/lib/session.js'
 import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
 
@@ -28,14 +34,16 @@ watch(open, async (isOpen) => {
   query.value = ''
   picked.value = []
   error.value = ''
-  if (!groups.people.length) groups.loadPeople()
+  // A failure leaves the list empty; the dialog still opens.
+  if (!groups.people.length) groups.loadPeople().catch(() => {})
   await nextTick()
   await nextTick()
   search.value?.focus()
 })
 
-// Anyone joined or already invited is not offered again.
-const taken = (id) => props.session.members.some((m) => m.id === id && ['joined', 'invited'].includes(m.state))
+// Anyone joined or already invited is not offered again; nor, in a shared session, anyone who opted out or whose invitation by name
+// was taken back or declined (the database keeps one per person; they can use the link).
+const taken = (id) => !canInviteByName(props.session, id)
 const matches = (p) => {
   const q = query.value.trim().toLowerCase().replace(/^@/, '')
   return !q || p.name.toLowerCase().includes(q) || p.username.toLowerCase().includes(q)
@@ -66,6 +74,12 @@ async function send() {
     close()
   } catch (e) {
     error.value = e.message
+    // The ones that did go through, and the ones that cannot be invited by name, are not picked any more, so a retry does not send them
+    // again and the count stays true. The rest stay picked.
+    const gone = [...(e.invited || []), ...(e.skipped || []), ...(e.blocked || [])]
+    picked.value = picked.value.filter((id) => !gone.includes(id))
+    // Some of the invitations were written, so the list is read again to show who is Invited.
+    if (gone.length) events.loadSession(props.session.id).catch(() => null)
   }
   busy.value = false
 }
@@ -73,14 +87,15 @@ async function send() {
 
 <template>
   <PopoverPanel v-model:open="open" title="Invite friends" :width="380">
-    <p class="body-sm text-muted">They join {{ session.title }} once they accept.</p>
-    <label class="invite__field">
-      <AppIcon name="search" :size="16" />
-      <input ref="search" v-model="query" type="search" placeholder="Search name or @username" aria-label="Search people" autocomplete="off" />
-    </label>
+    <template v-if="!session.remote">
+      <label class="invite__field">
+        <AppIcon name="search" :size="16" />
+        <input ref="search" v-model="query" type="search" placeholder="Search name or @username" aria-label="Search people" autocomplete="off" />
+      </label>
 
-    <p v-if="nobodyLeft" class="body-sm text-muted">Everyone you know is already in this session.</p>
-    <p v-else-if="!lists.length" class="body-sm text-muted">Nobody matches “{{ query.trim() }}”.</p>
+      <p v-if="nobodyLeft" class="body-sm text-muted">Everyone you know is already in this session.</p>
+      <p v-else-if="!lists.length" class="body-sm text-muted">Nobody matches “{{ query.trim() }}”.</p>
+    </template>
     <section v-for="list in lists" :key="list.id" class="invite__group" :aria-label="list.title">
       <h3 class="caption-sm text-muted">{{ list.title }}</h3>
       <ul class="invite__list">
@@ -97,8 +112,13 @@ async function send() {
       </ul>
     </section>
     <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
+    <template v-if="session.remote">
+      <ShareLink compact :session-id="session.id" :title="session.title" />
+      <InviteByUsername :session="session" />
+      <AppButton variant="tertiary" underline :to="`/sessions/${session.id}/invite`">All invite options</AppButton>
+    </template>
 
-    <template #footer>
+    <template v-if="!session.remote || lists.length" #footer>
       <span class="caption text-muted tnum invite__count" aria-live="polite">{{ picked.length ? `${picked.length} selected` : '' }}</span>
       <AppButton small :disabled="!picked.length || busy" @click="send">Send invites</AppButton>
     </template>

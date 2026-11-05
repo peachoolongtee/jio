@@ -137,3 +137,45 @@ describe('"Start over" in the auth store', () => {
     expect(auth.startOverError).toMatch(/storage is full/)
   })
 })
+
+describe('the profile graph and what is listed under it (Faith, 31 October 2026)', () => {
+  it('gives the demo account a card for every meetup of its sample history, the same each time, opening nothing', async () => {
+    const api = await loadApi()
+    const user = await api.signUp(DEMO_ACCOUNT)
+    const me = await api.getPerson(user.id)
+    const drawn = me.history.reduce((sum, d) => sum + d.count, 0)
+    expect(me.pastSamples.length).toBe(drawn)
+    for (const { date, count } of me.history) expect(me.pastSamples.filter((s) => s.date === date).length).toBe(count)
+    expect(me.pastSamples.every((s) => s.sample && s.status === 'completed' && s.areaName && s.activeIds.includes(user.id))).toBe(true)
+    expect((await api.getPerson(user.id)).pastSamples).toEqual(me.pastSamples)
+  })
+
+  it('gives a new account none of its own, and lists none on a stranger\'s profile', async () => {
+    const api = await loadApi()
+    const user = await api.signUp(FORM)
+    expect((await api.getPerson(user.id)).pastSamples).toEqual([])
+    expect((await api.getPerson('kai')).pastSamples).toEqual([])
+  })
+
+  it('gives a friend\'s sample outings to a friend and never to a stranger, and takes them away with the friendship (Faith, 4 November 2026)', async () => {
+    const api = await loadApi()
+    await api.signUp(DEMO_ACCOUNT)
+    // Darius is one of the demo account's friends: a card for every sample meetup, with Darius in it once.
+    const friend = await api.getPerson('darius')
+    expect(friend.isFriend).toBe(true)
+    expect(friend.pastSamples.length).toBeGreaterThan(0)
+    expect(friend.pastSamples.every((s) => s.sample && s.members.filter((m) => m.id === 'darius').length === 1)).toBe(true)
+    // Kai is someone the demo account does not know.
+    const stranger = await api.getPerson('kai')
+    expect(stranger.isFriend).toBe(false)
+    expect(stranger.pastSamples).toEqual([])
+    // Darius stops being a friend, and is then a stranger with a history that is not listed; adding them brings it back.
+    const cards = friend.pastSamples.length
+    await api.setFriend('darius', false)
+    const dropped = await api.getPerson('darius')
+    expect(dropped.history.length).toBeGreaterThan(0)
+    expect(dropped.pastSamples).toEqual([])
+    await api.setFriend('darius', true)
+    expect((await api.getPerson('darius')).pastSamples.length).toBe(cards)
+  })
+})

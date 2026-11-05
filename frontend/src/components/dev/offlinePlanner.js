@@ -4,15 +4,23 @@
 //
 // It answers only the two requests the showcase needs, in the shape the backend answers them, so plannerApi.js and
 // api.js read the answer as they read the real one:
-//   POST /api/meeting-area  the area (of the app's own list) that keeps the longest straight-line trip shortest
+//   POST /api/meeting-area  the area (of the app's own list) that keeps the longest straight-line trip shortest, and when
+//                           asked with `alternatives` or `include`, the runners-up and named areas as `candidates`, so the
+//                           meeting spots (a list of areas members vote on) can be priced
 //   POST /api/converge      the venues of one category nearest the meeting area that are open for the slot
-// The numbers are rough (distance, not transport) and every answer says `approximate`. It never runs unless the real
-// backend did not answer, and the real backend's answers are never changed.
+// The numbers are rough (distance, not transport) and every answer says `approximate` and `travel.source: 'estimate'`, so
+// the screens say "about". It never runs unless the real backend did not answer, and the real backend's answers are never changed.
 //   const offline = useOfflinePlanner(api)   // api: the axios client of plannerApi.js
 //   ...run the showcase...
 //   offline.restore()                        // and offline.used says how many answers it gave
+//
+// The demo tour (tour/) keeps it on while the tour is on and asks for all five requests the screens make, not only these two:
+//   useOfflinePlanner(api, { everything: true, giveUpMs: 8000, coolDownMs: 45000 })
+// `everything` adds /api/search, /api/itinerary/arrange and /api/places/search. `giveUpMs` stops waiting for a backend that
+// is asleep (a host that is waking up takes much longer than a person waits) and `coolDownMs` then skips the backend for a
+// while, so the next screens do not each wait again. `backend: false` is for a build that has no backend address at all.
 import axios from 'axios'
-import { AREAS } from '@/lib/mock/places.js'
+import { ADDRESSES, AREAS } from '@/lib/mock/places.js'
 import { VENUES } from '@/lib/mock/venues.js'
 import { distanceKm, toMinutes } from '@/lib/planner/index.js'
 
@@ -35,6 +43,8 @@ export function asBackendVenue(v) {
     mealPeriods: v.serves || [],
     cdcAccepted: (v.tags || []).includes('cdc'),
     tags: v.tags || [],
+    // A place with MUIS-certified stalls says so, as the planner's adapter does (venue-adapter.js): a centre by its stalls.
+    ...(v.halal?.muisStalls > 0 ? { dataQuality: { halalSource: 'muis', halalScope: ['hawker', 'market'].includes(v.kind) ? 'stalls' : 'venue', muisStalls: v.halal.muisStalls, halalCheckedAt: v.halal.checked } } : {}),
   }
 }
 
@@ -49,38 +59,95 @@ export function isOpenFor(hours, start, minutes) {
   })
 }
 
+// One area priced for the group, as the backend's `candidates` entries are: each member's trip in minutes, the longest and
+// the average. It is always approximate, because every time here is straight-line distance.
+// How to call: pricedArea(AREAS[0], members, 'ranked') -> { area, worstMinutes, meanMinutes, travelByMember, approximate: true, source: 'ranked' }
+function pricedArea(area, members, source) {
+  const travelByMember = Object.fromEntries(members.map((m) => [m.id, tripMinutes(distanceKm(m.start, area))]))
+  const minutes = Object.values(travelByMember)
+  return {
+    area: { id: area.id, name: area.name, lat: area.lat, lng: area.lng },
+    worstMinutes: Math.max(...minutes),
+    meanMinutes: Math.round((minutes.reduce((sum, n) => sum + n, 0) / minutes.length) * 10) / 10,
+    travelByMember,
+    approximate: true,
+    source,
+  }
+}
+
 // The area that keeps the farthest member's straight-line trip shortest (the first of any tie, in the app's order). With
 // `centroid` it is the area nearest the geographic centre of the starts instead, as the backend does with routing off.
-// How to call: standInMeetingArea({ members: [{ id: 'ian', start: { lat: 1.35, lng: 103.85 } }, ...], method: 'station' })
-export function standInMeetingArea({ members, method = 'station' }) {
+// Asked with `alternatives` or `include`, as the backend is, the answer also carries `candidates`: the chosen area, then the
+// `alternatives` next-best areas by the same rule (the first of a tie, in the app's order), then each area in `include` that is
+// not already there, with source 'included'. Whatever the method, the runners-up are the shortest-longest-trip areas. An id
+// the app does not know is skipped. The times are the planner's estimate, and `travel.source` says so, so the screens say "about".
+// How to call: standInMeetingArea({ members: [{ id: 'ian', start: { lat: 1.35, lng: 103.85 } }, ...], method: 'station', alternatives: 2, include: ['bugis'] })
+export function standInMeetingArea({ members, method = 'station', alternatives, include }) {
   const starts = members.map((m) => m.start)
   const centre = { lat: starts.reduce((s, p) => s + p.lat, 0) / starts.length, lng: starts.reduce((s, p) => s + p.lng, 0) / starts.length }
   const worst = (area) => Math.max(...starts.map((p) => distanceKm(p, area)))
   const score = method === 'centroid' ? (area) => distanceKm(centre, area) : worst
   let best = AREAS[0]
   for (const area of AREAS) if (score(area) < score(best)) best = area
-  const travelByMember = Object.fromEntries(members.map((m) => [m.id, tripMinutes(distanceKm(m.start, best))]))
-  return {
-    area: { id: best.id, name: best.name, lat: best.lat, lng: best.lng },
+  const chosen = pricedArea(best, members, 'ranked')
+  const answer = {
+    area: chosen.area,
     centre,
-    travelByMember,
-    worstMinutes: Math.max(...Object.values(travelByMember)),
+    travelByMember: chosen.travelByMember,
+    worstMinutes: chosen.worstMinutes,
+    meanMinutes: chosen.meanMinutes,
     method,
     approximate: true,
+    travel: { source: 'estimate' },
   }
+  if (alternatives === undefined && include === undefined) return answer
+  // Array.sort keeps the app's order among equal scores.
+  const runnersUp = AREAS.filter((area) => area.id !== best.id).sort((a, b) => worst(a) - worst(b)).slice(0, Math.max(0, alternatives ?? 0))
+  const candidates = [chosen, ...runnersUp.map((area) => pricedArea(area, members, 'ranked'))]
+  for (const id of include || []) {
+    const area = AREAS.find((a) => a.id === id)
+    if (area && !candidates.some((c) => c.area.id === id)) candidates.push(pricedArea(area, members, 'included'))
+  }
+  return { ...answer, candidates }
 }
 
+// Dietary needs, as the planner treats them (backend/src/planner/filters.js) with what the sample list can say. The list has no
+// dietary data, so a food place is 'likely' to fit halal and vegetarian only when it is a whole hawker centre or food court
+// (many stalls, as the planner guesses from a CDC site's stall names), and 'unknown' otherwise; nothing is known to be vegan.
+// A drink place is changed only by halal, which keeps bars out. Strict leaves unknown places out; lenient keeps them, labelled.
+// The policy is the request's `dietPolicy`, which follows its `unknownPolicy` when not given.
+// How to call: dietFit(VENUES[0], ['halal'], 'strict') -> { fits: true, verify: ['halal'], dietUnknown: [] }
+const CENTRE_NAME = /market|food cent(re|er)|hawker|food court|kopitiam|complex/i
+export function dietFit(v, needs = [], unknownPolicy = 'lenient') {
+  if (v.category === 'drink') return { fits: !(needs.includes('halal') && v.kind === 'bar'), verify: [], dietUnknown: [] }
+  if (v.category !== 'eat' || !needs.length) return { fits: true, verify: [], dietUnknown: [] }
+  const likely = v.kind === 'hawker' && CENTRE_NAME.test(v.name)
+  // A centre with MUIS-certified stalls is likely halal, not verified: one stall's certificate is not the centre's, so the
+  // group is asked to check the stall. A certified shop or restaurant (not a centre) is halal for sure.
+  const certifiedShop = (n) => n === 'halal' && v.halal?.muisStalls > 0 && !['hawker', 'market'].includes(v.kind)
+  const certifiedCentre = (n) => n === 'halal' && v.halal?.muisStalls > 0 && ['hawker', 'market'].includes(v.kind)
+  const verify = needs.filter((n) => (likely || certifiedCentre(n)) && n !== 'vegan' && !certifiedShop(n))
+  const dietUnknown = needs.filter((n) => !verify.includes(n) && !certifiedShop(n))
+  return { fits: !dietUnknown.length || unknownPolicy === 'lenient', verify, dietUnknown }
+}
+
+// Every dietary need in a request, each once. How to call: needsOf([{ id: 'a', dietary: ['halal'] }]) -> ['halal']
+const needsOf = (members = []) => [...new Set(members.flatMap((m) => m.dietary || []))]
+
 // Venues of the slot's category around the centre that are open for it, nearest first, as /api/converge answers. If none
-// is open the nearest of the category are offered anyway, so a slot is never empty. `current` holds the options the
-// group already has that are in the list.
+// is open the nearest of the category are offered anyway, so a slot is never empty, unless the group's dietary needs leave
+// none (then the slot is empty, as the planner's would be). `current` holds the options the group already has that are in the list.
 // How to call: standInConverge({ categories: ['eat'], centre, dateTime: '2026-10-17T12:00', durationMinutes: 90, currentOptionIds: [], topN: 10 })
-export function standInConverge({ categories = ['eat'], centre, dateTime, durationMinutes = 60, currentOptionIds = [], topN = 5, radiusMeters }) {
+export function standInConverge({ categories = ['eat'], centre, dateTime, durationMinutes = 60, currentOptionIds = [], topN = 5, radiusMeters, members = [], unknownPolicy = 'lenient', dietPolicy = unknownPolicy }) {
   const start = toMinutes(String(dateTime).slice(11, 16))
-  const ofKind = VENUES.filter((v) => categories.includes(v.category))
+  const needs = needsOf(members)
+  const ofKind = VENUES.filter((v) => categories.includes(v.category) && dietFit(v, needs, dietPolicy).fits)
   const km = (v) => distanceKm(centre, v)
   const inRadius = radiusMeters ? ofKind.filter((v) => km(v) * 1000 <= radiusMeters) : ofKind
   const open = inRadius.filter((v) => isOpenFor(v.hours, start, durationMinutes))
-  const ranked = [...(open.length ? open : inRadius)].sort((a, b) => km(a) - km(b) || a.id.localeCompare(b.id))
+  // As the planner does: places that likely meet more of the group's dietary needs first, then the nearest.
+  const misses = (v) => dietFit(v, needs, dietPolicy).dietUnknown.length
+  const ranked = [...(open.length ? open : inRadius)].sort((a, b) => misses(a) - misses(b) || km(a) - km(b) || a.id.localeCompare(b.id))
   const toResult = (v, i) => ({
     rank: i + 1,
     venueId: v.id,
@@ -92,8 +159,8 @@ export function standInConverge({ categories = ['eat'], centre, dateTime, durati
     warnings: [],
     swap: null,
     explanation: 'Ranked by distance from the meeting area, by the demo tools (the planner is not running).',
-    verify: [],
-    dietUnknown: [],
+    verify: dietFit(v, needs, dietPolicy).verify,
+    dietUnknown: dietFit(v, needs, dietPolicy).dietUnknown,
     approximate: true,
   })
   const results = ranked.slice(0, topN).map(toResult)
@@ -101,7 +168,65 @@ export function standInConverge({ categories = ['eat'], centre, dateTime, durati
   return { status: 'ok', centre, results, current, notice: null }
 }
 
+// Places whose name contains the words typed, of the slot's categories, nearest to the centre first, as /api/search answers.
+// A place that is not open for the slot, or does not fit a dietary need, is listed but says why it does not fit. At most 8.
+// How to call: standInSearch({ query: 'market', categories: ['eat'], centre, dateTime: '2026-10-17T12:00', durationMinutes: 90 })
+export function standInSearch({ query = '', categories = ['eat'], centre, dateTime, durationMinutes = 60, maxKm, members = [], unknownPolicy = 'lenient', dietPolicy = unknownPolicy }) {
+  const needs = needsOf(members)
+  const words = String(query).toLowerCase().split(/\s+/).filter(Boolean)
+  const start = toMinutes(String(dateTime).slice(11, 16))
+  const km = (v) => distanceKm(centre, v)
+  const found = VENUES.filter((v) => categories.includes(v.category) && words.every((w) => `${v.name} ${v.area}`.toLowerCase().includes(w)) && (!maxKm || km(v) <= maxKm))
+  // A place that fails a dietary need says so first, as the planner's first reason would be.
+  const dietWhy = (v) => (dietFit(v, needs, dietPolicy).fits ? [] : [`diet:${dietFit(v, needs, dietPolicy).dietUnknown[0] ?? 'halal'}`])
+  const fits = (v) => isOpenFor(v.hours, start, durationMinutes) && !dietWhy(v).length
+  const ranked = [...found].sort((a, b) => Number(fits(b)) - Number(fits(a)) || km(a) - km(b) || a.id.localeCompare(b.id))
+  const results = ranked.slice(0, 8).map((v) => ({
+    venueId: v.id,
+    name: v.name,
+    area: v.area,
+    category: v.category,
+    walkMinutes: Math.max(1, Math.round((km(v) * 1000) / 80)),
+    distanceKm: Math.round(km(v) * 100) / 100,
+    fits: fits(v),
+    unfit: fits(v) ? [] : dietWhy(v).length ? dietWhy(v) : ['meal_period'],
+    verify: dietFit(v, needs, dietPolicy).verify,
+    dietUnknown: dietFit(v, needs, dietPolicy).dietUnknown,
+  }))
+  return { status: 'ok', results }
+}
+
+// An order for the plan's stops: the order they were voted in, timed one after another (a meal never earlier than its time).
+// It never invents a different order, so it answers "no other order" when asked for one that is not the current.
+// How to call: standInArrange({ stops: [{ id: 'eat', duration: 90, start: 720 }], startAt: 720, endAt: 1080, includeCurrent: true })
+export function standInArrange({ stops = [], startAt = 0, includeCurrent = false }) {
+  if (!includeCurrent) return { status: 'no_other_order', message: 'The planner is not running, so there is no other order to suggest.' }
+  let clock = startAt
+  const timed = stops.map((stop) => {
+    const start = Math.max(clock, Number.isFinite(stop.start) ? stop.start : clock)
+    clock = start + stop.duration
+    return { id: stop.id, start, end: clock }
+  })
+  return { status: 'ok', order: stops.map((stop) => stop.id), stops: timed, reason: 'Kept in the order the group voted. The planner is not running, so no other order was tried.', source: 'rules' }
+}
+
+// Addresses and buildings from the app's sample list that match the words typed, as /api/places/search answers. They have a
+// postal code and a point inside the area they are in, as the real answer does; the real answer has many more.
+// How to call: standInPlaces({ q: 'tampines mall' }) -> { results: [{ name, address, postal, lat, lng }] }
+export function standInPlaces({ q = '' } = {}) {
+  const text = String(q).trim().toLowerCase()
+  const results = ADDRESSES.filter((a) => text && (a.label.toLowerCase().includes(text) || a.postal.startsWith(text)))
+    .slice(0, 10)
+    .map((a) => {
+      const area = AREAS.find((x) => x.id === a.areaId)
+      return { name: a.label.split(',')[0].toUpperCase(), address: a.label, postal: a.postal, lat: area.lat, lng: area.lng }
+    })
+  return { results }
+}
+
+// What answers each request. The first two are always stood in for; the rest only when asked for (`everything`).
 const ANSWERS = { '/api/meeting-area': standInMeetingArea, '/api/converge': standInConverge }
+const MORE_ANSWERS = { '/api/search': standInSearch, '/api/itinerary/arrange': standInArrange, '/api/places/search': standInPlaces }
 
 // Did the planner not answer at all? No response (nothing listening, a timeout), or an error that is not the backend's own
 // ({ error: '<code>' }): the Vite dev server answers 500 with an empty body for a backend that is not there. Anything the
@@ -113,35 +238,55 @@ export function notAnswered(err) {
   return status >= 500 && !(data && typeof data === 'object' && data.error)
 }
 
-// Let the stand-in answer the two planner requests whenever the backend does not. The real backend is always tried
-// first. Replaces the client's adapter until restore() is called.
+// Let the stand-in answer planner requests whenever the backend does not. The real backend is always tried first (except
+// with `backend: false`). Replaces the client's adapter until restore() is called.
+//   everything   also answer /api/search, /api/itinerary/arrange and /api/places/search (default: the two the showcase needs)
+//   backend      false: there is no backend to ask, so answer at once
+//   giveUpMs     stop waiting for the backend after this long (0: wait as long as the client's own timeout)
+//   coolDownMs   after the backend gave no answer, do not ask it again for this long
+//   onAnswer     (source: 'backend' | 'stand-in') after every request this handles, for a screen to say which answered
+//   now          the clock, for a test
 // How to call: const offline = useOfflinePlanner(api); try { ... } finally { offline.restore() }
-export function useOfflinePlanner(client) {
+export function useOfflinePlanner(client, { everything = false, backend = true, giveUpMs = 0, coolDownMs = 0, onAnswer = () => {}, now = Date.now } = {}) {
   const previous = client.defaults.adapter
   const real = axios.getAdapter(previous)
   const used = { backend: 0, standIn: 0 }
-  client.defaults.adapter = async (config) => {
-    const answer = ANSWERS[config.url]
-    if (!answer) return real(config)
+  const answers = everything ? { ...ANSWERS, ...MORE_ANSWERS } : ANSWERS
+  let silentSince = -Infinity
+  const standIn = (answer, config) => {
+    used.standIn += 1
+    onAnswer('stand-in')
+    const body = typeof config.data === 'string' && config.data ? JSON.parse(config.data) : config.data
+    return { data: answer(config.method === 'get' ? config.params || {} : body || {}), status: 200, statusText: 'OK', headers: {}, config, request: null }
+  }
+  let active = true
+  const mine = async (config) => {
+    const answer = answers[config.url]
+    if (!active || !answer) return real(config)
+    if (!backend || now() - silentSince < coolDownMs) return standIn(answer, config)
     try {
-      const response = await real(config)
+      const response = await real(giveUpMs ? { ...config, timeout: Math.min(config.timeout || giveUpMs, giveUpMs) } : config)
       used.backend += 1
+      onAnswer('backend')
       return response
     } catch (err) {
       if (!notAnswered(err)) throw err
-      used.standIn += 1
-      const body = typeof config.data === 'string' ? JSON.parse(config.data) : config.data
-      return { data: answer(body), status: 200, statusText: 'OK', headers: {}, config, request: null }
+      silentSince = now()
+      return standIn(answer, config)
     }
   }
+  client.defaults.adapter = mine
   return {
     used,
     // Which kind answered: 'backend', 'stand-in' or 'both' (the backend went away part way), '' if nothing was asked.
     get source() {
       return used.backend && used.standIn ? 'both' : used.backend ? 'backend' : used.standIn ? 'stand-in' : ''
     },
+    // Put the client back. If something else was put on top of this since (the showcase, while the tour is on), it stays and
+    // this one only stops answering, so taking one off never takes the other with it.
     restore() {
-      client.defaults.adapter = previous
+      active = false
+      if (client.defaults.adapter === mine) client.defaults.adapter = previous
     },
   }
 }

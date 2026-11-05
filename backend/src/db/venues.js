@@ -3,9 +3,10 @@ import { matchVenueToCdc, nameSimilarity } from '../planner/cdc-adapter.js'
 import { haversineKm, walkMinutes } from '../planner/geo.js'
 import { attachClosures, closureCoverage, closureStaleWarning } from '../planner/hawker-closures.js'
 import { dedupeOneMapVenues, preparePool } from '../planner/onemap-adapter.js'
+import { singaporeToday } from '../planner/scoring.js'
 
 // Builds the one `data` object the planner engine reads, from the venue sources we have today:
-//   mock-data.json       36 fictional venues + members, occasion profiles, weather cases, visit history
+//   mock-data.json       test/demo fixtures: fictional venues, profiles, weather cases, visit history
 //   curated-venues.json  63 real places from the frontend team's list (built by scripts/build-venues.js)
 //   onemap-places.json   483 places saved from OneMap's government lists (sport centres, attractions, museums, libraries,
 //                        theatres, parks and hawker centres), plus NEA's hawker closure dates. Fewer reach the planner:
@@ -24,6 +25,7 @@ const MOCK_DIR = new URL('./mock/', import.meta.url)
 const readJson = (name) => JSON.parse(fs.readFileSync(new URL(name, MOCK_DIR), 'utf8'))
 
 let cached = null
+let cachedFictional = false
 
 // Hawker centres are listed twice: once by the frontend team ("Maxwell Food Centre") and once as a CDC
 // site ("Food stalls at 1 Kadayanallur Street"). Keep the named curated venue and drop the CDC copy.
@@ -38,7 +40,7 @@ const DIET_RANK = ['none', 'unknown', 'likely', 'options', 'full']
 const betterDiet = (a, b) => (DIET_RANK.indexOf(b ?? 'unknown') > DIET_RANK.indexOf(a ?? 'unknown') ? b : a)
 
 /**
- * What a OneMap centre keeps from the CDC site it replaces, so replacing loses nothing: the better diet level for each
+ * What a centre (OneMap's or a curated one) keeps from the CDC site it replaces, so replacing loses nothing: the better diet level for each
  * need (halal "likely" from the stall names stays, or a halal group would lose the centre), the stalls (searching for a
  * stall by name still finds its centre) and the site's kind.
  *
@@ -75,7 +77,8 @@ export function mergeCuratedWithCdc(curated, cdc) {
     const site = cdc.find((s) => s.id === match.siteId)
     const replacesSite = isCentre || site.siteKind === 'food_stall'
     if (replacesSite) dropped.add(site.id)
-    const carried = replacesSite && venue.source === 'onemap' ? carryOverFromCdcSite(venue, site) : {}
+    // Whatever replaces its site keeps what the site knew: a curated centre as much as a OneMap one (ticket #107).
+    const carried = replacesSite ? carryOverFromCdcSite(venue, site) : {}
     return { ...venue, ...carried, cdcAccepted: true, cdc: { siteId: site.id, match: match.cdcAccepted, stallCount: site.cdc.stallCount } }
   })
   return { venues: merged, droppedCdcIds: [...dropped] }
@@ -83,9 +86,9 @@ export function mergeCuratedWithCdc(curated, cdc) {
 
 // Mock and CDC venues do not say how far the MRT is, so the "last stop near an MRT" rule could only ever
 // pick curated venues. Estimate it from the nearest station in areas.json, with the frontend's walking
-// formula (5 km/h, streets 25% longer than a straight line). areas.json lists only 37 of Singapore's
-// stations, so the estimate can only be LONGER than the real walk: it may wrongly exclude a venue, never
-// wrongly include one. Labelled mrtWalkEstimated so the UI and the team can tell.
+// formula (5 km/h, streets 25% longer than a straight line). areas.json lists every open MRT station (145 since
+// 30 October 2026; it was 37), but not the LRT, so the estimate can only be LONGER than the real walk: it may wrongly exclude a
+// venue, never wrongly include one. Labelled mrtWalkEstimated so the UI and the team can tell.
 export function withEstimatedMrtWalk(venue, stations) {
   if (venue.mrtWalkMinutes != null) return venue
   let nearest = null
@@ -110,27 +113,60 @@ function namesOf(venue) {
 
 /**
  * A OneMap place that a hand-made list already has (the frontend's Tiong Bahru Market, the mock data's museum) is
- * left out, so a place is never suggested twice. Same place = within 300 m with a similar name, or the same kind of
- * place within 50 m. A name is compared in every way the place is written, so the name in a hawker centre's bracket
+ * left out, so a place is never suggested twice. Same place = the same category within 300 m with a similar name, or the
+ * same kind of place within 50 m. The category keeps a place inside a building apart from the building: curated mall
+ * "Bukit Panjang Plaza" does not hide OneMap's "Bukit Panjang Library" inside it, nor "Kampung Admiralty" its hawker
+ * centre, nor "Chinatown Complex Food Centre" the Chinatown district. A place with no category is compared by name and
+ * distance alone. A name is compared in every way the place is written, so the name in a hawker centre's bracket
  * counts: curated "Chinatown Complex Food Centre" is OneMap's "Smith Street Blk 335 (Chinatown Complex Market)", 60 m
  * away, and curated "Kovan 209 Market and Food Centre" is "Hougang Street 21 Blk 209 (Kovan Hougang Market and Food
  * Centre)", 140 m away. Distance alone is not enough for two hawker centres: neighbouring blocks are different centres.
+ * `sameKindMeters: 0` turns the same-kind rule off, so only a similar name within `meters` counts. The search for a
+ * place by name uses that: a café someone typed the name of is not hidden by an unrelated saved café 44 m away.
+ * `keepOtherCategories: true` is the category rule above, used for the saved OneMap pool, whose categories are guesses from a theme
+ * name: a similar name in another category is then a different place. It is off by default, so Google's places (whose categories are
+ * Google's own, and whose chain outlets repeat a curated name) are still dropped by name alone, as before: "Toast Box JEM" is not
+ * offered beside the curated Toast Box JEM because one of them is filed as a café and the other as food.
  *
  * How to call:
- *   const fresh = dropKnownPlaces(oneMapVenues, [...mockVenues, ...curatedVenues])
+ *   const fresh = dropKnownPlaces(googleVenues, [...mockVenues, ...curatedVenues])
+ *   const fresh = dropKnownPlaces(oneMapVenues, known, { keepOtherCategories: true })
+ *   const fresh = dropKnownPlaces(searchedVenues, saved, { sameKindMeters: 0 }) // names only
  */
-export function dropKnownPlaces(candidates, known, { meters = 300, minSimilarity = 0.5, sameKindMeters = 50 } = {}) {
+export function dropKnownPlaces(candidates, known, { meters = 300, minSimilarity = 0.5, sameKindMeters = 50, keepOtherCategories = false } = {}) {
   return candidates.filter((c) => !known.some((k) => {
     const m = haversineKm(c, k) * 1000
-    const similar = namesOf(c).some((a) => namesOf(k).some((b) => nameSimilarity(a, b) >= minSimilarity))
-    return (m <= meters && similar) || (m <= sameKindMeters && c.kind && c.kind === (k.kind ?? k.cuisine))
+    const sameCategory = !keepOtherCategories || !c.category || !k.category || c.category === k.category
+    const similar = sameCategory && namesOf(c).some((a) => namesOf(k).some((b) => nameSimilarity(a, b) >= minSimilarity))
+    return (m <= meters && similar) || (sameKindMeters > 0 && m <= sameKindMeters && c.kind && c.kind === (k.kind ?? k.cuisine))
   }))
 }
 
 const readOptionalJson = (name) => (fs.existsSync(new URL(name, MOCK_DIR)) ? readJson(name) : null)
 
-// Today in Singapore as "YYYY-MM-DD" (the date strings the planner takes are Singapore local time).
-const singaporeToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' })
+// The CDC sites checked by hand for vegan food on 3 November 2026 (docs/dietary/vegan-check-2026-11-03.md): vegetarian
+// restaurants with vegan dishes, none of them fully vegan. No CDC name says "vegan", so without this list no food place is.
+// Check them again before relying on them: restaurants change, and two have conflicting sources.
+export const VEGAN_CHECKED = {
+  checked: '2026-11-03',
+  ids: ['cdc_678051', 'cdc_640479', 'cdc_651296', 'cdc_329857', 'cdc_269758', 'cdc_388183', 'cdc_530501'],
+}
+
+/**
+ * Marks the places on the checked vegan list as vegan "likely", with where that came from. A place already known better keeps its level.
+ *
+ * How to call:
+ *   markCheckedVegan({ id: 'cdc_678051', diet: { vegan: 'unknown' } })
+ *   // { id, diet: { vegan: 'likely' }, dataQuality: { veganSource: 'checked', veganChecked: '2026-11-03' } }
+ */
+export function markCheckedVegan(venue) {
+  if (!VEGAN_CHECKED.ids.includes(venue.id)) return venue
+  return {
+    ...venue,
+    diet: { ...venue.diet, vegan: betterDiet(venue.diet?.vegan, 'likely') },
+    dataQuality: { ...venue.dataQuality, veganSource: 'checked', veganChecked: VEGAN_CHECKED.checked },
+  }
+}
 
 /**
  * The attribution the Singapore Open Data Licence asks for, to show wherever OneMap's or NEA's data is shown.
@@ -145,15 +181,22 @@ export function dataAttribution(fetchedAt) {
 }
 
 /**
- * The one object the planner reads. Cached after the first call; `fresh: true` reads the files again. `today` is the
- * date ("YYYY-MM-DD") the hawker closure dates are checked against, and defaults to today in Singapore.
+ * The one object the planner reads. Cached after the first call; `fresh: true` reads the files again, and so does a
+ * call that asks for the other pool (`includeFictional` differs from the cached one). `today` is the date
+ * ("YYYY-MM-DD") the hawker closure dates are checked against at load, and defaults to today in Singapore. It is not
+ * kept in the result: the engine works out the date anti-repeat needs on every request (see `context` in engine.js).
+ *
+ * `includeFictional` adds the mock file's invented venues and sample visit history. It defaults to
+ * INCLUDE_FICTIONAL_VENUES=1 in the environment, which is the only switch for a running server. The backend's tests
+ * turn it on in vitest.config.js, not through NODE_ENV, so no machine's NODE_ENV changes which places are served.
  *
  * How to call:
  *   const data = loadPlanData()
  *   const again = loadPlanData({ fresh: true, today: '2027-01-05' }) // logs the stale-closures warning
+ *   const withMock = loadPlanData({ includeFictional: true })        // the 36 invented venues and the sample visits too
  */
-export function loadPlanData({ fresh = false, today = singaporeToday() } = {}) {
-  if (cached && !fresh) return cached
+export function loadPlanData({ fresh = false, today = singaporeToday(), includeFictional = process.env.INCLUDE_FICTIONAL_VENUES === '1' } = {}) {
+  if (cached && !fresh && cachedFictional === includeFictional) return cached
   const mock = readJson('mock-data.json')
   const curated = readJson('curated-venues.json').venues
   const cdc = readJson('cdc-venues.json').venues
@@ -161,7 +204,9 @@ export function loadPlanData({ fresh = false, today = singaporeToday() } = {}) {
 
   const onemapFile = readOptionalJson('onemap-places.json')
   if (!onemapFile) console.warn('venues: onemap-places.json is missing, so there are no OneMap places and no hawker closure dates. Build it with pnpm build:onemap-places (run in backend/).')
-  const mockVenues = mock.venues.map((v) => ({ ...v, source: v.source ?? 'mock' }))
+  // Fictional venues and visit history are for tests and demos only. A load needs an explicit opt-in
+  // (INCLUDE_FICTIONAL_VENUES=1 or the option), so invented places can never leak into recommendations by default.
+  const mockVenues = includeFictional ? mock.venues.map((v) => ({ ...v, source: v.source ?? 'mock' })) : []
 
   // The frontend's hawker centres replace their CDC copies, and so do OneMap's (which have photos and stall counts).
   const { venues: curatedMerged, droppedCdcIds } = mergeCuratedWithCdc(curated, cdc)
@@ -171,7 +216,7 @@ export function loadPlanData({ fresh = false, today = singaporeToday() } = {}) {
   const savedOnemap = onemapFile?.venues ?? []
   const { pool, excluded } = preparePool(savedOnemap)
   const knownList = [...mockVenues, ...curatedMerged]
-  const stillNew = new Set(dropKnownPlaces(pool, knownList).map((v) => v.id))
+  const stillNew = new Set(dropKnownPlaces(pool, knownList, { keepOtherCategories: true }).map((v) => v.id))
   const { venues: unique, clusters } = dedupeOneMapVenues(pool)
   const knownGroups = new Set(clusters.filter((ids) => ids.some((id) => !stillNew.has(id))).map((ids) => ids[0]))
   const onemapNew = unique.filter((v) => stillNew.has(v.id) && !knownGroups.has(v.id))
@@ -184,7 +229,7 @@ export function loadPlanData({ fresh = false, today = singaporeToday() } = {}) {
     [...mockVenues, ...curatedMerged, ...onemapMerged, ...cdc.filter((v) => !dropped.has(v.id))],
     closures,
   )
-  const venues = withClosures.map((v) => withEstimatedMrtWalk(v, areas))
+  const venues = withClosures.map((v) => markCheckedVegan(withEstimatedMrtWalk(v, areas)))
 
   // The closure dates run out: say when, and say so in the log once, because after that every centre looks open on its cleaning days.
   const coverage = closureCoverage(closures)
@@ -197,12 +242,12 @@ export function loadPlanData({ fresh = false, today = singaporeToday() } = {}) {
     areas,
     occasionProfiles: mock.occasionProfiles,
     weatherCases: mock.weatherCases,
-    visitHistory: mock.visitHistory,
+    // Sample visits are not real group feedback and must not affect any group's results.
+    visitHistory: includeFictional ? mock.visitHistory : [],
     _meta: {
-      // The mock visit history is dated relative to this day, so anti-repeat stays meaningful in the demo.
-      today: mock._meta.today,
+      // No `today` here on purpose: a date kept at load would stay at the server's start date after midnight.
       sources: {
-        mock: mock.venues.length,
+        mock: mockVenues.length,
         curated: curated.length,
         onemap: onemapMerged.length,
         // Of the places saved from OneMap: set aside as not somewhere to go, one of several rows for a place, already in a hand-made list.
@@ -226,5 +271,6 @@ export function loadPlanData({ fresh = false, today = singaporeToday() } = {}) {
       onemap: onemapFile ? { fetchedAt: onemapFile._meta?.fetchedAt ?? null, attribution: dataAttribution(onemapFile._meta?.fetchedAt) } : null,
     },
   }
+  cachedFictional = includeFictional
   return cached
 }

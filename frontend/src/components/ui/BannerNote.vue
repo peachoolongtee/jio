@@ -2,6 +2,9 @@
 // A banner across the top of a screen: the re-calculation message, a paused session or the weather.
 //   <BannerNote icon="info" dismissible @dismiss="clear">Meeting area moved from Bishan to Serangoon because Jonathan opted out.</BannerNote>
 // Tones: info (default), warning, error. Put buttons in the `actions` slot.
+// An error banner is announced at once (role="alert"); the others wait their turn (role="status").
+// An error that is a standing state, not an answer to something just done, passes role="status" so a screen load does not shout it.
+// `quiet` leaves the role off altogether: a note that is only there to be read, not announced when it appears.
 import AppIcon from './AppIcon.vue'
 import IconButton from './IconButton.vue'
 
@@ -9,12 +12,13 @@ defineProps({
   tone: { type: String, default: 'info', validator: (v) => ['info', 'warning', 'error'].includes(v) },
   icon: { type: String, default: 'info' },
   dismissible: { type: Boolean, default: false },
+  quiet: { type: Boolean, default: false },
 })
 defineEmits(['dismiss'])
 </script>
 
 <template>
-  <div class="banner" :class="`banner--${tone}`" role="status">
+  <div class="banner" :class="`banner--${tone}`" :role="tone === 'error' ? 'alert' : quiet ? undefined : 'status'">
     <AppIcon class="banner__icon" :name="icon" :size="18" />
     <div class="banner__text">
       <p class="body-sm"><slot /></p>

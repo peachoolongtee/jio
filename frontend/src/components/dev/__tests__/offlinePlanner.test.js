@@ -26,7 +26,8 @@ describe('the meeting area', () => {
   it('is an area from the app\'s own list that keeps the longest trip short', () => {
     const answer = standInMeetingArea({ members: [person('ian', 'bugis'), person('darius', 'lavender')], method: 'station' })
     expect(AREAS.map((a) => a.id)).toContain(answer.area.id)
-    expect(['bugis', 'lavender']).toContain(answer.area.id)
+    // One of the two, or a station between them (every MRT station is an area since 30 October 2026: Nicoll Highway, Rochor...).
+    expect(['bugis', 'lavender', 'nicoll-highway', 'rochor', 'jalan-besar', 'bencoolen']).toContain(answer.area.id)
     expect(answer.method).toBe('station')
     expect(answer.approximate).toBe(true)
     expect(Object.keys(answer.travelByMember)).toEqual(['ian', 'darius'])
@@ -38,6 +39,94 @@ describe('the meeting area', () => {
     expect(west.lng).toBeLessThan(east.lng)
   })
   it('puts a trip of 0 km at 8 minutes', () => expect(tripMinutes(0)).toBe(8))
+})
+
+describe('the meeting area with runners-up and named areas', () => {
+  const members = [person('ian', 'toa-payoh'), person('darius', 'bishan'), person('faith', 'novena')]
+
+  it('answers no candidates unless asked, and says its times are an estimate', () => {
+    const answer = standInMeetingArea({ members })
+    expect(answer.candidates).toBeUndefined()
+    expect(answer.travel).toEqual({ source: 'estimate' })
+    expect(answer.meanMinutes).toBeGreaterThan(0)
+  })
+
+  it('lists the chosen area, then the runners-up best first, then the named areas', () => {
+    const answer = standInMeetingArea({ members, alternatives: 2, include: ['serangoon', 'kovan'] })
+    const ids = answer.candidates.map((c) => c.area.id)
+    expect(ids[0]).toBe(answer.area.id)
+    expect(ids).toHaveLength(5)
+    expect(ids.slice(3)).toEqual(['serangoon', 'kovan'])
+    expect(answer.candidates.map((c) => c.source)).toEqual(['ranked', 'ranked', 'ranked', 'included', 'included'])
+    // Runners-up are ordered by the longest trip, which never gets shorter down the list.
+    const worst = answer.candidates.slice(0, 3).map((c) => c.worstMinutes)
+    expect(worst).toEqual([...worst].sort((a, b) => a - b))
+  })
+
+  it('prices every candidate for every member: longest trip, average, each trip, approximate', () => {
+    const answer = standInMeetingArea({ members, alternatives: 1, include: ['kovan'] })
+    for (const c of answer.candidates) {
+      expect(Object.keys(c.travelByMember)).toEqual(['ian', 'darius', 'faith'])
+      expect(c.worstMinutes).toBe(Math.max(...Object.values(c.travelByMember)))
+      const mean = Object.values(c.travelByMember).reduce((a, b) => a + b, 0) / 3
+      expect(Math.abs(c.meanMinutes - mean)).toBeLessThan(0.1)
+      expect(c.approximate).toBe(true)
+      expect(c.area).toEqual({ id: c.area.id, name: area(c.area.id).name, lat: area(c.area.id).lat, lng: area(c.area.id).lng })
+    }
+    // The first candidate is the top-level answer.
+    const [first] = answer.candidates
+    expect(first).toMatchObject({ area: answer.area, worstMinutes: answer.worstMinutes, meanMinutes: answer.meanMinutes, travelByMember: answer.travelByMember })
+  })
+
+  it('lists a named area once, in its ranked place, and skips one it does not know', () => {
+    const plain = standInMeetingArea({ members, alternatives: 2 })
+    const runnerUp = plain.candidates[1].area.id
+    const answer = standInMeetingArea({ members, alternatives: 2, include: [runnerUp, plain.area.id, 'atlantis'] })
+    expect(answer.candidates.map((c) => c.area.id)).toEqual(plain.candidates.map((c) => c.area.id))
+    expect(answer.candidates.every((c) => c.source === 'ranked')).toBe(true)
+  })
+
+  it('answers only the named area when asked for just that (the planner prices a chosen spot this way)', () => {
+    const answer = standInMeetingArea({ members, include: ['bugis'] })
+    expect(answer.candidates.map((c) => [c.area.id, c.source])).toEqual([[answer.area.id, 'ranked'], ...(answer.area.id === 'bugis' ? [] : [['bugis', 'included']])])
+  })
+
+  it('does not change the chosen area, and is the same every time', () => {
+    const plain = standInMeetingArea({ members })
+    const asked = standInMeetingArea({ members, alternatives: 3, include: ['bugis', 'kovan'] })
+    const { candidates, ...rest } = asked
+    expect(rest).toEqual(plain)
+    expect(standInMeetingArea({ members, alternatives: 3, include: ['bugis', 'kovan'] })).toEqual(asked)
+  })
+
+  it('has runners-up by the longest trip even when the centre was asked for', () => {
+    const answer = standInMeetingArea({ members, method: 'centroid', alternatives: 2 })
+    expect(answer.method).toBe('centroid')
+    expect(new Set(answer.candidates.map((c) => c.area.id)).size).toBe(3)
+  })
+
+  it('is read by the data layer as a list of spots, with "about" times', async () => {
+    const { loadApi, tomorrow } = await import('../../../lib/__tests__/planFixture.js')
+    const { DEMO_ACCOUNT } = await import('../demoAccount.js')
+    const api = await loadApi()
+    await api.signUp(DEMO_ACCOUNT)
+    api.api.defaults.baseURL = 'http://127.0.0.1:1'
+    const offline = useOfflinePlanner(api.api)
+    const { id } = await api.createSession({ title: 'Lunch', date: tomorrow(), start: '12:00', end: '15:00' })
+    await api.inviteFriends(id, ['darius', 'faith'])
+    await api.startSession(id)
+    for (const [who, areaId] of Object.entries({ ian: 'toa-payoh', darius: 'bishan', faith: 'novena' })) await api.setLocation(id, who, 'start', { areaId })
+    await api.suggestSpot(id, 'faith', 'kovan', { here: true })
+    const { list } = (await api.getSession(id)).spots
+    expect(list.map((s) => s.by)).toEqual(['app', 'app', 'app', 'faith'])
+    expect(list[3]).toMatchObject({ areaId: 'kovan', here: true })
+    for (const spot of list) {
+      expect(Object.keys(spot.times).sort()).toEqual(['darius', 'faith', 'ian'])
+      expect(spot.approximate).toBe(true)
+      expect(spot.worstMinutes).toBe(Math.max(...Object.values(spot.times)))
+    }
+    offline.restore()
+  })
 })
 
 describe('the ranking', () => {

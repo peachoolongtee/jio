@@ -259,6 +259,11 @@
           "#eeeeee"
         ]
       },
+      "border-control": {
+        "role": "neutral",
+        "displayName": "Control border",
+        "canonical": "#8a8a8a"
+      },
       "on-primary": {
         "role": "neutral",
         "displayName": "On red",
@@ -442,16 +447,16 @@
       "scale-good": {
         "role": "secondary",
         "displayName": "Travel short",
-        "canonical": "#15803d",
+        "canonical": "#157a38",
         "tonalRamp": [
           "#001003",
-          "#013011",
-          "#005121",
-          "#017835",
-          "#3b9d58",
-          "#60c079",
-          "#88e79e",
-          "#c8ffd2"
+          "#033011",
+          "#065121",
+          "#0f7735",
+          "#409c58",
+          "#64bf79",
+          "#8ce69e",
+          "#caffd2"
         ]
       },
       "scale-middle": {
@@ -472,31 +477,31 @@
       "scale-middle-text": {
         "role": "secondary",
         "displayName": "Travel medium (text)",
-        "canonical": "#97641a",
+        "canonical": "#8a5a14",
         "tonalRamp": [
-          "#150800",
-          "#382000",
-          "#5c3a04",
-          "#895702",
-          "#af7a35",
-          "#d29c58",
-          "#fac27e",
-          "#feebd6"
+          "#140900",
+          "#372102",
+          "#5b3a0b",
+          "#875810",
+          "#ad7b3b",
+          "#d09c5d",
+          "#f8c383",
+          "#fdebd7"
         ]
       },
       "scale-bad": {
         "role": "secondary",
         "displayName": "Travel long",
-        "canonical": "#dc2626",
+        "canonical": "#c81f1f",
         "tonalRamp": [
-          "#200000",
-          "#500002",
-          "#810008",
-          "#bc0211",
-          "#ec3934",
-          "#fe7a6d",
-          "#febbb2",
-          "#fee9e6"
+          "#1f0101",
+          "#4e0505",
+          "#7e0d0e",
+          "#b7191a",
+          "#e7423a",
+          "#f97e71",
+          "#fbbcb4",
+          "#fde9e6"
         ]
       },
       "cat-eat-fg": {
@@ -678,6 +683,51 @@
           "#fec07f",
           "#feebd8"
         ]
+      },
+      "rain-wash": {
+        "role": "secondary",
+        "displayName": "Rain wash",
+        "canonical": "#4f7aa6",
+        "tonalRamp": [
+          "#0a0f15",
+          "#1c2b3b",
+          "#2c455d",
+          "#3d5e80",
+          "#517ca9",
+          "#7c9ec1",
+          "#b3c7db",
+          "#e3ebf2"
+        ]
+      },
+      "rain-streak": {
+        "role": "secondary",
+        "displayName": "Rain streak",
+        "canonical": "#6f9bc8",
+        "tonalRamp": [
+          "#080f16",
+          "#182b3f",
+          "#264564",
+          "#345e89",
+          "#457cb5",
+          "#739ec9",
+          "#aec7e0",
+          "#e1eaf4"
+        ]
+      },
+      "rain-text": {
+        "role": "secondary",
+        "displayName": "Rain text",
+        "canonical": "#2a4866",
+        "tonalRamp": [
+          "#090f16",
+          "#192b3d",
+          "#284562",
+          "#375e86",
+          "#497db1",
+          "#769ec6",
+          "#b0c7de",
+          "#e2ebf3"
+        ]
       }
     },
     "typographyMeta": {
@@ -795,7 +845,125 @@
         "name": "desktop",
         "value": "1128px"
       }
-    ]
+    ],
+    "weather": {
+      "name": "Layered drops",
+      "files": {
+        "look": "frontend/src/lib/rainLook.js",
+        "styles": "frontend/src/styles/rain.css",
+        "chip": "frontend/src/components/weather/RainChip.vue"
+      },
+      "tokens": [
+        {
+          "name": "rain-wash",
+          "value": "#4f7aa6",
+          "purpose": "The tint over a rainy area: 40% in the middle, 28% at half way, 10% near the edge, nothing at it. Feathered, never a hard circle."
+        },
+        {
+          "name": "rain-streak",
+          "value": "#6f9bc8",
+          "purpose": "The drops, 0.38, 0.6 and 0.85 opacity for the far, middle and near layer."
+        },
+        {
+          "name": "rain-text",
+          "value": "#2a4866",
+          "purpose": "Chip text and icon on white: 9.5:1."
+        }
+      ],
+      "darkMode": "None: the app has no dark theme, so each token has one value.",
+      "layers": [
+        {
+          "name": "far",
+          "strokeWidth": 0.8,
+          "opacity": 0.38,
+          "tile": [
+            9,
+            12
+          ],
+          "seconds": 1.7,
+          "travelPx": 12
+        },
+        {
+          "name": "mid",
+          "strokeWidth": 1,
+          "opacity": 0.6,
+          "tile": [
+            14,
+            20
+          ],
+          "seconds": 1.1,
+          "travelPx": 20
+        },
+        {
+          "name": "near",
+          "strokeWidth": 1.5,
+          "opacity": 0.85,
+          "tile": [
+            22,
+            34
+          ],
+          "seconds": 0.65,
+          "travelPx": 34
+        }
+      ],
+      "composition": "A feathered radial wash and slanted streaks (each fading in from its top, with its own place, strength and speed) clipped by a feathered mask that ends at 66/72 of the wash radius. 40 to 140 streaks a patch, seeded by its place. Under the routes, pins and markers; no pointer events; tiles and attribution untouched.",
+      "chip": {
+        "component": "RainChip",
+        "shadow": "shadow-float",
+        "height": "32px",
+        "icon": "rain",
+        "color": "rain-text",
+        "background": "canvas",
+        "interactive": false,
+        "words": [
+          {
+            "when": "live forecast, two-hour area basis",
+            "text": "Rain likely · next 2 h"
+          },
+          {
+            "when": "live forecast, any other basis",
+            "text": "Rain likely"
+          },
+          {
+            "when": "simulated forecast",
+            "text": "Simulated rain"
+          },
+          {
+            "when": "unavailable, outside the window or not known",
+            "text": "No chip, and no rain drawn"
+          }
+        ]
+      },
+      "motion": {
+        "rain-in": "900ms ease-out, opacity only, once when the rain first appears",
+        "rain-streak": "linear and endless, transform only; each streak falls through the patch in 0.55 to 1.1s",
+        "rain-chip-in": "600ms ease-out after 200ms, opacity and a 4px rise",
+        "reducedMotion": "No falling and no fade: the wash and the drops are drawn still, so the meaning is not lost."
+      },
+      "screens": [
+        {
+          "screen": "Home",
+          "component": "SingaporeMap",
+          "source": "useHomeRain (outings within two hours)",
+          "textEquivalent": "The status line under the greeting; the map and chip are aria-hidden.",
+          "chip": "Just under the first rainy place, at the map's scale; moved below the wash because pins fan out above a meeting point."
+        },
+        {
+          "screen": "Itinerary and full-screen plan map",
+          "component": "PlannerMap",
+          "source": "the stops' weather (itineraryRain)",
+          "textEquivalent": "The chip is inside the map region and is read with it.",
+          "chip": "Top middle, 64 px down, clearing the zoom buttons and View map / Expand map; under the bar on the full-screen map, which also shows WeatherSource."
+        }
+      ],
+      "homeLine": "homeRainText follows the same rule (rainWindow): \"in the next two hours\" only for the live two-hour forecast; no time clause for another live forecast; \"Simulated rain around X\" for the demo.",
+      "currency": "Rain and the chip are drawn only while the forecast is current: before validUntil, or before issue time + 2 h when there is no end; simulated forecasts always count; a live forecast with no times does not.",
+      "cost": {
+        "patchLimit": 6,
+        "measured": "Chromium, CPU x4, 1/3/6 patches, Home and a panned Leaflet map: every frame 16.7 ms, no frame over 25 ms; raster about 85 ms per patch per 4 s."
+      },
+      "zoom": "On PlannerMap each rainy stop has its own patch, about 1 km each way, 170 to 480 px across; it scales with the zoom glide (250 ms) and is made again at the new size when the zoom ends."
+    }
   },
   "components": [
     {
@@ -873,7 +1041,7 @@
   ],
   "narrative": {
     "northStar": "The Meeting Point",
-    "overview": "Jio is a white page with near-black text and one bright red, called Rausch in the code (`--primary`). The red marks the place where people meet and the action that gets them there: the map pin on Home, the \"Create\" circle in the navigation, the main button on a screen, the filled steps of a session. Home opens on a muted dotted map of Singapore (`SingaporeMap`) with routes drawing in from around the island to one point, and a red pin (`PinButton`) standing on that point with the Jio logo in its head.\n\nAround that centre the product is plain. Cards are white with a 1px grey line and no shadow until they are hovered. Type is Inter at modest weights (400 to 700). Controls are round: pills, circles and 8px corners. Navigation is a white pill floating at the bottom of a phone and a full-width bar along the top from 744px. Three screens (Leaderboard, Rewards, Profile) sit on a fine grid that lights up in colour where the pointer passes (`GridPulse`). The app's currency is drawn as a pink coin with a crown (`CoinBadge`), and the same crown replaces the dot of the \"i\" in the logo (`JioLogo`).\n\nPhotos come in two kinds. Place photos are one stock picture per kind of place, captioned \"Illustrative photo\" on the place's detail view. Session photos hang as instant prints on a string (`PolaroidLine`) and open in a dark full-screen viewer (`PhotoViewer`). The copy is short labels and statuses, with no exclamation marks, no emoji and no upper-case labels; estimated times always say \"about\".",
+    "overview": "Jio is a white page with near-black text and one bright red, called Rausch in the code (`--primary`). The red marks the place where people meet and the action that gets them there: the map pin on Home, the \"Create\" circle in the navigation, the main button on a screen, the filled steps of a session. Home opens on a muted dotted map of Singapore (`SingaporeMap`) with routes drawing in from around the island to one point, and a red pin (`PinButton`) standing on that point with the Jio logo in its head.\n\nAround that centre the product is plain. Cards are white with a 1px grey line and no shadow until they are hovered. Type is Inter at modest weights (400 to 700). Controls are round: pills, circles and 8px corners. Navigation is a white pill floating at the bottom of a phone and a full-width bar along the top from 744px. Three screens (Leaderboard, Rewards, Profile) sit on a fine grid whose cells shade softly in grey where the pointer passes (`GridPulse`). The app's currency is drawn as a pink coin with a crown (`CoinBadge`), and the same crown replaces the dot of the \"i\" in the logo (`JioLogo`).\n\nPhotos come in two kinds. Place photos are one stock picture per kind of place, captioned \"Illustrative photo\" on the place's detail view. Session photos hang as instant prints on a string (`PolaroidLine`) and open in a dark full-screen viewer (`PhotoViewer`). The copy is short labels and statuses, with no exclamation marks, no emoji and no upper-case labels; estimated times always say \"about\".",
     "keyCharacteristics": [
       "One red (`--primary`, `#ff385c`) on a white canvas with `#222222` ink.",
       "A dotted map of Singapore and a red map pin as the Home screen's signature.",
@@ -903,6 +1071,11 @@
         "name": "The Flat At Rest Rule",
         "body": "A card has a hairline and no shadow. It lifts by 2px with `--shadow-float` on hover only when the whole card is a link (`SessionCard`, `PlaceCard`). A card that cannot be clicked does not lift.",
         "section": "elevation"
+      },
+      {
+        "name": "The Rain Look Rule",
+        "body": "Rain on a map is the blue wash and slanted streaks of `--rain-wash` and `--rain-streak`, under everything else on the map, with a white `RainChip` that says where the forecast came from. It is information, never an action, and the chip says \"next 2 h\" only for the live two-hour forecast. Under reduced motion it stands still.",
+        "section": "motion"
       }
     ],
     "dos": [

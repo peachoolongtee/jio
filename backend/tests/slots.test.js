@@ -3,7 +3,7 @@ import { test } from 'vitest';
 import assert from 'node:assert';
 import mock from '../src/db/mock/mock-data.json';
 import areasFile from '../src/db/mock/areas.json';
-import { converge, roam, meetingArea } from '../src/planner/engine.js';
+import { converge, roam, meetingArea, searchVenues } from '../src/planner/engine.js';
 import { filterByConstraints, isOpenFor } from '../src/planner/filters.js';
 import { mockTravelMinutes } from '../src/planner/geo.js';
 import * as S from '../src/planner/scoring.js';
@@ -54,6 +54,31 @@ test('lastStop: only near-MRT places, and the trip home becomes part of the scor
   assert.ok(out.results.every(r => r.breakdown.returnWorst && r.breakdown.returnWorst.weight === 15));
   const normal = converge({ ...lunch, members: [solo] }, only(vs));
   assert.ok(normal.results.every(r => !r.breakdown.returnWorst), 'off by default');
+});
+
+test('dietPolicy is strict for dietary needs alone: a last stop with an unknown MRT walk is not dropped because the group has a need', () => {
+  const halalGroup = [{ ...solo, dietary: ['halal'] }];
+  const likely = { halal: 'likely', vegetarian: 'unknown', vegan: 'unknown', healthy: 3 };
+  const vs = [
+    venue('unknownWalk', { mrtWalkMinutes: null, diet: likely }),
+    venue('noHalalData', { mrtWalkMinutes: 3, diet: { ...likely, halal: 'unknown' } }),
+    venue('knownWalk', { mrtWalkMinutes: 3, diet: likely }),
+  ];
+  const ids = out => out.results.map(r => r.venueId).sort();
+  const input = { ...lunch, members: halalGroup, lastStop: true, unknownPolicy: 'lenient', dietPolicy: 'strict', topN: 10 };
+  // Strict for halal: the place with no halal data goes. Lenient for the MRT walk: the one with an unknown walk stays.
+  assert.deepStrictEqual(ids(converge(input, only(vs))), ['knownWalk', 'unknownWalk']);
+  // Without dietPolicy the diet follows unknownPolicy, as before: lenient keeps all three.
+  assert.deepStrictEqual(ids(converge({ ...input, dietPolicy: undefined }, only(vs))), ['knownWalk', 'noHalalData', 'unknownWalk']);
+  // Strict overall (the old way a strict diet was asked for) also drops the unknown walk: the reason dietPolicy exists.
+  assert.deepStrictEqual(ids(converge({ ...input, unknownPolicy: 'strict', dietPolicy: undefined }, only(vs))), ['knownWalk']);
+  // The same on the filter, and the slot search, which is how a place is added.
+  const ctx = { members: halalGroup, dateTime: lunch.dateTime, groupConstraints: ['near_mrt:10', 'step_free'], unknownPolicy: 'lenient', dietPolicy: 'strict' };
+  const withAccess = vs.map(v => ({ ...v, stepFree: null }));
+  assert.deepStrictEqual(filterByConstraints(withAccess, ctx).passed.map(v => v.id), ['unknownWalk', 'knownWalk']);
+  assert.deepStrictEqual(filterByConstraints(withAccess, { ...ctx, dietPolicy: undefined }).passed.map(v => v.id), ['unknownWalk', 'noHalalData', 'knownWalk']);
+  const found = searchVenues({ query: 'Walk', centre: bugis, dateTime: lunch.dateTime, members: halalGroup, lastStop: true, unknownPolicy: 'lenient', dietPolicy: 'strict' }, only(vs));
+  assert.deepStrictEqual(found.filter(r => r.fits).map(r => r.venueId).sort(), ['knownWalk', 'unknownWalk']);
 });
 
 // ---------------- shop category
@@ -113,15 +138,16 @@ test('meetingArea station: picks the area where the longest journey is shortest'
   assert.deepStrictEqual(out.centre, { lat: out.area.lat, lng: out.area.lng });
 });
 test('meetingArea station: maxCandidates 16 finds the same answer as trying every area, for every pair and trio', () => {
-  // 8 is NOT enough: Jurong East + Woodlands gets Ang Mo Kio (51.9 min) instead of Bishan (49.4 min).
+  // On the first 37 areas 8 is NOT enough: Jurong East + Woodlands gets Ang Mo Kio (51.9 min) instead of Bishan (49.4 min). On all 145 the
+  // stations are close enough together that 8 is enough for these six people.
   const ids = mock.members.map(m => m.id);
   for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) for (const k of [null, ...ids.slice(j + 1)]) {
     const members = [ids[i], ids[j], k].filter(Boolean).map(member);
     const fast = meetingArea({ members, maxCandidates: 16 }, data), full = meetingArea({ members }, data);
     assert.ok(Math.abs(fast.worstMinutes - full.worstMinutes) < 1e-9, members.map(m => m.id).join('+'));
   }
-  const pair = ['darius', 'jonathan'].map(member);
-  assert.ok(meetingArea({ members: pair, maxCandidates: 8 }, data).worstMinutes > meetingArea({ members: pair }, data).worstMinutes);
+  const pair = ['darius', 'jonathan'].map(member), first37 = { ...data, areas: data.areas.slice(0, 37) };
+  assert.ok(meetingArea({ members: pair, maxCandidates: 8 }, first37).worstMinutes > meetingArea({ members: pair }, first37).worstMinutes);
 });
 test('meetingArea weighted_centroid: debt pulls the point toward the person owed, named after the nearest area', () => {
   const even = group.map(m => ({ ...m, travelDebtMinutes: 0 }));

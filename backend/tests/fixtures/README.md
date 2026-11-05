@@ -8,10 +8,17 @@ Canned API responses. In stub mode the backend answers from these files instead 
 |---|---|---|
 | `datagov/two-hr-forecast.dry.json` | Recorded live on 2026-10-05. All 47 areas are "Fair (Day)". | Scenarios `dry` and `routing-fail` |
 | `datagov/two-hr-forecast.rain.json` | The dry file with every forecast changed to "Heavy Thundery Showers". | Scenario `rain` |
+| `datagov/twenty-four-hr-forecast.real.json` | Recorded live from `https://api-open.data.gov.sg/v2/real-time/api/twenty-four-hr-forecast` on 2026-10-11 at 16:02 Singapore time, unchanged: three periods, thundery in the west, north and centre from midday to 6 pm. Contains information from the 24-hour Weather Forecast accessed on 11 Oct 2026 from data.gov.sg, which is made available under the terms of the Singapore Open Data Licence version 1.0 (https://data.gov.sg/open-data-licence). | The parser tests, and the base for the time-shifted answers in `tests/helpers/weather-world.js` |
+| `datagov/twenty-four-hr-forecast.dry.json` | The real file with every region changed to "Partly Cloudy (Day)" or "(Night)" and the general forecast to "Partly Cloudy (Day)". The stub moves its times to cover the next 18 to 24 hours (`shiftTwentyFourHourForecast`). | Scenarios `dry` and `routing-fail` |
+| `datagov/twenty-four-hr-forecast.rain.json` | The real file with every region changed to "Heavy Thundery Showers", times moved the same way. | Scenario `rain` |
 | `onemap/search.json` | Recorded live on 2026-10-05, postal code 178879. The call had no token, so OneMap added an `error` warning field, which was removed. | Every stubbed search, whatever the query |
 | `onemap/token.json` | Made up. The expiry is the year 2100, as epoch seconds in a string, like the real API. | Every stubbed token call |
 | `onemap/route.pt.sample.json` | Copied from OneMap's documentation and trimmed. Not a real recording. | Unit-testing the route parser only |
 | `google/places-nearby.json` | Invented, in the shape of Google Places (New) answers: six made-up places near Bishan MRT with ids like `stub_place_01`, made-up names, addresses, ratings and hours, and one photo with a made-up name. Google's terms allow storing only a place id, so no real place's details are kept. No key is in the file. | Every stubbed Google nearby search, wherever it is |
+| `google/places-text-search.json` | Invented, in the same shape: two made-up places near Orchard with ids `stub_text_01` (a karaoke with 12 reviews) and `stub_text_02` (a noodle house). No real place's details, no key. | Every stubbed Google text search, whatever the words, and the stubbed Place Details look-ups (with the nearby fixture) |
+| `link-reader/gemini-places.json` | Invented, in the shape of a Gemini answer: a noodle house, a karaoke (both matching the invented Google places in `google/places-text-search.json`) and a pop-up with no dates. | Every stubbed Gemini call from the link reader, whatever it is asked |
+| `link-reader/youtube-video.json`, `link-reader/youtube-comments.json` | Invented YouTube Data API answers: a video's title, description and date, and two comments. | The stubbed YouTube calls |
+| `link-reader/tiktok-oembed.json` | An invented TikTok oEmbed answer (a caption and a creator). | The stubbed TikTok caption call |
 
 Stubbed routes are not read from a file. They are generated from the straight-line distance between the two points, in OneMap's response shape. See `syntheticRoute` in `backend/src/services/stubs.js`.
 

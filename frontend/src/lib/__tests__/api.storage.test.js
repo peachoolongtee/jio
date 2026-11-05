@@ -8,7 +8,7 @@ vi.mock('../plannerApi.js', () => planner)
 
 beforeAll(async () => {
   vi.useFakeTimers({ toFake: ['Date'] })
-  vi.setSystemTime(new Date('2026-10-09T10:00:00'))
+  vi.setSystemTime(new Date('2026-10-09T10:00:00+08:00'))
   stubPlanner(planner)
   await confirmedSave()
 })
@@ -17,7 +17,16 @@ afterEach(() => vi.unstubAllGlobals())
 
 const FULL = /storage is full/
 
+// Photos open on the outing's day, which is the day after the clock the file is set to (the fixture's plan is for 10 October). The
+// tests that add photos move the clock to the day itself, and back after.
+// How to call: onTheDay() (inside a describe, once)
+function onTheDay() {
+  beforeEach(() => vi.setSystemTime(new Date('2026-10-10T10:00:00+08:00')))
+  afterEach(() => vi.setSystemTime(new Date('2026-10-09T10:00:00+08:00')))
+}
+
 describe('when storage is full', () => {
+  onTheDay()
   it('rejects the write, keeps the old state, and works again once there is room', async () => {
     const { api, id } = await loadConfirmed()
     const before = api.storage.store[STORAGE_KEY]
@@ -60,6 +69,8 @@ describe('when storage is full', () => {
 })
 
 describe('photos', () => {
+  onTheDay()
+
   it('saves once per photo', async () => {
     const { api, id } = await loadConfirmed()
     const writes = api.storage.writes

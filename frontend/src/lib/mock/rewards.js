@@ -20,4 +20,8 @@ export const REWARDS = [
   { id: 'r-chye-seng-huat', category: 'bakery', cafe: 'Sample Roastery', offer: 'Free pastry with any drink', cost: 180 },
   { id: 'r-merci-marcel', category: 'tea', cafe: 'Sample Tea House', offer: 'Two drinks for the price of one', cost: 220 },
   { id: 'r-lolas', category: 'meal', cafe: 'Sample Corner Café', offer: 'SGD 10 off', cost: 300 },
+  // Bigger prizes that take a while to save for, so "Can claim" has something to leave out (Faith, 31 October 2026).
+  { id: 'r-tea-for-two', category: 'tea', cafe: 'Sample Tea Room', offer: 'Afternoon tea for two', cost: 1500 },
+  { id: 'r-brunch', category: 'meal', cafe: 'Sample Brunch Bar', offer: 'Brunch for two', cost: 2000 },
+  { id: 'r-whole-cake', category: 'dessert', cafe: 'Sample Patisserie', offer: 'A whole cake', cost: 2500 },
 ]

@@ -68,6 +68,12 @@ describe('the votes-cleared notice', () => {
     expect(votesClearedBanner({ status: 'voting', banner })).toBe(banner)
   })
 
+  it('shows a dietary banner while voting even when no vote went with the places, and names nobody', () => {
+    const diet = { text: "The group's dietary needs changed, so the places were picked again.", at: 2, byDiet: true }
+    expect(votesClearedBanner({ status: 'voting', banner: diet })).toBe(diet)
+    expect(votesClearedBanner({ status: 'confirmed', banner: diet })).toBeNull()
+  })
+
   it('leaves the other banners out', () => {
     expect(votesClearedBanner({ status: 'voting', banner: { text: 'Meeting area stays at Bishan.', at: 1 } })).toBeNull()
     expect(votesClearedBanner({ status: 'voting', banner: null })).toBeNull()

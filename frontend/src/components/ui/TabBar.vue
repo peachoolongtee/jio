@@ -8,9 +8,17 @@
 // Home, Leaderboard, Create, Rewards, Profile.
 // Which tab is current comes from the route (router `meta.tab`), so Home is current on the Sessions list too.
 // The phone pill is never wider than the screen less 8px each side; under 400px the current tab shows only its icon.
-import { RouterLink, useRoute } from 'vue-router'
+// Create goes straight into the create page, playing the "entering a game" move from the button (lib/enterGame.js, as Home's map pin
+// does). It has no menu (Faith's walkthrough, 30 October 2026: choosing first was a step too many); "Already out" is a link on the create
+// page. The menu's code was removed on 1 November 2026.
+import { ref } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 import JioLogo from './JioLogo.vue'
+import RainbowButton from './RainbowButton.vue'
+import { usePostReader } from '@/lib/usePostReader.js'
+import AddFriends from '../home/AddFriends.vue'
+import { enterGame } from '@/lib/enterGame.js'
 
 defineProps({
   tabs: {
@@ -25,17 +33,43 @@ defineProps({
   },
 })
 
+// "Find places from a post" only where the server can read posts (lib/usePostReader.js).
+const offerPosts = usePostReader()
 const route = useRoute()
-
 const isActive = (tab) => route.meta.tab === tab.id
+
+const router = useRouter()
+const button = ref(null)
+
+// Plays the move from the Create button and opens the create page. How to call: await go('/sessions/new')
+async function go(to) {
+  const rect = button.value?.getBoundingClientRect?.()
+  const x = rect ? rect.left + rect.width / 2 : 0
+  const y = rect ? rect.top + rect.height / 2 : 0
+  await enterGame({ x, y, go: () => router.push(to) })
+}
 </script>
 
 <template>
   <nav class="tabbar" aria-label="Main" style="view-transition-name: app-tabs">
     <RouterLink to="/" class="tabbar__brand" aria-label="Jio home"><JioLogo :height="30" decorative /></RouterLink>
+    <template v-for="tab in tabs" :key="tab.id">
+    <button
+      v-if="tab.create"
+      :ref="(el) => (button = el)"
+      type="button"
+      class="tabbar__tab is-create"
+      :aria-label="tab.name"
+      :title="tab.name"
+      data-testid="create-button"
+      @click="go(tab.to)"
+    >
+      <AppIcon :name="tab.icon" :size="22" />
+      <span class="tabbar__label" aria-hidden="true"><span>{{ tab.label }}</span></span>
+      <span class="tabbar__label tabbar__label--long" aria-hidden="true"><span>{{ tab.name }}</span></span>
+    </button>
     <RouterLink
-      v-for="tab in tabs"
-      :key="tab.id"
+      v-else
       class="tabbar__tab"
       :class="{ 'is-active': isActive(tab), 'is-create': tab.create }"
       :to="tab.to"
@@ -47,6 +81,13 @@ const isActive = (tab) => route.meta.tab === tab.id
       <span class="tabbar__label" aria-hidden="true"><span>{{ tab.label }}</span></span>
       <span v-if="tab.name" class="tabbar__label tabbar__label--long" aria-hidden="true"><span>{{ tab.name }}</span></span>
     </RouterLink>
+    </template>
+    <!-- From 1024px: Add friends and Find places from a post, just before Create, so they are on screen on every page (Darius, 4 November
+         2026; narrower, they are pinned on Home instead). -->
+    <div class="tabbar__tools">
+      <AddFriends />
+      <RainbowButton v-if="offerPosts" label="Find places from a post" to="/places/from-post" icon="sparkles" data-testid="topbar-post-places" />
+    </div>
   </nav>
 </template>
 
@@ -114,8 +155,8 @@ const isActive = (tab) => route.meta.tab === tab.id
   .tabbar__tab { min-width: 40px; padding: 0 var(--spacing-sm); }
 }
 
-/* Only the wide bar shows the wordmark and Create's longer name. */
-.tabbar__brand, .tabbar__label--long { display: none; }
+/* Only the wide bar shows the wordmark, Create's longer name, and the two tools. */
+.tabbar__brand, .tabbar__label--long, .tabbar__tools { display: none; }
 
 /* Tablet and up: a full-width bar along the top. The wordmark on the left, the tabs beside it with their names,
    and Create as a Rausch button pushed to the right. */
@@ -130,8 +171,9 @@ const isActive = (tab) => route.meta.tab === tab.id
     width: auto;
     min-width: 0;
     max-width: none;
-    height: var(--topbar-height);
-    padding: 0 max(var(--gutter), calc((100vw - var(--content-max-width)) / 2));
+    /* Below the status bar of an app added to the home screen, and clear of a notch on a phone on its side. */
+    height: var(--topbar-real-height);
+    padding: env(safe-area-inset-top, 0px) max(var(--gutter), calc((100vw - var(--content-max-width)) / 2), calc(env(safe-area-inset-right, 0px) + var(--spacing-base))) 0 max(var(--gutter), calc((100vw - var(--content-max-width)) / 2), calc(env(safe-area-inset-left, 0px) + var(--spacing-base)));
     border: 0;
     border-bottom: 1px solid var(--hairline);
     border-radius: 0;
@@ -144,8 +186,10 @@ const isActive = (tab) => route.meta.tab === tab.id
   .tabbar__tab:not(.is-active):not(.is-create) { color: var(--body); }
   .tabbar__label, .tabbar__tab.is-active .tabbar__label { grid-template-columns: 1fr; max-width: none; margin-left: var(--spacing-sm); opacity: 1; transition: none; }
   .tabbar__label > span { font: var(--text-nav-link); font-size: 15px; }
-  /* Create: last, on the right, as a Rausch button with its full name. */
-  .tabbar__tab.is-create { order: 1; margin-left: auto; padding: 0 var(--spacing-lg) 0 var(--spacing-base); }
+  /* Create: last, on the right after the tools, as a Rausch button with its full name. */
+  .tabbar__tab.is-create { order: 2; margin-left: var(--spacing-sm); padding: 0 var(--spacing-lg) 0 var(--spacing-base); }
+  /* Create comes after the tools when they are there, so it is pushed right on its own until then. */
+  .tabbar__tab.is-create { margin-left: auto; }
   .tabbar__tab.is-create .tabbar__label:not(.tabbar__label--long) { display: none; }
   .tabbar__tab.is-create .tabbar__label--long { display: grid; }
 }
@@ -158,6 +202,18 @@ const isActive = (tab) => route.meta.tab === tab.id
   .tabbar__tab.is-create .tabbar__label:not(.tabbar__label--long) { display: grid; }
   .tabbar__tab.is-create .tabbar__label--long { display: none; }
 }
+
+/* From 1024px, where the bar has room for them: the tools, two round buttons pushed to the right, just before Create. Narrower bars
+   have them pinned on Home instead (LandingView). */
+@media (min-width: 1024px) {
+  .tabbar__tools { order: 1; display: flex; align-items: center; gap: var(--spacing-sm); margin-left: auto; }
+  .tabbar__tab.is-create { margin-left: var(--spacing-sm); }
+  .tabbar__tools :deep(.rb) { --rb-size: 40px; }
+  .tabbar__tools :deep(.add-friends) { width: 40px; height: 40px; box-shadow: none; }
+}
+
+/* Create is a button, not a link: it plays the move before it goes. */
+.tabbar > button.tabbar__tab { border: 0; font: inherit; cursor: pointer; }
 
 @media (prefers-reduced-motion: reduce) {
   .tabbar { animation: none; }

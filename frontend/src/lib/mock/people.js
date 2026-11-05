@@ -31,7 +31,11 @@ export const PEOPLE = [...CIRCLE, ...COMMUNITY]
 // Successful meetups before the demo starts (the last six months). Each one earned POINTS_PER_MEETUP points.
 // Ian's numbers are the demo account's only (`demo: true` on signUp); a person who signs up through the form starts at 0.
 // Their dates come from lib/mock/history.js, so the profile graph matches these counts.
-export const STARTING_MEETUPS = { ian: 10, darius: 24, nicole: 19, darryl: 12, faith: 8, jonathan: 5, meiling: 30, arjun: 16, siti: 22, weijie: 27, priya: 14, kai: 18 }
+// The sample friends' dietary needs (ticket #107): Faith is halal and Nicole is vegetarian. They are private, as a real
+// person's are: the planner filters by them, and no screen says whose they are. Everyone else has none.
+export const SAMPLE_DIETARY = { faith: ['halal'], nicole: ['vegetarian'] }
+
+export const STARTING_MEETUPS ={ ian: 10, darius: 24, nicole: 19, darryl: 12, faith: 8, jonathan: 5, meiling: 30, arjun: 16, siti: 22, weijie: 27, priya: 14, kai: 18 }
 // How many of those fall in the current leaderboard season, and how many in the season before it. Everyone has
 // some in both, so nobody opens the demo unranked. All different within a season, so the demo leaderboard has no
 // ties (whoever Ian adds), and for the friends in the same order as the totals above, so the most active lead.

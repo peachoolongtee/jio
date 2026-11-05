@@ -50,6 +50,17 @@ describe('itinerary', () => {
     for (const leg of legs) expect(Object.keys(leg.options).sort()).toEqual(['car', 'mrt', 'walk'])
   })
 
+  it('never starts a stop before its notBefore time, leaving free time before it', () => {
+    const plain = buildItinerary(stops)
+    const late = plain.stops[1].start + 45
+    const pinned = buildItinerary(stops.map((s, i) => (i === 1 ? { ...s, notBefore: late } : s)))
+    expect(pinned.stops[1].start).toBe(late)
+    expect(pinned.stops[2].start).toBe(late + stops[1].duration + pinned.legs[1].minutes)
+    // A notBefore that is already past changes nothing.
+    const early = buildItinerary(stops.map((s, i) => (i === 1 ? { ...s, notBefore: 0 } : s)))
+    expect(early.stops[1].start).toBe(plain.stops[1].start)
+  })
+
   it('falls back to the default mode for a plan saved with a mode that no longer exists', () => {
     const saved = buildItinerary(stops, ['grab', 'grab'])
     const fresh = buildItinerary(stops)
@@ -102,6 +113,12 @@ describe('rearranging the itinerary', () => {
     const { stops: timed } = buildItinerary([stops[2], stops[0]], [], 9 * 60)
     expect(timed[0].open).toBe(false)
     expect(buildItinerary(stops).stops.every((s) => s.open)).toBe(true)
+  })
+
+  it('flags retimed stops beyond the session window or group stay-until time', () => {
+    const timed = buildItinerary(stops, [], 900, { windowEnd: 1080, stayUntil: 1050 }).stops
+    expect(timed[0]).toMatchObject({ withinWindow: true, withinStay: true })
+    expect(timed[1]).toMatchObject({ withinWindow: false, withinStay: false })
   })
 
   it('warns when the new last stop is far from an MRT station', async () => {

@@ -17,7 +17,7 @@
 
 :root {
   /* Brand */
-  --primary: #ff385c; /* Rausch. Primary CTAs, the create orb, the meeting-area pin, "Live now". White text on it is 3.5:1; this brighter red was chosen over the darker #d10027 on 2026-10-09. */
+  --primary: #ff385c; /* Rausch. Primary CTAs, the create orb, the meeting-area pin, "Happening now". White text on it is 3.5:1; this brighter red was chosen over the darker #d10027 on 2026-10-09. */
   --primary-bright: #ff385c; /* The same Rausch, for decoration: glows, washes, rings. Kept as its own name in case --primary changes again. */
   --brand-logo: #f93d64; /* The official logo pink (components/ui/JioLogo.vue, the favicon). For the logo only, never for text. */
   --primary-active: #e00b41; /* Rausch pressed. */
@@ -41,10 +41,10 @@
   --medal-bronze-bg: #dda274;
   --medal-bronze-on: #5a2e10;
   /* Good, middling, bad: travel time to the meeting area. */
-  --scale-good: #15803d;
+  --scale-good: #157a38; /* Text on white, Surface Soft, Surface Strong and the grey cards' hover grey: 4.5:1 or more on each (1 Nov 2026). */
   --scale-middle: #b7791f; /* Fills that carry no text (key dots, stripes). For text use --scale-middle-text. */
-  --scale-middle-text: #97641a; /* Amber that is safe as text: 5.1:1 on white, 4.7:1 on Surface Soft, 4.5:1 on Surface Strong. */
-  --scale-bad: #dc2626;
+  --scale-middle-text: #8a5a14; /* Amber that is safe as text: 5.9:1 on white, 5.3:1 on Surface Strong, 5.0:1 on the grey cards' hover grey. */
+  --scale-bad: #c81f1f; /* Text and rings: 5.7:1 on white, 5.1:1 on Surface Strong. */
   --travel-short: var(--scale-good); /* Up to 30 min. */
   --travel-medium: var(--scale-middle); /* 31 to 45 min, as a fill. */
   --travel-medium-text: var(--scale-middle-text); /* 31 to 45 min, as text. */
@@ -58,6 +58,32 @@
   --cat-shop-bg: color-mix(in srgb, var(--cat-shop-fg) 12%, var(--canvas));
   --cat-activity-fg: #059669;
   --cat-activity-bg: color-mix(in srgb, var(--cat-activity-fg) 12%, var(--canvas));
+  /* Dietary tags on a place's card (ticket #107): halal brown, vegetarian and vegan green. Text on its tint: 6.1:1 and 6.0:1. */
+  --diet-halal-fg: #7c4a1e;
+  --diet-halal-bg: color-mix(in srgb, var(--diet-halal-fg) 12%, var(--canvas));
+  --diet-veg-fg: #166534;
+  --diet-veg-bg: color-mix(in srgb, var(--diet-veg-fg) 12%, var(--canvas));
+  /* Status badges (StatusBadge.vue), in the app's own colours, each pair over 4.5:1 (Faith, 31 October 2026; they were seven separate hues):
+     your turn is a solid deep Rausch, the one that asks for you; voting a Rausch tint; ready solid ink, like anything done; the quiet
+     states greys. */
+  --status-turn-bg: #d70f3f; /* White on it: 5.2:1. */
+  --status-turn-fg: var(--on-dark);
+  --status-voting-bg: #ffe7eb; /* Rausch at 12% on white. */
+  --status-voting-fg: #b3002d; /* 6.1:1 on its tint. */
+  --status-ready-bg: var(--ink);
+  --status-ready-fg: var(--on-dark); /* 15.9:1. */
+  --status-planning-bg: #f2f2f2;
+  --status-planning-fg: var(--ink); /* 14.2:1. */
+  --status-done-bg: #f7f7f7;
+  --status-done-fg: #6a6a6a; /* 5.1:1. */
+  --status-waiting-bg: #f7f7f7;
+  --status-waiting-fg: #6a6a6a;
+  --status-cancelled-bg: #f7f7f7;
+  --status-cancelled-fg: #c13515; /* 5.2:1. */
+  /* Rain (DESIGN.md, "Weather"): a blue-slate cooler than --ink, so rain reads as weather and not as a shadow. Information only: it never marks an action. There is no dark theme. */
+  --rain-wash: #4f7aa6; /* The tint over the rainy area, drawn at 40% opacity in the middle, down to 10% near the edge and nothing at it (10 to 40%), feathered. */
+  --rain-streak: #6f9bc8; /* The drops, 0.38, 0.6 and 0.85 opacity for the far, middle and near layer. */
+  --rain-text: #2a4866; /* Text and icon on the rain chip (a white chip): 9.5:1. */
   /* People: each person keeps one colour everywhere, on their map pin and their avatar (lib/people.js). */
   --person-1: #2563eb;
   --person-2: #7c3aed;
@@ -81,9 +107,10 @@
   --surface-card: #ffffff;
   --surface-soft: #f7f7f7; /* Quiet panels, banners, hover backgrounds. */
   --surface-strong: #f2f2f2; /* Circular icon buttons, category icon circles, photo plates, segmented tracks. */
-  --hairline: #dddddd; /* The default 1px border: cards, inputs, dividers. */
+  --hairline: #dddddd; /* The default 1px border: cards and dividers. Too light to outline a control. */
   --hairline-soft: #ebebeb; /* Lighter dividers between list rows. */
-  --border-strong: #c1c1c1; /* Outlines of unselected chips, disabled outlines. */
+  --border-strong: #c1c1c1; /* Decorative outlines: dashed empties, the sheet handle, disabled outlines. */
+  --border-control: #8a8a8a; /* The outline that marks a control: inputs, selects, unselected chips, the switch. 3.45:1 on white, the 3:1 WCAG asks of a control's edge. */
   --on-primary: #ffffff; /* Text on Rausch. */
   --on-dark: #ffffff; /* Text on ink. */
   --scrim: #000000; /* Modal backdrop. Render at 50% opacity. */
@@ -158,6 +185,16 @@
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1); /* Quick start, soft landing. The default curve for everything that moves. */
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1); /* A little overshoot: buttons letting go, chips popping on. */
   --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1); /* Sheets and dialogs arriving, like a native sheet. */
+}
+
+/* The bars' real heights: the bar plus the safe-area inset it grows by (the top bar under a status bar, the pill above the
+   home indicator). Anything that clears, clamps to or sticks under a bar uses these, not the two above. They are
+   registered as lengths so a script can read them in px (lib/bars.js); an unregistered one would read back as text. */
+@property --topbar-real-height { syntax: '<length>'; inherits: true; initial-value: 0px; }
+@property --tabbar-real-height { syntax: '<length>'; inherits: true; initial-value: 0px; }
+:root {
+  --topbar-real-height: calc(var(--topbar-height) + env(safe-area-inset-top, 0px));
+  --tabbar-real-height: calc(var(--tabbar-height) + env(safe-area-inset-bottom, 0px));
 }
 
 @media (min-width: 744px) {

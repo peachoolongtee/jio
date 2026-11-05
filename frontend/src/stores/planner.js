@@ -1,8 +1,10 @@
 // Step 6: categories and timing, suggestions and votes, plus the demo weather conditions.
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, toRaw } from 'vue'
 import * as api from '@/lib/api.js'
-import { HOST_ID } from '@/lib/mock/people.js'
+import { useAuthStore } from '@/stores/auth.js'
+import { currentUserId } from '@/lib/currentUser.js'
+import { withMyVote } from '@/lib/planVotes.js'
 
 // Changes that cannot alter what the planner would rank: photos, and the itinerary (order, travel modes, deleted stops).
 const KEEPS_RANKING = new Set(['photos', 'plan'])
@@ -14,13 +16,29 @@ export const usePlannerStore = defineStore('planner', () => {
   const errors = ref({})
   const conditions = ref({ rain: false, routing: true, sessionDay: false })
   const seq = {}
+  // The load of each plan that is running now, so a caller can wait for it instead of starting another.
+  const reading = {}
 
   // Only the newest load of a plan applies. A load that fails sets errors[id] and still throws, so the caller can react.
-  async function loadPlan(id, { quiet = false } = {}) {
+  // With `votesOnly` (a live vote in a shared session) the data layer reads only the votes and makes the plan again from the rest it has.
+  // How to call: await loadPlan('3b1f...'); await loadPlan('3b1f...', { quiet: true, votesOnly: true })
+  function loadPlan(id, options) {
+    const load = readPlan(id, options)
+    // Only a whole read counts: a read of the votes alone is not the plan a write waits for.
+    if (!options?.votesOnly) {
+      reading[id] = load
+      const done = () => {
+        if (reading[id] === load) delete reading[id]
+      }
+      load.then(done, done)
+    }
+    return load
+  }
+  async function readPlan(id, { quiet = false, votesOnly = false } = {}) {
     const ticket = (seq[id] = (seq[id] || 0) + 1)
     if (!quiet || !plans.value[id]) loading.value = { ...loading.value, [id]: true }
     try {
-      const plan = await api.getPlan(id)
+      const plan = await api.getPlan(id, { votesOnly })
       if (ticket !== seq[id]) return plans.value[id]
       plans.value = { ...plans.value, [id]: plan }
       errors.value = { ...errors.value, [id]: '' }
@@ -42,37 +60,122 @@ export const usePlannerStore = defineStore('planner', () => {
     conditions.value = await api.setConditions({ [key]: value })
   }
 
-  const setMyPreferences = (id, prefs) => api.setPreferences(id, HOST_ID, prefs)
+  const setMyPreferences = (id, prefs) => api.setPreferences(id, currentUserId(), prefs)
   const deleteSlot = (id, slotId) => api.deleteSlot(id, slotId)
   const restoreSlots = (id) => api.restoreSlots(id)
   const addMore = (id, slotId) => api.addMoreOptions(id, slotId)
   const addOption = (id, slotId, venueId) => api.addOption(id, slotId, venueId)
+  // Add a saved place Jio does not know, as a copy. How to call: await addSavedOption('s1', 'eat', place)
+  const addSavedOption = (id, slotId, place) => api.addSavedOption(id, slotId, place)
+  // Take back a place you added. How to call: await removeOption('s1', 'eat-1', 'v25')
+  const removeOption = (id, slotId, venueId) => api.removeOption(id, slotId, venueId)
   const swapOption = (id, slotId, fromId, toId) => api.swapOption(id, slotId, fromId, toId)
-  const vote = (id, slotId, venueId) => api.vote(id, slotId, HOST_ID, venueId)
-  const searchVenues = (id, slotId, query) => api.searchVenuesForSlot(id, slotId, query)
-  const setRadius = (id, metres) => api.setRadius(id, metres)
+  // The answers of the server that prove it changed nothing: a vote refused for these reasons was not saved, so what was shown for it is
+  // taken back. Any other failure (no connection, a timeout, a server error) says nothing about whether it was saved.
+  const REFUSED = new Set(['wrong_status', 'not_joined', 'slot_not_found', 'option_not_found', 'session_not_found'])
 
-  // A live reload that fails has nowhere to throw to: the failure is in errors[id].
-  const reload = (id) => loadPlan(id, { quiet: true }).catch(() => {})
+  // One vote. The person's own vote shows at once, before it is saved (the plan is read again when it has); if the database refuses it the
+  // plan goes back to what it was, but only if nothing has replaced it meanwhile. A failure that does not prove the vote was not saved leaves
+  // what is shown and reads the plan again to find out. A local session does the same (Faith, 31 October 2026: it used to wait for the whole
+  // plan to be ranked again, a second or more, before "Voted" showed).
+  // How to call: await vote('3b1f...', '9a2c...', 'v25')
+  async function vote(id, slotId, venueId) {
+    const before = toRaw(plans.value[id])
+    if (!before) return api.vote(id, slotId, currentUserId(), venueId)
+    const shown = withMyVote(before, slotId, venueId, currentUserId(), myName())
+    if (shown !== before) {
+      plans.value = { ...plans.value, [id]: shown }
+      // A read of the plan that began earlier must not put an older plan over this vote when it answers: it is out of date now. (The
+      // vote is read again below, or by the event it raises. A spinner such a read held is put out with it.)
+      seq[id] = (seq[id] || 0) + 1
+      loading.value = { ...loading.value, [id]: false }
+    }
+    try {
+      return await api.vote(id, slotId, currentUserId(), venueId)
+    } catch (err) {
+      // A local refusal is always a refusal: nothing was saved.
+      if ((REFUSED.has(err?.code) || !before.remote) && toRaw(plans.value[id]) === shown) plans.value = { ...plans.value, [id]: before }
+      reload(id)
+      throw err
+    }
+  }
+  // The signed-in person's own name, for their vote on the card until the plan is read again. How to call: myName() -> 'Sam'
+  const myName = () => useAuthStore().user?.name ?? ''
+  const searchVenues = (id, slotId, query, opts) => api.searchVenuesForSlot(id, slotId, query, opts)
+  const setRadius = (id, metres) => api.setRadius(id, metres)
+  // Show the food places we could not confirm for the group's dietary needs, or only the ones that fit.
+  // Both dietary changes resolve once this page's plan holds the places picked again (a change of the person's own needs picks
+  // them in the background, which whenRefiltered waits for), so a screen that shows them loading can stop exactly when they
+  // are in. How to call: await afterReload(id, api.setUnconfirmed(id, true))
+  async function afterReload(id, change) {
+    const answer = await change
+    await api.whenRefiltered()
+    // A write tells the screens (api.js), which read the plan: wait for that read rather than make a second one. Only a plan nobody is
+    // reading is read here.
+    await (reading[id]?.catch(() => {}) ?? reload(id))
+    return answer
+  }
+  // How to call: await planner.setUnconfirmed(id, true)
+  const setUnconfirmed = (id, on) => afterReload(id, api.setUnconfirmed(id, on))
+  // Confirm the signed-in person's dietary needs for this outing only (the profile is left as it is), and which of the
+  // others' needs the group should not filter for.
+  // How to call: await planner.confirmDiet(id, ['halal'], [])
+  // `options.confirmed: false` is a tap on the chips: the needs are saved, the outing is not marked confirmed.
+  // How to call: await planner.confirmDiet(id, ['halal'], [], { confirmed: false })
+  const confirmDiet = (id, dietary, dropped, options) => afterReload(id, api.confirmDiet(id, dietary, dropped, options))
+
+  // A live reload that fails has nowhere to throw to: the failure is in errors[id]. A live vote reads the votes alone.
+  // How to call: reload('3b1f...'); reload('3b1f...', { votesOnly: true })
+  const reload = (id, { votesOnly = false } = {}) => loadPlan(id, { quiet: true, votesOnly }).catch(() => {})
 
   // Live updates: a change to a session that can alter its ranking refreshes its plan; weather refreshes every plan.
+  // Whose plans the store holds. A change of person, with or without a sign-out between, empties them: every account's first
+  // session is `s1`, so a kept plan of `s1` would be shown as the next account's. A load still running finds its ticket out
+  // of date and drops its answer.
+  let owner = currentUserId()
+  function forgetPlans() {
+    for (const id of Object.keys(seq)) seq[id] += 1
+    plans.value = {}
+    loading.value = {}
+    errors.value = {}
+  }
+
   api.subscribe((event) => {
+    if (currentUserId() !== owner) {
+      owner = currentUserId()
+      forgetPlans()
+    }
     // "pending" only shows work in progress (the meeting area being found); the plan has not changed yet.
     if (event.type === 'pending') return
     if (event.type === 'reset') {
       plans.value = {}
       errors.value = {}
-      loadConditions()
+      loadConditions().catch(() => {})
+      return
+    }
+    // The channel of a shared session connected, or the tab came back into view: what happened while nobody listened is read again.
+    if (event.type === 'resync') {
+      for (const id of Object.keys(plans.value)) reload(id)
       return
     }
     if (event.type === 'conditions') {
-      loadConditions()
+      loadConditions().catch(() => {})
+      for (const id of Object.keys(plans.value)) reload(id)
+      return
+    }
+    // The signed-in person's profile changed: a dietary need changes what every plan shows and ranks, even when no place
+    // dropped out (and then no session event follows).
+    if (event.type === 'user') {
       for (const id of Object.keys(plans.value)) reload(id)
       return
     }
     if (KEEPS_RANKING.has(event.type)) return
+    if (event.type === 'votes') {
+      if (event.sessionId && plans.value[event.sessionId]) reload(event.sessionId, { votesOnly: true })
+      return
+    }
     if (event.sessionId && plans.value[event.sessionId]) reload(event.sessionId)
   })
 
-  return { plans, loading, errors, conditions, loadPlan, loadConditions, setCondition, setMyPreferences, deleteSlot, restoreSlots, addMore, addOption, swapOption, vote, searchVenues, setRadius }
+  return { addSavedOption, plans, loading, errors, conditions, loadPlan, loadConditions, setCondition, setMyPreferences, deleteSlot, restoreSlots, addMore, addOption, removeOption, swapOption, vote, searchVenues, setRadius, setUnconfirmed, confirmDiet }
 })

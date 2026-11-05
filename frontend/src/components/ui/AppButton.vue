@@ -8,8 +8,9 @@
 //   secondary Ink outline on white.
 //   tertiary  Text only. Add `underline` when it stands alone as a link.
 //   pill      Small Rausch pill, for example "Set".
-//   danger    Error-red fill, for an action that cannot be undone, for example "Cancel session".
-// `small` makes primary and secondary buttons 44px tall with smaller text, for actions inside cards.
+//   danger    Error-red fill, for an action that cannot be undone, for example "Cancel outing".
+// `small` makes primary and secondary buttons 44px tall with smaller text, for actions inside cards. A small secondary button is a
+// dark pill instead, ink with white text ("Add a spot", "Try again", "Share"; walkthrough, 1 November 2026).
 // Pass `to` to make it a router link, or `href` for a link to another site (add target="_blank" to open a new tab;
 // it gets rel="noopener noreferrer"). A disabled button always renders as a real <button>.
 import { computed } from 'vue'
@@ -123,19 +124,25 @@ const attrs = computed(() =>
 .btn--pill:not(:disabled):active { background: var(--primary-active); }
 .btn--pill:disabled { background: var(--primary-disabled); cursor: not-allowed; }
 
-/* Destructive confirmation, always with words ("Cancel session", "Delete"). */
+/* Destructive confirmation, always with words ("Cancel outing", "Delete"). */
 .btn--danger { height: 48px; padding: 0 var(--spacing-lg); border-radius: var(--rounded-sm); background: var(--primary-error-text); color: var(--on-primary); }
 .btn--danger:not(:disabled):active { background: var(--primary-error-text-hover); }
 .btn--danger:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .btn--small.btn--primary, .btn--small.btn--secondary, .btn--small.btn--danger { height: var(--tap-min); padding: 0 var(--spacing-base); font: var(--text-button-sm); }
 .btn--small.btn--primary { font-weight: 600; }
+/* button-secondary-small: a dark pill, ink with white text and fully round corners. Lifts a shade on hover, darker when pressed. */
+.btn--small.btn--secondary { border: 0; border-radius: var(--rounded-full); padding: 0 20px; background: var(--ink); color: var(--on-dark); font-weight: 600; }
+.btn--small.btn--secondary:not(:disabled):active { background: #000000; }
+.btn--small.btn--secondary:not(:disabled):focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.btn--small.btn--secondary:disabled { background: var(--surface-strong); color: var(--muted-soft); }
 .btn--small.btn--next { height: var(--tap-min); min-width: 120px; padding: 0 var(--spacing-base); font: var(--text-button-sm); font-weight: 600; }
 .btn--small .btn__dot { left: var(--spacing-md); }
 
 @media (hover: hover) {
   .btn--pill:not(:disabled):hover, .btn--primary:not(:disabled):hover { background: var(--primary-active); }
   .btn--secondary:not(:disabled):hover { background: var(--surface-soft); }
+  .btn--small.btn--secondary:not(:disabled):hover { background: color-mix(in srgb, var(--ink) 85%, var(--canvas)); }
   .btn--danger:not(:disabled):hover { background: var(--primary-error-text-hover); }
 }
 </style>

@@ -1,6 +1,6 @@
 // The frontend and the backend planner together: a whole session through api.js, against the real
 // Express app started in this process. If the request or response shapes drift apart, this fails.
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createApp } from '../../../../backend/src/app.js'
 import { createHttp } from '../../../../backend/src/services/http.js'
 import * as api from '../api.js'
@@ -9,6 +9,10 @@ import { HOST_ID } from '../mock/people.js'
 let server
 
 beforeAll(async () => {
+  // The sessions here are dated Saturday 10 October 2026. A read after a session's end time finishes it (lib/api.js
+  // settleOutings), so the clock is held the day before, as in the other data-layer tests. Only Date is faked.
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-10-09T10:00:00'))
   // The rain test below fakes the forecast, so the server has to allow that.
   // Stub HTTP: the weather and any routing are answered from the backend's fixtures, so these tests never
   // wait on data.gov.sg or OneMap. Without it the first ranking fetched the live forecast and ran close to the
@@ -18,7 +22,10 @@ beforeAll(async () => {
   api.api.defaults.baseURL = `http://127.0.0.1:${server.address().port}`
 })
 
-afterAll(() => server?.close())
+afterAll(() => {
+  server?.close()
+  vi.useRealTimers()
+})
 
 describe('a session planned by the backend', () => {
   let id
@@ -42,7 +49,8 @@ describe('a session planned by the backend', () => {
     await saving
     expect((await api.getSession(id)).findingMeeting).toBe(false)
     const session = await api.getSession(id)
-    expect(session.area.id).toBe('bishan')
+    // Marymount, one Circle Line stop from Bishan: fairest for Tampines, Jurong East and Woodlands among every MRT station (Bishan among the first 37).
+    expect(session.area.id).toBe('marymount')
     expect(session.meeting.maxMinutes).toBeGreaterThan(0)
     expect(session.resultLine).toMatch(/^Fairest for 3 people: nobody travels more than about \d+ minutes\.$/)
   })
@@ -90,6 +98,16 @@ describe('a session planned by the backend', () => {
     const after = (await plan()).slots.find((s) => s.id === eat.id)
     expect(after.options.map((o) => o.id)).toContain(pick.id)
     expect(after.options.find((o) => o.id === pick.id).venue.name).toBe(pick.name)
+  })
+
+  it('lists a place once even when it is added twice at the same moment', async () => {
+    const eat = (await plan()).slots.find((s) => s.category === 'eat')
+    const results = await api.searchVenuesForSlot(id, eat.id, 'food stalls')
+    const pick = results.filter((r) => !r.unfit && !r.added).at(-2)
+    expect(pick).toBeTruthy()
+    await Promise.all([api.addOption(id, eat.id, pick.id), api.addOption(id, eat.id, pick.id)])
+    const after = (await plan()).slots.find((s) => s.id === eat.id)
+    expect(after.options.filter((o) => o.id === pick.id)).toHaveLength(1)
   })
 
   it('refuses a place that does not fit the slot', async () => {
@@ -150,5 +168,43 @@ describe('a session planned by the backend', () => {
     } finally {
       api.api.defaults.baseURL = baseURL
     }
+  })
+})
+
+describe('meeting spots planned by the backend', () => {
+  it('lists the app\'s three, prices a member\'s suggestion the same way, and settles on the approved one', async () => {
+    if (!(await api.getUser())) await api.signUp({ email: 'ian@example.com', name: 'Ian', username: 'ian', dob: '2004-03-18', homeAreaId: 'tampines' })
+    const { id } = await api.createSession({ title: 'Spots', date: '2026-10-11', start: '12:00', end: '20:00' })
+    await api.inviteFriends(id, ['jonathan', 'faith'])
+    await api.startSession(id)
+    await api.setLocation(id, HOST_ID, 'start', { areaId: 'tampines' })
+    await api.setLocation(id, 'jonathan', 'start', { areaId: 'jurong-east' })
+    // Faith has not shared a start, so the meeting area waits, but the spots are listed from two starts on.
+    const listed = await api.getSession(id)
+    expect(listed.meeting).toBeNull()
+    expect(listed.spots.list).toHaveLength(3)
+    expect(new Set(listed.spots.list.map((s) => s.areaId)).size).toBe(3)
+    for (const spot of listed.spots.list) {
+      expect(spot.by).toBe('app')
+      expect(Object.keys(spot.times).sort()).toEqual([HOST_ID, 'jonathan'].sort())
+      expect(spot.worstMinutes).toBe(Math.max(...Object.values(spot.times)))
+    }
+    // The fairest comes first: nothing after it has a shorter longest trip.
+    expect(listed.spots.list.every((s) => s.worstMinutes >= listed.spots.list[0].worstMinutes)).toBe(true)
+    // A member's suggestion is priced by the same request, for the same people.
+    const pick = ['kovan', 'pasir-ris', 'woodlands'].find((a) => !listed.spots.list.some((s) => s.areaId === a))
+    const suggested = await api.suggestSpot(id, 'faith', pick)
+    const spot = suggested.spots.list.find((s) => s.areaId === pick)
+    expect(spot).toMatchObject({ by: 'faith', here: false })
+    expect(Object.keys(spot.times).sort()).toEqual([HOST_ID, 'jonathan'].sort())
+    expect(spot.worstMinutes).toBe(Math.max(...Object.values(spot.times)))
+    expect(suggested.spots.list).toHaveLength(4)
+    // The approved spot is the one offered, and the host settles on it.
+    const approved = await api.approveSpot(id, 'jonathan', pick, true)
+    expect(approved.spots.preselectedAreaId).toBe(pick)
+    const settled = await api.confirmSpot(id, pick)
+    expect(settled).toMatchObject({ status: 'voting', area: { id: pick } })
+    expect(settled.meeting).toMatchObject({ areaId: pick, method: 'voted', count: 2 })
+    expect((await api.getPlan(id)).slots.some((s) => s.options.length > 0)).toBe(true)
   })
 })

@@ -6,18 +6,24 @@
 // (a date-night ranking was led by a dim sum hall). Travel is measured against a ceiling instead:
 // 0 minutes = 0, the ceiling (default 60) = 100.
 
+import { forecastStateOf } from '../services/weather.js';
+
 const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
 const mean = xs => xs.reduce((a, b) => a + b, 0) / xs.length;
 
 // Defaults are starting points. Expose them as sliders and tune against your mock data.
+// The rating counts, but only as far as its reviews (ticket #149, agreed with the lead on 16 October 2026): see
+// weightedRating() and RATING_WEIGHT below. The weight is not one of the weights a caller sends (the API still answers
+// 400 for `rating`). It is added to whatever weights a request uses and scaled to them (withRatingWeight), so the rating
+// has the same share of the score under any set of weights, and a custom set cannot switch it off.
 // Two more factors exist but have NO default weight, so they only count when a caller asks for them:
 //   crowd       (both engines) estimated crowd at the visit time, from the frontend's profiles
 //   returnWorst (Converge)     the longest trip home from the venue; lastStop: true turns it on
 // Occasion fit is one of the heaviest factors on purpose: "what suits a date / birthday / study session" is
 // the product. With occasion at only 10, a venue that matched the group's cuisine beat one that fit the mood.
 const DEFAULT_WEIGHTS = {
-  converge: { worst: 25, mean: 5, occasion: 25, preference: 10, rating: 10, weather: 12, price: 8, cdc: 3, antiRepeat: 2 },
-  roam:     { distance: 20, occasion: 25, preference: 10, rating: 12, weather: 18, price: 10, cdc: 3, antiRepeat: 2 },
+  converge: { worst: 25, mean: 5, occasion: 25, preference: 10, weather: 12, price: 8, cdc: 3, antiRepeat: 2 },
+  roam:     { distance: 20, occasion: 25, preference: 10, weather: 18, price: 10, cdc: 3, antiRepeat: 2 },
 };
 
 /** Travel minutes as a penalty: 0 min = 0, ceilingMinutes or more = 100. Absolute, so tiny gaps stay tiny. */
@@ -122,25 +128,47 @@ const RAIN_LIKELY = 0.6, RAIN_EXPOSED = 2;
 /** Rain is likely where this venue is. */
 const rainLikelyAt = (venue, weatherByArea) => weatherByArea[venue.forecastArea].rainRisk >= RAIN_LIKELY;
 
+/**
+ * What the weather is where this venue is, for a screen: { state, phrase, rainLikely }.
+ *   state       'dry' | 'cloudy' | 'showers' | 'thundery' | 'unknown'. From the forecast sentence when the entry has
+ *               one; for a simulated case (no sentence) 'showers' when rain is likely and 'dry' otherwise; 'unknown'
+ *               when the entry says so (weather has no effect on this ranking).
+ *   phrase      the weather service's own sentence, or null when there is none (simulated, or no forecast)
+ *   rainLikely  the same test as rainWarning's first half
+ *
+ * How to call:
+ *   weatherOf(venue, data.weatherCases.live) // { state: 'thundery', phrase: 'Thundery Showers', rainLikely: true }
+ */
+const weatherOf = (venue, weatherByArea) => {
+  const w = weatherByArea[venue.forecastArea];
+  if (!w) return { state: 'unknown', phrase: null, rainLikely: false };
+  const phrase = typeof w.forecast === 'string' ? w.forecast : null;
+  const state = w.state ?? (phrase ? forecastStateOf(phrase).state : w.rainRisk >= RAIN_LIKELY ? 'showers' : 'dry');
+  return { state, phrase, rainLikely: w.rainRisk >= RAIN_LIKELY };
+};
+
 /** Rain is likely AND the venue is open-air or a long walk from shelter: show a rain warning and an indoor swap. */
 const rainWarning = (venue, weatherByArea) =>
   rainLikelyAt(venue, weatherByArea) && venue.setting !== 'indoor' && venue.exposure >= RAIN_EXPOSED;
 
 // Can this venue's price back a claim such as "Budget friendly" or "within budget"? A typical price for a kind of
-// place (dataQuality.priceAssumed) is a guess: every OneMap attraction is given the same figure, ticketed or free.
-// CDC venues keep their claim, as before OneMap places were added: they are hawker stalls and heartland shops, and
-// whether a guessed price should speak for them too is the lead's decision.
+// place (dataQuality.priceAssumed) is a guess: every OneMap attraction is given the same figure, ticketed or free, and
+// every CDC food site is given $5 or $6 whatever its stalls charge. A guessed price makes no claim for any place,
+// whatever its source (the lead's decision of 11 October 2026). The price still counts in the score and in the
+// max_price_pp filter; only the words that call a place cheap or within budget need a price that is known.
 //
 // How to call:
 //   priceIsKnown({ avgPricePerPerson: 15, source: 'onemap', dataQuality: { priceAssumed: true } })   // false
+//   priceIsKnown({ avgPricePerPerson: 6, source: 'cdc', dataQuality: { priceAssumed: true } })       // false
 //   priceIsKnown({ avgPricePerPerson: 6 })                                                             // true
 export function priceIsKnown(venue) {
-  return !venue.dataQuality?.priceAssumed || venue.source === 'cdc';
+  return !venue.dataQuality?.priceAssumed;
 }
 
 /**
  * Short reason tags under each option, the same ones and in the same order as the frontend planner
- * (scoreVenue in frontend/src/lib/planner/suggestions.js), at most two.
+ * (scoreVenue in frontend/src/lib/planner/suggestions.js), at most two, with one more that the frontend planner does not
+ * have: "Rated 4.6 from 512 reviews" (see below), after "Quiet at ..." and before "Short walk".
  * o: { venue, walkMinutes, crowd, rainy, homeMaxMinutes (last stop only, else null), time "HH:MM" }
  */
 function reasonTags({ venue, walkMinutes, crowd, rainy, homeMaxMinutes = null, time }) {
@@ -149,21 +177,86 @@ function reasonTags({ venue, walkMinutes, crowd, rainy, homeMaxMinutes = null, t
   if (homeMaxMinutes !== null && homeMaxMinutes <= 35) tags.push('Easy trip home');
   if (venue.mrtWalkMinutes != null && venue.mrtWalkMinutes <= 5) tags.push('Near MRT');
   if (crowd === 'quiet') tags.push(`Quiet at ${time}`);
+  // A rating is a reason only when it is earned: at least MIN_REVIEWS_TO_SHOW reviews AND a weighted rating of
+  // MIN_WEIGHTED_RATING_TO_SHOW or more, so "Rated 3.1 from 800 reviews" is never shown. It comes ahead of the walk and the
+  // hidden-gem tag, which would otherwise cut it from the two tags a place shows.
+  if (Number.isFinite(venue.rating) && Number.isFinite(venue.ratingCount) && venue.ratingCount >= MIN_REVIEWS_TO_SHOW && weightedRating(venue) >= MIN_WEIGHTED_RATING_TO_SHOW) {
+    tags.push(`Rated ${venue.rating.toFixed(1)} from ${venue.ratingCount} reviews`);
+  }
   if (walkMinutes <= 5) tags.push('Short walk');
   if ((venue.tags ?? []).includes('hidden')) tags.push('Hidden gem');
   if (venue.avgPricePerPerson < 10 && priceIsKnown(venue)) tags.push('Budget friendly');
   return tags.slice(0, 2);
 }
 
-/** Unknown rating (e.g. CDC stalls) is neutral (50): not a reward, not a punishment. */
-const ratingPenalty = venue => (venue.rating === null || venue.rating === undefined ? 50 : clamp(100 - venue.rating * 20, 0, 100));
+/**
+ * Today in Singapore as "YYYY-MM-DD" (the date strings the planner takes are Singapore local time). Worked out on every
+ * call, never kept, so a server that runs past midnight uses the new date.
+ *
+ * How to call:
+ *   singaporeToday()   // '2026-10-17'
+ */
+function singaporeToday() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' });
+}
+
+// A rating counts as far as its reviews. Twenty reviews at four stars are mixed into every rating, so a single five-star
+// review scores 4.05 and 500 reviews at 4.6 stay 4.58. A place with no rating, or a rating with no review count (the
+// curated, OneMap and CDC places; the invented mock-data venues do carry counts and are scored on their ratings), counts as the
+// average: 4.0, the same as a place with no reviews.
+const RATING_PRIOR_REVIEWS = 20;
+const RATING_PRIOR_STARS = 4.0;
+// How much the weighted rating counts in a score under the DEFAULT weights, next to them (starting value; they total 90 for
+// Converge and 88 for Roam, so the rating is about 8% of the score). Other weights scale it: see withRatingWeight().
+const RATING_WEIGHT = 8;
+// The "Rated 4.6 from 512 reviews" tag needs at least this many reviews AND a weighted rating of at least 4.2: fewer
+// reviews say little, and a low rating is not a reason to pick a place.
+const MIN_REVIEWS_TO_SHOW = 50;
+const MIN_WEIGHTED_RATING_TO_SHOW = 4.2;
+
+const totalOf = weights => Object.values(weights).reduce((sum, w) => sum + (Number.isFinite(w) && w > 0 ? w : 0), 0);
+
+/**
+ * The weights of a request plus the rating's, which is kept relative to them: RATING_WEIGHT out of the total of the
+ * default weights of this engine, applied to the total of the weights in use. The rating therefore has the same share of
+ * the score (about 8%) whether a request sends its own weights, `{ worst: 1 }` or the defaults, and it cannot be switched
+ * off by them. When every weight is 0 the rating is the only factor, with RATING_WEIGHT.
+ *
+ * How to call:
+ *   withRatingWeight({ worst: 1 }, 'converge')               // { worst: 1, rating: 0.0889 } (8 / 90)
+ *   withRatingWeight(DEFAULT_WEIGHTS.converge, 'converge')   // the defaults, rating: 8
+ *   withRatingWeight(DEFAULT_WEIGHTS.roam, 'roam')           // the defaults, rating: 8
+ */
+function withRatingWeight(weights, engine) {
+  const inUse = totalOf(weights);
+  return { ...weights, rating: inUse === 0 ? RATING_WEIGHT : (RATING_WEIGHT / totalOf(DEFAULT_WEIGHTS[engine])) * inUse };
+}
+
+/**
+ * The rating a venue is scored on: (20 x 4.0 + reviews x stars) / (20 + reviews). Unknown is 4.0.
+ *
+ * How to call:
+ *   weightedRating({ rating: 5, ratingCount: 1 })      // 4.0476
+ *   weightedRating({ rating: 4.6, ratingCount: 500 })  // 4.5769 (2380 / 520)
+ *   weightedRating({ rating: 4.2, ratingCount: null }) // 4 (a rating with no review count is unknown)
+ */
+const weightedRating = venue => {
+  const stars = venue.rating, n = venue.ratingCount;
+  if (!Number.isFinite(stars) || !Number.isFinite(n) || n <= 0) return RATING_PRIOR_STARS;
+  return (RATING_PRIOR_REVIEWS * RATING_PRIOR_STARS + n * clamp(stars, 0, 5)) / (RATING_PRIOR_REVIEWS + n);
+};
+
+/** The weighted rating as a penalty 0-100: 5 stars = 0, 4 stars (and unknown) = 20, 0 stars = 100. */
+const ratingPenalty = venue => clamp(100 - weightedRating(venue) * 20, 0, 100);
 const cdcPenalty = venue => (venue.cdcAccepted ? 0 : 100);
 
 /** 100 if visited within 14 days, falling linearly to 0 at 60 days. Dates are "YYYY-MM-DD". */
 function antiRepeatPenalty(venueId, history, { today, groupId = null }) {
+  // Without a group identity there is no defensible way to apply private visit history.
+  if (!groupId) return 0;
   const day = d => Date.parse(`${d}T00:00:00Z`) / 86400000;
   const gaps = history
-    .filter(h => h.venueId === venueId && (groupId === null || h.groupId === groupId))
+    .filter(h => h.venueId === venueId && h.groupId === groupId)
     .map(h => day(today) - day(h.date))
     .filter(g => g >= 0);
   if (gaps.length === 0) return 0;
@@ -205,7 +298,6 @@ function explain(row, occasionLabel = 'meetup') {
   add('occasion', f.occasion <= 40, `a good fit for a ${occasionLabel.toLowerCase()}`);
   if (row.worstMinutes !== undefined) add('worst', true, `${Math.round(row.worstMinutes)} min for whoever travels furthest`);
   if (row.travelMinutes !== undefined) add('distance', true, `${Math.round(row.travelMinutes)} min away`);
-  add('rating', f.rating <= 20 && v.rating != null, `rated ${v.rating}`);
   add('preference', f.preference <= 50, "suits the group's tastes");
   add('cdc', v.cdcAccepted, 'accepts CDC vouchers');
   add('price', f.price === 0 && priceIsKnown(v), 'within budget');
@@ -233,9 +325,9 @@ function regretCounterfactual(rows, memberNames = {}) {
   const popular = [...rows].sort((a, b) => a.meanRaw - b.meanRaw)[0];
   if (popular.venue.id === rec.venue.id) return null;
   const worstId = Object.entries(popular.travelByMember).sort((a, b) => b[1] - a[1])[0][0];
-  // Rounded BEFORE the check, so a 0.3 minute gap is not shown as "would add 0 minutes".
+  // Rounded before the check; omit small differences that are not meaningful to the group.
   const extra = Math.round(popular.travelByMember[worstId] - rec.travelByMember[worstId]);
-  if (extra < 1) return null;
+  if (extra < 3) return null;
   const name = memberNames[worstId] ?? worstId;
   return {
     popularChoiceId: popular.venue.id, memberId: worstId, extraMinutes: extra,
@@ -254,6 +346,6 @@ function paretoFront(items, keys) {
 
 export {
   DEFAULT_WEIGHTS, travelPenalty, normalizeMinMax, computeOccasionFit, cuisineMatch, healthMatch, preferencePenalty,
-  pricePenalty, weatherPenalty, ratingPenalty, cdcPenalty, antiRepeatPenalty, combine, explain,
-  regretCounterfactual, paretoFront, crowdEstimate, crowdPenalty, crowdLevel, rainLikelyAt, rainWarning, reasonTags,
+  pricePenalty, weatherPenalty, ratingPenalty, weightedRating, RATING_WEIGHT, withRatingWeight, MIN_REVIEWS_TO_SHOW, MIN_WEIGHTED_RATING_TO_SHOW, singaporeToday, cdcPenalty, antiRepeatPenalty, combine, explain,
+  regretCounterfactual, paretoFront, crowdEstimate, crowdPenalty, crowdLevel, rainLikelyAt, rainWarning, reasonTags, weatherOf, RAIN_LIKELY, RAIN_EXPOSED,
 };

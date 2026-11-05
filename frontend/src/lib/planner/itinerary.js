@@ -27,10 +27,12 @@ export function isOpenDuring(venue, start, end) {
   })
 }
 
-// stops: [{ venue, plannedStart, duration }] in order. modes: ['walk' | 'mrt' | 'car'] per leg, or empty for defaults.
+// stops: [{ venue, plannedStart, duration, notBefore? }] in order. modes: ['walk' | 'mrt' | 'car'] per leg, or empty for defaults.
 // startAt: when the plan starts (minutes). Defaults to the first stop's planned start.
+// notBefore: the stop never starts earlier than this (minutes), leaving free time before it. The AI order on confirm
+// sets it, so a meal keeps its time and a shop waits until it opens. Moving or deleting a stop by hand clears it.
 // Each timed stop says whether the place is open for its whole time (`open`).
-export function buildItinerary(stops, modes = [], startAt = null) {
+export function buildItinerary(stops, modes = [], startAt = null, { windowEnd = null, stayUntil = null } = {}) {
   const legs = []
   const timed = []
   stops.forEach((stop, i) => {
@@ -43,9 +45,59 @@ export function buildItinerary(stops, modes = [], startAt = null) {
       legs.push({ index: i - 1, options, mode, minutes: options[mode] })
       start = prev.end + options[mode]
     }
-    timed.push({ ...stop, start, end: start + stop.duration, open: isOpenDuring(stop.venue, start, start + stop.duration) })
+    if (stop.notBefore != null) start = Math.max(start, stop.notBefore)
+    const end = start + stop.duration
+    timed.push({
+      ...stop,
+      start,
+      end,
+      open: isOpenDuring(stop.venue, start, end),
+      withinWindow: windowEnd == null || end <= windowEnd,
+      withinStay: stayUntil == null || end <= stayUntil,
+    })
   })
   return { stops: timed, legs }
+}
+
+// The longest sentence about the order that is kept. The AI is asked for one short sentence; this is the limit if it
+// does not obey.
+export const REASON_MAX = 200
+
+// A sentence from the AI or the rules, made safe to keep and show as text: control characters (line breaks, escapes)
+// become spaces, runs of spaces become one, and it is cut to REASON_MAX characters. Not a string gives ''.
+// How to call: cleanReason('Shops first.\n\u0007Then lunch.') -> 'Shops first. Then lunch.'
+export function cleanReason(text) {
+  if (typeof text !== 'string') return ''
+  const plain = text.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim()
+  // Count characters, not code units, so a cut never splits an emoji in half.
+  return [...plain].slice(0, REASON_MAX).join('').trim()
+}
+
+// Can the Confirm dialog's suggestion be applied to the stops this confirm makes? Yes only when its times belong to
+// the order it names: the same slots, places and lengths as the voted stops, each stop listed once in the order
+// named, times in the day that never overlap, and a meal never earlier than its time from voting.
+// stops: [{ slotId, category, venueId, plannedStart, duration }] (the voted stops).
+// suggestion: { order: [slotId], stops: [{ slotId, category, venueId, duration, start }] }.
+// How to call: suggestionFits(stops, { order: ['a', 'b'], stops: [{ slotId: 'a', ... start: 600 }, ...] }) -> true
+export function suggestionFits(stops, suggestion) {
+  const order = suggestion?.order
+  const timed = suggestion?.stops
+  if (!Array.isArray(order) || !Array.isArray(timed) || !stops.length) return false
+  if (order.length !== stops.length || timed.length !== stops.length) return false
+  const voted = new Map(stops.map((s) => [s.slotId, s]))
+  if (voted.size !== stops.length) return false
+  let freeFrom = 0
+  const seen = new Set()
+  return timed.every((s, i) => {
+    const mine = voted.get(s.slotId)
+    if (!mine || order[i] !== s.slotId || seen.has(s.slotId)) return false
+    seen.add(s.slotId)
+    if (s.venueId !== mine.venueId || s.category !== mine.category || s.duration !== mine.duration) return false
+    if (!Number.isFinite(s.start) || s.start < freeFrom || s.start >= 2880) return false
+    if (mine.category === 'eat' && Number.isFinite(mine.plannedStart) && s.start < mine.plannedStart) return false
+    freeFrom = s.start + s.duration
+    return true
+  })
 }
 
 // Move one item of a list to another position, for rearranging stops. Returns a new array.

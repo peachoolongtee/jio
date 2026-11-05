@@ -10,7 +10,7 @@ const FRONTEND = 'http://localhost:5173'
 let server, base, stubServer, stubBase
 
 const listen = async (app) => {
-  const s = app.listen(0)
+  const s = app.listen(0, '127.0.0.1')
   await once(s, 'listening')
   return [s, `http://127.0.0.1:${s.address().port}`]
 }
@@ -94,9 +94,34 @@ describe('POST /api/converge', () => {
   })
 
   it('lowercases dietary needs, so "Halal" works', async () => {
-    const { body } = await post('/converge', { ...slot, unknownPolicy: 'strict' })
-    expect(['ok', 'empty']).toContain(body.status)
-    if (body.status === 'ok') body.results.forEach((r) => expect(['full', 'options', 'likely']).toContain(r.venue.diet.halal))
+    // Bugis, where hawker centres are known to be likely halal, so strict mode has places to keep.
+    const centre = { lat: 1.3008, lng: 103.8559 }
+    const capital = await post('/converge', { ...slot, centre, unknownPolicy: 'strict' })
+    expect(capital.body.status).toBe('ok')
+    expect(capital.body.results.length).toBeGreaterThan(0)
+    capital.body.results.forEach((r) => expect(['full', 'options', 'likely']).toContain(r.venue.diet.halal))
+    // The same as asking in lower case, and fewer than asking with no need at all.
+    const lower = await post('/converge', { ...slot, centre, unknownPolicy: 'strict', members: group.map((m) => (m.dietary ? { ...m, dietary: ['halal'] } : m)) })
+    expect(lower.body.results.map((r) => r.venueId)).toEqual(capital.body.results.map((r) => r.venueId))
+    const none = await post('/converge', { ...slot, centre, unknownPolicy: 'strict', members: group.map(({ dietary, ...m }) => m) })
+    expect(none.body.diagnostics.passedFilters).toBeGreaterThan(capital.body.diagnostics.passedFilters)
+  })
+
+  it('takes dietPolicy for dietary needs alone, and refuses any word but strict and lenient', async () => {
+    const centre = { lat: 1.3008, lng: 103.8559 }
+    // Lenient places are kept only under a lenient diet policy, whatever unknownPolicy says.
+    const dietStrict = await post('/converge', { ...slot, centre, unknownPolicy: 'lenient', dietPolicy: 'strict' })
+    const dietLenient = await post('/converge', { ...slot, centre, unknownPolicy: 'strict', dietPolicy: 'lenient' })
+    expect(dietStrict.status).toBe(200)
+    dietStrict.body.results.forEach((r) => expect(['full', 'options', 'likely']).toContain(r.venue.diet.halal))
+    expect(dietLenient.body.diagnostics.passedFilters).toBeGreaterThan(dietStrict.body.diagnostics.passedFilters)
+    const bad = await post('/converge', { ...slot, centre, dietPolicy: 'sometimes' })
+    expect(bad.status).toBe(400)
+    expect(bad.body.issues.map((i) => i.path)).toEqual(['dietPolicy'])
+    const roam = await post('/roam', { members: group, occasion: 'casual_meal', dateTime: '2026-10-10T12:30', current: centre, dietPolicy: 'x' })
+    expect(roam.status).toBe(400)
+    const search = await post('/search', { query: 'market', centre, dateTime: '2026-10-10T12:30', dietPolicy: 'x' })
+    expect(search.status).toBe(400)
   })
 
   it('answers 400 with every bad field named', async () => {
@@ -190,7 +215,7 @@ describe('stub mode scenarios (for Playwright)', () => {
     }
     // Simulated: the old case table, looked up by the venue's region.
     const checkSimulated = (res, weatherCase) => {
-      expect(res.body.weather).toEqual({ source: 'simulated' })
+      expect(res.body.weather).toEqual({ source: 'simulated', basis: 'simulated' })
       res.body.results.forEach((r) => expect(r.breakdown.weather.value).toBeCloseTo(penalty(r, weatherCases[weatherCase][r.venue.forecastArea].rainRisk), 9))
     }
 

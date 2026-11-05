@@ -11,7 +11,7 @@ let server, base
 
 beforeAll(async () => {
   // Requests that pass validation reach the planner, which reads the forecast. Answer it from fixtures.
-  server = createApp({ frontendOrigin: FRONTEND, http: createHttp({ stub: true }) }).listen(0)
+  server = createApp({ frontendOrigin: FRONTEND, http: createHttp({ stub: true }) }).listen(0, '127.0.0.1')
   await once(server, 'listening')
   base = `http://127.0.0.1:${server.address().port}`
 })
@@ -50,11 +50,24 @@ describe('planner input limits', () => {
       ...valid,
       categories: ['eat'],
       currentOptionIds: many(6, (i) => `venue-${i}`),
-      weights: { worst: 25, mean: 5, occasion: 25, preference: 10, rating: 10, weather: 12, price: 8, cdc: 3, antiRepeat: 2, crowd: 20 },
+      weights: { worst: 25, mean: 5, occasion: 25, preference: 10, weather: 12, price: 8, cdc: 3, antiRepeat: 2, crowd: 20 },
       radiusMeters: 1000,
       topN: 10,
     })
     expect(r.status).toBe(200)
+  })
+
+  it('refuses a rating weight: the score has no rating term, so there is nothing to weigh', async () => {
+    const converge = await send('/api/converge', { ...valid, weights: { worst: 25, rating: 10 } })
+    expect(converge.status).toBe(400)
+    expect(converge.json.error).toBe('invalid_input')
+    expect(pathsOf(converge)).toContain('weights.rating')
+    const roamBody = { ...valid, current: group[0].home, members: [{ id: 'ian' }] }
+    expect((await send('/api/roam', { ...roamBody, weights: { distance: 20 } })).status).toBe(200) // the same request without rating
+    const roam = await send('/api/roam', { ...roamBody, weights: { distance: 20, rating: 10 } })
+    expect(roam.status).toBe(400)
+    expect(roam.json.error).toBe('invalid_input')
+    expect(pathsOf(roam)).toContain('weights.rating')
   })
 
   it('refuses more than 4 categories', async () => {
@@ -82,6 +95,16 @@ describe('planner input limits', () => {
     expect(r.ms).toBeLessThan(1000)
   })
 
+  it('accepts the id of every saved place as a current option, the longest OneMap ids included', async () => {
+    // A saved OneMap place's id carries its address; the longest are 86 characters, over the 80 of other ids. The limit is 160, the database's own.
+    const longest = 'onemap_ssot_hawkercentres_marine-parade-central-blk-84-84-marine-parade-central-market'
+    expect(longest.length).toBeGreaterThan(80)
+    const r = await send('/api/converge', { ...valid, categories: ['eat'], currentOptionIds: [longest], excludeVenueIds: [longest] })
+    expect(r.status).toBe(200)
+    const tooLong = await send('/api/converge', { ...valid, currentOptionIds: ['x'.repeat(161)] })
+    expect(tooLong.status).toBe(400)
+  })
+
   it('refuses a long list of current options, which would each be routed', async () => {
     const r = await send('/api/converge', { ...valid, currentOptionIds: many(500, (i) => `venue-${i}`) })
     expect(r.status).toBe(400)
@@ -101,7 +124,7 @@ describe('planner input limits', () => {
   })
 
   it('never returns a score that is not a number', async () => {
-    const r = await send('/api/converge', { ...valid, weights: { worst: 1000, mean: 1000, rating: 1000 } })
+    const r = await send('/api/converge', { ...valid, weights: { worst: 1000, mean: 1000, occasion: 1000 } })
     expect(r.status).toBe(200)
     for (const result of r.json.results) expect(Number.isFinite(result.score)).toBe(true)
   })
@@ -169,7 +192,7 @@ describe('errors are always JSON', () => {
         a.get('/probe', () => {
           throw new ExternalApiError('onemap answered 401', { service: 'onemap', status: 401, url: 'https://onemap.test/route' })
         }),
-    }).listen(0)
+    }).listen(0, '127.0.0.1')
     await once(app, 'listening')
     try {
       const res = await fetch(`http://127.0.0.1:${app.address().port}/probe`)

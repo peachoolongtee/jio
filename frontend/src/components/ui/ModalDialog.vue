@@ -4,18 +4,23 @@
 //     <AppButton block @click="confirm">Confirm plan</AppButton>
 //     <AppButton block variant="secondary" @click="showConfirm = false">Not yet</AppButton>
 //   </ModalDialog>
-// Put the safer choice first. It closes on the backdrop and the Escape key, and keeps Tab inside while it is open.
+// Put the safer choice first. It closes on the backdrop and the Escape key, and keeps Tab inside while it is open. A dialog with
+// `text` is described by it (aria-describedby), so a screen reader reads the sentence after the title.
+// `closable` adds a × at the top right, for a dialog whose choices are all actions, so there is no "Cancel" to leave by.
 import { ref, useId } from 'vue'
+import AppIcon from './AppIcon.vue'
 import { useFocusTrap } from '@/lib/useFocusTrap.js'
 
 const open = defineModel('open', { type: Boolean, default: false })
 defineProps({
   title: { type: String, required: true },
   text: { type: String, default: '' },
+  closable: { type: Boolean, default: false },
 })
 const emit = defineEmits(['close'])
 
 const titleId = `modal-${useId()}`
+const textId = `${titleId}-text`
 const panel = ref(null)
 
 function close() {
@@ -32,10 +37,11 @@ const { onKeydown } = useFocusTrap(open, panel)
   <Transition name="modal">
     <div v-if="open" class="modal" @keydown.esc="close" @keydown="onKeydown">
       <button class="modal__scrim" type="button" tabindex="-1" aria-label="Close" @click="close" />
-      <section ref="panel" class="modal__panel" role="dialog" aria-modal="true" :aria-labelledby="titleId" tabindex="-1">
-        <div class="modal__text">
+      <section ref="panel" class="modal__panel" role="dialog" aria-modal="true" :aria-labelledby="titleId" :aria-describedby="text ? textId : undefined" tabindex="-1">
+        <button v-if="closable" type="button" class="modal__close" aria-label="Close" title="Close" data-testid="modal-close" @click="close"><AppIcon name="close" :size="18" /></button>
+        <div class="modal__text" :class="{ 'is-closable': closable }">
           <h2 :id="titleId" class="display-sm">{{ title }}</h2>
-          <p v-if="text" class="body-md text-muted">{{ text }}</p>
+          <p v-if="text" :id="textId" class="body-md text-muted">{{ text }}</p>
         </div>
         <slot name="content" />
         <div class="modal__actions"><slot /></div>
@@ -62,6 +68,13 @@ const { onKeydown } = useFocusTrap(open, panel)
   outline: none;
 }
 .modal__text { display: flex; flex-direction: column; gap: var(--spacing-sm); }
+/* The × of a closable dialog: top right, with room kept for it beside the title. */
+.modal__text.is-closable { padding-right: calc(var(--tap-min) - var(--spacing-sm)); }
+.modal__close { position: absolute; top: var(--spacing-sm); right: var(--spacing-sm); display: inline-flex; align-items: center; justify-content: center; width: var(--tap-min); height: var(--tap-min); padding: 0; border: 0; border-radius: var(--rounded-full); background: transparent; color: var(--ink); cursor: pointer; }
+@media (hover: hover) { .modal__close:hover { background: var(--surface-soft); } }
+.modal__close:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* A long title in the text (a meetup's name) wraps instead of pushing the dialog wider. */
+.modal__text > * { overflow-wrap: anywhere; }
 .modal__actions { display: flex; flex-direction: column; gap: var(--spacing-md); }
 .modal { overflow-y: auto; }
 .modal__panel { max-height: calc(100dvh - var(--spacing-lg) * 2); overflow-y: auto; }

@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { loadPlanData, dataAttribution } from '../src/db/venues.js';
 import { withinSingapore, nameSimilarity } from '../src/planner/cdc-adapter.js';
 import { haversineKm } from '../src/planner/geo.js';
@@ -104,6 +105,8 @@ describe('the planner\'s pool of OneMap places', () => {
     ['onemap_tourism_kreta-ayer-square', 'onemap_theatre_kreta-ayer-people-s-theatre'],
     ['onemap_tourism_cable-car-singapore-mount-faber', 'onemap_nationalparks_mount-faber-park'],
     ['onemap_tourism_sam-at-8q-singapore-art-museum', 'onemap_tourism_singapore-art-museum'],
+    // The Chinatown district and the food street on Smith Street inside it.
+    ['onemap_tourism_chinatown-singapore-history-culture', 'onemap_tourism_chinatown-food-street'],
   ].map((pair) => pair.sort().join('|'));
 
   test('no two OneMap places within 100 m have alike names, apart from the listed neighbours', () => {
@@ -158,7 +161,7 @@ describe('the planner\'s pool of OneMap places', () => {
     for (const v of left) { expect(ids.has(v.id), v.id).toBe(false); expect(saved.venues.some((s) => s.id === v.id)).toBe(true); }
     expect(pool.some((v) => /interim park/i.test(v.name))).toBe(false);
     expect(pool.some((v) => /^Pulau (Sekudu|Unum)$/.test(v.name))).toBe(false);
-    for (const name of ['Maghain Aboth Synagogue', 'NUS Baba House - Singapore Peranakan Architecture']) {
+    for (const name of ['Maghain Aboth Synagogue', 'NUS Baba House']) {
       expect(saved.venues.some((v) => v.name === name), name).toBe(true);
       expect(data.venues.some((v) => v.name === name), name).toBe(false);
     }
@@ -353,7 +356,7 @@ describe('a missing snapshot file', () => {
 
 // ---------------------------------------------------------------- the repair mode of the build script
 describe('build-onemap-places --repair', () => {
-  const SCRIPT = new URL('../scripts/build-onemap-places.js', import.meta.url).pathname;
+  const SCRIPT = fileURLToPath(new URL('../scripts/build-onemap-places.js', import.meta.url));
   const dir = mkdtempSync(join(tmpdir(), 'jio-onemap-'));
   const copy = join(dir, 'places.json');
   const garbled = JSON.parse(JSON.stringify(saved));

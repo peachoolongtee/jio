@@ -10,6 +10,16 @@
 // finding    the meeting area is being worked out: a pulse between everyone instead of the area pin
 // radius     metres: a circle around the meeting area showing how far suggestions may be; it grows or shrinks
 //            smoothly to a new size
+// keep       extra points ({ lat, lng }) the view must also show, drawn by something laid over the map (the Locate
+//            screen's spot pins). Emits `view` whenever the map moves or resizes; project(lat, lng) says where a
+//            point is, in px from the map's top-left (call it through the component's ref).
+// rain       [{ lat, lng }] the places where rain is likely: the same rain as Home's map (a wash and slanted streaks) (lib/rainLook.js, DESIGN.md
+//            "Weather"), a feathered blue wash with three layers of drops over each, in a Leaflet pane of its own under the
+//            route and the markers and above the tiles. It moves and zooms with the map (a Leaflet marker in that pane; it
+//            scales with the zoom glide and is sized again when the zoom ends), takes no pointer events and leaves the tiles
+//            and the attribution alone. Each rainy place keeps a patch of its own, so every rainy stop in view has rain round it.
+// rainLabel  the chip's words ("Rain likely · next 2 h", from rainChipText); the chip is shown with the rain, is read by screen
+//            readers as part of the map's region, and is empty when nothing is known about the forecast's source.
 // Colour coding: each person in their own colour (lib/people.js, the same as their avatar) with their travel
 // time coloured by length (short, medium, long), places and numbered stops by category,
 // the leading place (highlight) ringed and labelled while the others (muted) fade back.
@@ -18,7 +28,11 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { travelTone } from '@/lib/planner/travel.js'
+import { CATEGORY_LABELS } from '@/lib/planner/slots.js'
 import { personIndex } from '@/lib/people.js'
+import { retireMap } from './retireMap.js'
+import RainChip from '../weather/RainChip.vue'
+import { nextRainUid, rainPatchSvg, rainSeed } from '@/lib/rainLook.js'
 
 // People who asked for less motion get a map that jumps to its new view instead of gliding there.
 const reducedMotion = () => !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
@@ -31,18 +45,27 @@ const props = defineProps({
   spokes: { type: Boolean, default: false },
   selected: { type: String, default: '' },
   label: { type: String, default: 'Map' },
-  // What the view fits to: 'all' (default), or 'places' to frame the stops and the meeting area only.
+  // What the view fits to: 'all' (default), 'places' to frame the stops and the meeting area only, or 'keep' to frame the `keep`
+  // points only (Locate on a phone: the meeting spots, so pins a few streets apart do not sit on top of each other).
   fitTo: { type: String, default: 'all' },
+  // Pixels at each edge that something covers (cards floating over a full-screen map, SplitView mapFirst): the view is framed in the
+  // rest. { top, right, bottom, left }, any of them; none by default.
+  cover: { type: Object, default: () => ({}) },
   zoomPosition: { type: String, default: 'topleft' },
   finding: { type: Boolean, default: false },
   radius: { type: Number, default: 0 },
+  keep: { type: Array, default: () => [] },
+  rain: { type: Array, default: () => [] },
+  rainLabel: { type: String, default: '' },
 })
-const emit = defineEmits(['select'])
+const emit = defineEmits(['select', 'view'])
 
 const TILES = 'https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png'
 const ATTRIBUTION = '<a href="https://www.onemap.gov.sg/" target="_blank" rel="noopener noreferrer">OneMap</a> &copy; contributors &#124; <a href="https://www.sla.gov.sg/" target="_blank" rel="noopener noreferrer">Singapore Land Authority</a>'
 const BOUNDS = [[1.13, 103.55], [1.5, 104.13]]
 const SINGAPORE = [1.3521, 103.8198]
+// The main island, framed when there is nothing on the map yet.
+const ISLAND = [[1.24, 103.61], [1.47, 104.03]]
 
 const el = ref(null)
 let map = null
@@ -73,6 +96,15 @@ function areaIcon() {
   })
 }
 
+// A place's name as a screen reader hears it, with its stop number and category, since the pins' colours alone
+// do not tell Eat from Activity for everyone.
+// How to call: placeName({ name: 'Maxwell Food Centre', category: 'eat', label: '1' }) -> 'Stop 1, Eat: Maxwell Food Centre'
+function placeName(place) {
+  const kind = CATEGORY_LABELS[place.category]
+  const text = kind ? `${kind}: ${place.name}` : place.name
+  return place.label ? `Stop ${place.label}, ${text}` : text
+}
+
 function placeIcon(place) {
   const selected = place.id === props.selected
   const inner = place.label ? esc(place.label) : ''
@@ -100,6 +132,26 @@ function arc(from, to, steps = 32) {
     points.push([u * u * from.lat + 2 * u * t * c.lat + t * t * to.lat, u * u * from.lng + 2 * u * t * c.lng + t * t * to.lng])
   }
   return points
+}
+
+// Centres a point in the part of the map the floating cards leave free (cover), at a zoom. How to call: viewInFree([1.3, 103.8], 15)
+function viewInFree(point, zoom) {
+  const c = props.cover || {}
+  const z = Math.max(zoom, map.getMinZoom())
+  const shifted = map.project(point, z).add([((c.right || 0) - (c.left || 0)) / 2, ((c.bottom || 0) - (c.top || 0)) / 2])
+  map.setView(map.unproject(shifted, z), z, reducedMotion() ? { animate: false } : undefined)
+}
+
+// The furthest out the map may zoom: no further than its tiles fill the box, so no grey shows round them on a big screen (the full-screen
+// maps from 1128px), and never out to zoom 10. How to call: syncMinZoom()
+function syncMinZoom() {
+  if (!map || !el.value?.clientWidth) return
+  // Not map.setMinZoom: when the view is further out, that zooms in with an animation, and Leaflet drops any fit asked for while it runs,
+  // so a confirmed itinerary stayed zoomed out over the whole island (Darius, 4 November 2026). Here the step in is instant.
+  const floor = Math.max(10, map.getBoundsZoom(BOUNDS, true))
+  map.options.minZoom = floor
+  if (map.getZoom() < floor) map.setZoom(floor, { animate: false })
+  map.fire('zoomlevelschange')
 }
 
 function draw() {
@@ -156,7 +208,7 @@ function draw() {
   }
 
   for (const place of props.places) {
-    const marker = L.marker([place.lat, place.lng], { icon: placeIcon(place), title: place.name, alt: place.name, keyboard: true, riseOnHover: true, zIndexOffset: place.id === props.selected ? 1000 : 300 })
+    const marker = L.marker([place.lat, place.lng], { icon: placeIcon(place), title: placeName(place), alt: placeName(place), keyboard: true, riseOnHover: true, zIndexOffset: place.id === props.selected ? 1000 : 300 })
     if (place.highlight) marker.bindTooltip('Leading', { permanent: true, direction: 'top', offset: [0, -18], className: 'pm-tip pm-tip--lead' })
     marker.on('click', () => emit('select', place.id))
     marker.on('keypress', (event) => {
@@ -168,14 +220,72 @@ function draw() {
   }
 
   // Fit the view when the set of things on the map changes, not on every small update.
-  const frame = props.fitTo === 'places' && focus.length ? focus : points
+  const kept = props.keep.map((p) => [p.lat, p.lng])
+  points.push(...kept)
+  const frame = props.fitTo === 'places' && focus.length ? focus : props.fitTo === 'keep' && kept.length ? kept : points
   const key = frame.map((p) => p.join(',')).sort().join('|')
   if (key !== fittedKey) {
     fittedKey = key
-    if (frame.length > 1) map.fitBounds(L.latLngBounds(frame), { padding: [64, 64], maxZoom: 16, animate: !reducedMotion() })
-    else if (frame.length === 1) map.setView(frame[0], 15, reducedMotion() ? { animate: false } : undefined)
-    else map.setView(SINGAPORE, 11, reducedMotion() ? { animate: false } : undefined)
+    const c = props.cover || {}
+    if (frame.length > 1) map.fitBounds(L.latLngBounds(frame), { paddingTopLeft: [64 + (c.left || 0), 64 + (c.top || 0)], paddingBottomRight: [64 + (c.right || 0), 64 + (c.bottom || 0)], maxZoom: 16, animate: !reducedMotion() })
+    else if (frame.length === 1) viewInFree(frame[0], 15)
+    // Nothing to show yet: the main island, in the part of the map the cards leave free (never zoomed out past the map's edges).
+    else map.fitBounds(L.latLngBounds(ISLAND), { paddingTopLeft: [16 + (c.left || 0), 16 + (c.top || 0)], paddingBottomRight: [16 + (c.right || 0), 16 + (c.bottom || 0)], animate: !reducedMotion() })
   }
+}
+
+// The rain: one marker for each rainy place, in the pane `rain` (z-index 350: above the tiles, below the route at 400 and the markers
+// at 600). A marker, because Leaflet already moves and glides a marker with the map. Its icon is the shared rain patch (lib/rainLook.js)
+// sized to cover about RAIN_M metres round the place at the current zoom, between RAIN_MIN and RAIN_MAX pixels across so it is neither a
+// speck at the island's scale nor a huge element close in. While a zoom glides the patch scales to the size it will have, over the
+// same time and curve as Leaflet's own zoom glide, and is sized again when the zoom ends (without the fade-in).
+const RAIN_M = 1000
+const RAIN_MIN = 170
+const RAIN_MAX = 480
+const ZOOM_GLIDE = 'transform 250ms cubic-bezier(0, 0, 0.25, 1)'
+let rainMarkers = []
+// How wide a patch is, in px, for a place at this zoom. How to call: rainSize(1.35, 15) -> 480
+function rainSize(lat, zoom) {
+  const metresPerPixel = (156543.03 * Math.cos((lat * Math.PI) / 180)) / 2 ** zoom
+  return Math.round(Math.min(RAIN_MAX, Math.max(RAIN_MIN, (RAIN_M * 2) / metresPerPixel)))
+}
+// The icon for a patch of that size, its streaks picked by where it is. How to call: rainIcon(392, true, { lat: 1.35, lng: 103.85 })
+function rainIcon(size, fade, at) {
+  return L.divIcon({ className: 'pm-rain', html: rainPatchSvg({ size, uid: nextRainUid(), fade, seed: rainSeed(at.lat, at.lng) }), iconSize: [size, size], iconAnchor: [size / 2, size / 2] })
+}
+// Draw the rain again for the current places. How to call: drawRain()
+function drawRain() {
+  if (!map) return
+  layers.rain.clearLayers()
+  rainMarkers = props.rain.map((p) => {
+    const marker = L.marker([p.lat, p.lng], { icon: rainIcon(rainSize(p.lat, map.getZoom()), true, p), pane: 'rain', interactive: false, keyboard: false })
+    marker.addTo(layers.rain)
+    return marker
+  })
+}
+// A zoom is gliding to `event.zoom`: each patch scales to the size it will have there, in step with the markers' glide.
+// How to call: map.on('zoomanim', glideRain)
+function glideRain(event) {
+  rainMarkers.forEach((marker) => {
+    const now = marker.options.icon.options.iconSize[0]
+    const svg = marker.getElement()?.firstElementChild
+    if (!svg) return
+    svg.style.transition = ZOOM_GLIDE
+    svg.style.transform = `scale(${rainSize(marker.getLatLng().lat, event.zoom) / now})`
+  })
+}
+// The zoom ended: each patch takes the size for it. How to call: map.on('zoomend', sizeRain)
+function sizeRain() {
+  if (!map) return
+  rainMarkers.forEach((marker) => {
+    const size = rainSize(marker.getLatLng().lat, map.getZoom())
+    if (marker.options.icon.options.iconSize[0] !== size) marker.setIcon(rainIcon(size, false, marker.getLatLng()))
+    else {
+      // A glide that ended at the same size (a clamped one): put the patch back as it was.
+      const svg = marker.getElement()?.firstElementChild
+      if (svg) { svg.style.transition = ''; svg.style.transform = '' }
+    }
+  })
 }
 
 // The search radius: a dashed circle around the meeting area, labelled at its top edge. A new radius grows or
@@ -185,13 +295,17 @@ let circleLabel = null
 let circleArea = ''
 let shownRadius = 0
 let tween = 0
-const RADIUS_MS = 480
+const RADIUS_MS = 240
+// How long the circle rests before the map zooms out to show it, so the map holds still while the slider is being dragged.
+const RADIUS_VIEW_MS = 400
+let viewTimer = 0
 const easeOut = (t) => 1 - (1 - t) ** 3
 const radiusText = (m) => (m >= 1000 ? `${m / 1000} km` : `${m} m`)
 const topOf = (area, metres) => [area.lat + metres / 111320, area.lng]
 
 function drawRadius() {
   cancelAnimationFrame(tween)
+  clearTimeout(viewTimer)
   const area = props.area
   const target = area && props.radius && !props.finding ? props.radius : 0
   const key = area ? `${area.lat},${area.lng}` : ''
@@ -218,14 +332,15 @@ function drawRadius() {
   }
   if (reducedMotion() || from === target) {
     set(target)
-    return keepInView()
+    viewTimer = setTimeout(keepInView, RADIUS_VIEW_MS)
+    return
   }
   const start = performance.now()
   const step = (now) => {
     const t = Math.min(1, (now - start) / RADIUS_MS)
     set(from + (target - from) * easeOut(t))
     if (t < 1) tween = requestAnimationFrame(step)
-    else keepInView()
+    else viewTimer = setTimeout(keepInView, RADIUS_VIEW_MS)
   }
   tween = requestAnimationFrame(step)
 }
@@ -239,38 +354,69 @@ function keepInView() {
   map.fitBounds(bounds.extend(map.getBounds()), { padding: [24, 24], maxZoom: 16, animate: !reducedMotion() })
 }
 
+// The map moved or changed size: tell the parent, which lays things over it (the Locate screen's spot pins).
+// How to call: map.on(VIEW_EVENTS, onView)
+const VIEW_EVENTS = 'move zoom moveend zoomend resize'
+const onView = () => emit('view')
+
 onMounted(() => {
   // OneMap serves zoom 11 and up; below that, Leaflet scales the zoom 11 tiles so a phone can see the whole island.
   map = L.map(el.value, { center: SINGAPORE, zoom: 11, minZoom: 10, maxZoom: 18, zoomSnap: 0.25, zoomControl: false, maxBounds: BOUNDS, zoomAnimation: !reducedMotion(), fadeAnimation: !reducedMotion(), markerZoomAnimation: !reducedMotion() })
   L.control.zoom({ position: props.zoomPosition }).addTo(map)
   L.tileLayer(TILES, { attribution: ATTRIBUTION, minZoom: 10, minNativeZoom: 11, maxZoom: 19, bounds: BOUNDS }).addTo(map)
-  layers = { base: L.layerGroup().addTo(map), radius: L.layerGroup().addTo(map) }
+  syncMinZoom()
+  // The rain has a pane between the tiles (200) and the route (400), so it lies on the map and under everything drawn on it.
+  map.createPane('rain').style.zIndex = 350
+  layers = { rain: L.layerGroup().addTo(map), base: L.layerGroup().addTo(map), radius: L.layerGroup().addTo(map) }
   draw()
   drawRadius()
+  drawRain()
+  map.on('zoomanim', glideRain)
+  map.on('zoomend', sizeRain)
+  map.on(VIEW_EVENTS, onView)
+  emit('view')
   // The map can start hidden (the List / Map switch on phones). Re-measure whenever its box changes.
   let lastWidth = el.value.clientWidth
+  let lastHeight = el.value.clientHeight
   observer = new ResizeObserver(() => {
     const width = el.value?.clientWidth || 0
+    const height = el.value?.clientHeight || 0
     map.invalidateSize()
-    // Shown for the first time (it was 0 wide): fit the view again now that it has a size.
-    if (!lastWidth && width) {
+    syncMinZoom()
+    // Shown for the first time (it was 0 wide), or its box changed size by more than a little: fit the view again, so everyone stays in
+    // sight. Confirming a meeting spot changes the list beside the map, and the map's height with it; the view fitted to the old size
+    // could leave someone outside the new one (Darius, 4 November 2026).
+    if ((!lastWidth && width) || (width && (Math.abs(width - lastWidth) > 40 || Math.abs(height - lastHeight) > 40))) {
       fittedKey = ''
       draw()
     }
     lastWidth = width
+    lastHeight = height
   })
   observer.observe(el.value)
 })
 
+// Leaving: the map stops moving and is removed once Leaflet's own zoom timer has run (see retireMap.js), so a page left
+// while the map is still gliding does not end in an error.
 onBeforeUnmount(() => {
   cancelAnimationFrame(tween)
+  clearTimeout(viewTimer)
   observer?.disconnect()
-  map?.remove()
+  if (map) retireMap(map, VIEW_EVENTS, onView)
   map = null
 })
 
-watch(() => [props.people, props.area, props.places, props.route, props.spokes, props.selected, props.finding, props.radius], draw, { deep: true })
+// The radius is not here: it draws no pin, and rebuilding every pin on each step of the slider was wasted work (drawRadius has its own watch).
+watch(() => [props.people, props.area, props.places, props.route, props.spokes, props.selected, props.finding, props.keep], draw, { deep: true })
+// The covered strip changed (the window was resized past the panel's breakpoint): frame the view again.
+watch(() => JSON.stringify(props.cover || {}), () => {
+  if (!map) return
+  fittedKey = ''
+  draw()
+})
 watch(() => [props.area?.lat, props.area?.lng, props.radius, props.finding], () => map && drawRadius())
+// Only a change of place redraws the rain, not a new array with the same places (a parent computes it again on every update).
+watch(() => props.rain.map((p) => `${p.lat},${p.lng}`).join('|'), drawRain)
 
 // Called by a parent after the map container becomes visible.
 function refit() {
@@ -278,16 +424,29 @@ function refit() {
   map?.invalidateSize()
   draw()
 }
-defineExpose({ refit })
+// Where a point is on the map, in px from its top-left corner; null before the map exists.
+// How to call: mapRef.value.project(1.3521, 103.8198) -> { x: 120, y: 80 }
+function project(lat, lng) {
+  if (!map) return null
+  const point = map.latLngToContainerPoint([lat, lng])
+  return { x: point.x, y: point.y }
+}
+defineExpose({ refit, project })
 </script>
 
 <template>
-  <div ref="el" class="planner-map" role="region" :aria-label="label" />
+  <div ref="el" class="planner-map" role="region" :aria-label="label">
+    <RainChip v-if="rain.length && rainLabel" :text="rainLabel" class="pm-rain-chip" />
+  </div>
 </template>
 
 <style scoped>
 /* Its own stacking context, so Leaflet's pane layers never cover cards placed over the map. */
 .planner-map { isolation: isolate; width: 100%; height: 100%; min-height: 240px; background: var(--surface-strong); }
+/* The rain chip, over the top middle of the map and below the row of buttons that sit at the top (the zoom buttons at the left, "View map"
+   or "Expand map" at the right: 12px and 44px, so the chip starts at 64px). Above the panes (the map pane is 400), under the controls
+   (800 and up). A screen that lays a bar over the top of the map sets --pm-rain-top to clear it. */
+.pm-rain-chip { position: absolute; z-index: 500; top: var(--pm-rain-top, calc(var(--spacing-md) + var(--tap-min) + var(--spacing-sm))); left: 50%; translate: -50% 0; }
 </style>
 
 <style>
@@ -300,6 +459,9 @@ defineExpose({ refit })
 .pm { background: transparent; border: 0; }
 .pm-person, .pm-area, .pm-stop, .pm-venue { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; border-radius: var(--rounded-full); box-shadow: var(--shadow-float); font: var(--text-micro-label); }
 .pm--auto { width: auto !important; height: auto !important; }
+/* The rain: a patch in its own pane (lib/rainLook.js, styles/rain.css), plain and out of the way of the pointer. */
+.pm-rain { background: transparent; border: 0; pointer-events: none; }
+.pm-rain > svg { transform-origin: 50% 50%; }
 .pm-person { display: inline-flex; gap: var(--spacing-xs); width: auto; height: 28px; padding: 2px var(--spacing-sm) 2px 2px; background: var(--canvas); color: var(--ink); white-space: nowrap; }
 .pm-person__dot { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: var(--rounded-full); background: var(--pc, var(--ink)); color: var(--on-dark); }
 /* Each person's colour, on their pin and their line to the meeting area (lib/people.js). */

@@ -1,7 +1,8 @@
 <script setup>
 // A fine grid that takes colour where the pointer passes and lets it go a moment later, with a few cells lighting
 // on their own so it is never dead. The spectrum runs down the field like a printed colour chart (yellow at the
-// top, through orange, red, magenta and blue, to green), so a sweep reveals one band of colour, not confetti.
+// top, through orange, red, magenta and blue, to green), so a sweep reveals one band of colour, not confetti (muted to grey
+// on 30 October 2026, brought back on 4 November 2026; lib/gridPulse.js holds the colours and the defaults).
 //   <main class="screen" style="position: relative"><GridPulse /> ...content above it... </main>
 // Place it inside a positioned container, under the content. Decoration only: hidden from screen readers,
 // transparent to the pointer (it listens on the window), drawn on one canvas that sleeps when nothing is lit,
@@ -12,20 +13,16 @@
 // ambient  how many cells light on their own each beat
 // maxLit   a lid, so a fast sweep cannot light the whole field at once
 import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { GRID_PULSE, spectrumPaint } from '@/lib/gridPulse.js'
 
 const props = defineProps({
-  cell: { type: Number, default: 24 },
-  reach: { type: Number, default: 2.6 },
-  ambient: { type: Number, default: 2 },
-  maxLit: { type: Number, default: 180 },
+  cell: { type: Number, default: GRID_PULSE.cell },
+  reach: { type: Number, default: GRID_PULSE.reach },
+  ambient: { type: Number, default: GRID_PULSE.ambient },
+  maxLit: { type: Number, default: GRID_PULSE.maxLit },
   avoid: { type: String, default: '[data-grid-avoid]' },
 })
 
-// Hue at the top of the field, and how far it turns by the bottom.
-const HUE_TOP = 60
-const HUE_SPAN = 270
-// Each cell takes one of these lightnesses, so a sweep reads as a field of tints rather than one flat colour.
-const TINTS = [88, 80, 72, 64, 56]
 // How faint a cell goes right behind a line of text, how many cells it takes to come back to full strength,
 // and the clearing kept around each line (px).
 const FAINT = 0.13
@@ -100,13 +97,6 @@ onMounted(() => {
     return FAINT + (1 - FAINT) * Math.min(1, nearest / (FADE * cell))
   }
 
-  // The colour for a row: its place in the spectrum, at a random tint. How to call: ink(row) -> 'hsl(...)'
-  function ink(row) {
-    const t = rows > 1 ? Math.min(1, row / (rows - 1)) : 0
-    const hue = (((HUE_TOP - t * HUE_SPAN) % 360) + 360) % 360
-    const tint = TINTS[Math.floor(Math.random() * TINTS.length)]
-    return `hsl(${Math.round(hue)} 94% ${tint}%)`
-  }
 
   // One loop draws every lit cell; it runs only while something is lit.
   let frame = 0
@@ -125,7 +115,7 @@ onMounted(() => {
         }
         alpha = 1 - easeIn(t)
       }
-      ctx.globalAlpha = alpha * c.dim
+      ctx.globalAlpha = alpha * c.dim * c.alpha
       ctx.fillStyle = c.colour
       // Inset by the hairline, so the grid still shows between lit cells.
       ctx.fillRect(c.col * cell + 1, c.row * cell + 1, cell - 1, cell - 1)
@@ -150,7 +140,8 @@ onMounted(() => {
       const faded = 1 - easeIn(Math.min(1, (now - lit.until) / FADE_OUT))
       born = now - (1 - Math.sqrt(1 - faded)) * FADE_IN
     }
-    cells.set(key, { col, row, colour: lit?.colour ?? ink(row), dim: brightness(col, row), born, until: now + hold })
+    const paint = lit ?? spectrumPaint(row, rows, Math.random())
+    cells.set(key, { col, row, colour: paint.colour, alpha: paint.alpha, dim: brightness(col, row), born, until: now + hold })
     wake()
   }
 
@@ -179,12 +170,12 @@ onMounted(() => {
     if (!pending) pending = requestAnimationFrame(paint)
   }
 
-  // A few cells light on their own, so the grid is alive on arrival and on touch screens. Paused out of sight.
+  // A few cells light on their own (`ambient`), so the grid is alive on arrival and on touch screens. Paused out of sight.
   let visible = true
   let beat = 0
   function drift() {
     beat = window.setTimeout(drift, 1400 + Math.random() * 1800)
-    if (!visible || document.hidden) return
+    if (!visible || document.hidden || !props.ambient) return
     for (let i = 0; i < props.ambient; i++) light(Math.floor(Math.random() * cols), Math.floor(Math.random() * rows), 900 + Math.random() * 1600)
   }
   beat = window.setTimeout(drift, 500)
