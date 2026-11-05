@@ -40,12 +40,13 @@ describe('the caption', () => {
     expect(view.has('.lm__caption')).toBe(false)
   })
 
-  // Darius, 4 November 2026: Home and the top bar now use RainbowButton for "Find places from a post", still named and with no caption.
-  it('the post link on Home and in the top bar is named, goes to the post page, and has no caption', () => {
+  // Darius, 4 November 2026: Home and the top bar now use RainbowButton for "Find places from a post", still named and with no caption,
+  // and (#238) shown only where the server can read posts (offerPosts, lib/usePostReader.js).
+  it('the post link on Home and in the top bar is named, goes to the post page, has no caption, and shows only where posts can be read', () => {
     // Read from the source: Home is too big a screen to draw for one attribute.
     const home = readFileSync(new URL('../../views/LandingView.vue', import.meta.url), 'utf8')
     const bar = readFileSync(new URL('../../components/ui/TabBar.vue', import.meta.url), 'utf8')
-    for (const source of [home, bar]) expect(source).toMatch(/<RainbowButton label="Find places from a post" to="\/places\/from-post"/)
+    for (const source of [home, bar]) expect(source).toMatch(/<RainbowButton v-if="offerPosts" label="Find places from a post" to="\/places\/from-post"/)
     expect(home).not.toMatch(/caption="From a post"/)
   })
 })
