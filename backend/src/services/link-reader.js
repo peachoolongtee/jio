@@ -63,6 +63,7 @@ export const GATHER_DEADLINE_MS = 60_000 // The longest the download tool and th
 export const YOUTUBE_CALLS_PER_READ = 2 // A read asks the YouTube Data API for the video and, with comments on, for its comments.
 export const MATCH_CACHE_MS = PLACE_CACHE_MS // A place's Google match is kept as long as Google's own answers are.
 export const UNREADABLE_CACHE_MS = 5 * 60 * 1000 // A post the AI refused is not asked about again for this long.
+export const LONG_VIDEO_SECONDS = 10 * 60 // A YouTube video longer than this is read by its title and description only: Gemini cannot watch it in time.
 export const MODEL_TIMEOUT_MS = 35_000 // One model that has not answered after this is given up on, and the next is tried.
 export const READ_DEADLINE_MS = 75_000 // The longest one read may take.
 export const CACHE_MS = 6 * 60 * 60 * 1000
@@ -416,11 +417,18 @@ export function createLinkReader({
     const headers = { 'x-goog-api-key': youtubeKey }
     const get = (url) => youtubeBudget.run(() => http.getJson(url, { headers, timeoutMs: 8000 }))
     try {
-      const body = await get(`${YOUTUBE_URL}/videos?part=snippet&id=${encodeURIComponent(id)}`)
+      const body = await get(`${YOUTUBE_URL}/videos?part=snippet,contentDetails&id=${encodeURIComponent(id)}`)
       const snippet = body?.items?.[0]?.snippet
       if (snippet) {
         post.caption = [snippet.title, snippet.description].filter(Boolean).join('\n')
         if (typeof snippet.publishedAt === 'string' && validDay(snippet.publishedAt.slice(0, 10))) post.postDate = snippet.publishedAt.slice(0, 10)
+      }
+      // A long video is not watched, only its description read, so the read finishes inside its deadline.
+      const seconds = durationSeconds(body?.items?.[0]?.contentDetails?.duration)
+      if (seconds > LONG_VIDEO_SECONDS && post.caption) {
+        post.mediaParts = []
+        post.how = 'caption'
+        post.notes.push(`The video is ${Math.round(seconds / 60)} minutes long, so only its title and description were read.`)
       }
     } catch (err) {
       if (!(err instanceof ExternalApiError)) throw err
@@ -920,6 +928,15 @@ class ReaderUnavailable extends ExternalApiError {
     this.name = 'ReaderUnavailable'
     this.reason = reason
   }
+}
+
+// The length in seconds of a YouTube ISO 8601 duration such as "PT21M2S", or 0 when it cannot be read.
+// How to call: durationSeconds('PT1H2M3S') // 3723
+export function durationSeconds(iso) {
+  const m = typeof iso === 'string' ? /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(iso) : null
+  if (!m) return 0
+  const [, d = 0, h = 0, min = 0, sec = 0] = m.map((v) => Number(v ?? 0))
+  return ((d * 24 + h) * 60 + min) * 60 + sec
 }
 
 // Thrown inside the reader when gathering a post passes its deadline.
