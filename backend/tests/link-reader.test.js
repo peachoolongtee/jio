@@ -6,7 +6,7 @@ import { createApp } from '../src/app.js'
 import { ExternalApiError } from '../src/services/errors.js'
 import { createGooglePlaces } from '../src/services/google-places.js'
 import { createHttp } from '../src/services/http.js'
-import { createLinkReader, inSingapore, LinkReaderError, questionText, readLinkReaderSettings, readPlaces, systemText } from '../src/services/link-reader.js'
+import { createLinkReader, durationSeconds, inSingapore, LinkReaderError, questionText, readLinkReaderSettings, readPlaces, systemText } from '../src/services/link-reader.js'
 import { createBrowserReader } from '../src/services/link-browser.js'
 import { createYtDlp } from '../src/services/link-tools.js'
 import { agoText, availabilityOf, cleanText, closeName, freshnessOf, LinkToolError, parseLink, sameName, todayInSingapore } from '../src/services/link-source.js'
@@ -166,7 +166,7 @@ describe('the AI question and answer', () => {
 })
 
 // A fake Gemini, YouTube, TikTok and Google, recording every call.
-function fakes({ places: answer, geminiFails = 0, comments = ['The queue is long on weekends.'], published = '2026-09-20T08:30:00Z', tiktokTitle = 'Best laksa' } = {}) {
+function fakes({ places: answer, geminiFails = 0, comments = ['The queue is long on weekends.'], published = '2026-09-20T08:30:00Z', tiktokTitle = 'Best laksa', duration } = {}) {
   const found = answer ?? [{ name: 'Soft Order', name_english: 'Soft Order', location_hint: '213 Henderson Rd, #01-06', has_address: true, tip: 'Matcha frappe.', status: 'open', opens_on: '', closes_on: '', availability_note: '', comment_note: '', source: 'on_screen_text', confidence: 1 }]
   let geminiCalls = 0
   const http = {
@@ -177,7 +177,7 @@ function fakes({ places: answer, geminiFails = 0, comments = ['The queue is long
       return { candidates: [{ content: { parts: [{ text: JSON.stringify({ places: found }) }] } }] }
     }),
     getJson: vi.fn(async (url) => {
-      if (url.includes('/youtube/v3/videos')) return { items: [{ snippet: { title: 'Cafes in Singapore', description: 'Soft Order is on Henderson Rd.', publishedAt: published } }] }
+      if (url.includes('/youtube/v3/videos')) return { items: [{ snippet: { title: 'Cafes in Singapore', description: 'Soft Order is on Henderson Rd.', publishedAt: published }, ...(duration ? { contentDetails: { duration } } : {}) }] }
       if (url.includes('/youtube/v3/commentThreads')) return { items: comments.map((t) => ({ snippet: { topLevelComment: { snippet: { textDisplay: t } } } })) }
       if (url.includes('tiktok.com/oembed')) return { title: tiktokTitle }
       throw new Error(`unexpected GET ${url}`)
@@ -209,6 +209,30 @@ describe('reading a YouTube post', () => {
     expect(f.http.getJson.mock.calls.every((c) => c[1].headers['x-goog-api-key'] === 'test-youtube-key')).toBe(true) // the key goes in a header
     expect(f.http.getJson.mock.calls.every((c) => !c[0].includes('test-youtube-key'))).toBe(true) // never in the address
     expect(r.source).toMatchObject({ platform: 'youtube', key: 'youtube:dQw4w9WgXcQ', how: 'youtube', postDate: '2026-09-20', ageDays: 22, commentsUsed: 1 })
+  })
+
+  it('reads only the title and description of a video over ten minutes long', async () => {
+    const f = fakes({ duration: 'PT21M2S' })
+    const r = await reader(f, { youtubeKey: 'test-youtube-key', places: google({ 'soft order': soft() }) }).read(YT)
+    expect(r.status).toBe('ok')
+    const parts = f.geminiBodies()[0].contents[0].parts
+    expect(parts).toHaveLength(1) // no video part
+    expect(parts[0].text).toContain('<caption>Cafes in Singapore Soft Order is on Henderson Rd.</caption>')
+    expect(r.source.how).toBe('caption')
+  })
+
+  it('still watches a video of ten minutes or less', async () => {
+    const f = fakes({ duration: 'PT9M59S' })
+    await reader(f, { youtubeKey: 'test-youtube-key', places: google({ 'soft order': soft() }) }).read(YT)
+    expect(f.geminiBodies()[0].contents[0].parts[0]).toEqual({ file_data: { file_uri: YT } })
+  })
+
+  it('reads a YouTube duration in seconds', () => {
+    expect(durationSeconds('PT1H2M3S')).toBe(3723)
+    expect(durationSeconds('PT21M2S')).toBe(1262)
+    expect(durationSeconds('P1D')).toBe(86400)
+    expect(durationSeconds('nonsense')).toBe(0)
+    expect(durationSeconds(undefined)).toBe(0)
   })
 
   it('still reads the video without a YouTube key, and says what is missing', async () => {
