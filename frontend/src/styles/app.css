@@ -230,6 +230,9 @@ svg { display: block; flex-shrink: 0; }
 .session-head__panel { display: none; }
 @media (min-width: 1128px) {
   .screen:has(.split--first) { --map-panel: 420px; --map-edge: var(--spacing-lg); }
+  /* The page itself never scrolls or bounces here: everything is fixed over the map. In Safari a page that could bounce moved the
+     fixed footer and column with it, so they jumped as the person scrolled (11 November 2026). The column scrolls on its own. */
+  html:has(.split--first), html:has(.split--first) body { overflow: hidden; overscroll-behavior: none; }
   /* Vote, the itinerary and What next have more to show than Locate: a column 460px wide (Darius, 4 November 2026; it was 520 to 560). */
   .screen:has(.itin-split), .screen:has(.roam-split), .screen:has(.plan-split) { --map-panel: 460px; }
   /* "What next?" keeps its sections in one wrapper (RoamPanel), and the proposed stops theirs (ProposedStops): both are display: contents, so
@@ -249,7 +252,7 @@ svg { display: block; flex-shrink: 0; }
   .screen:has(.split--first) > .session-head .session-head__actions .icon-btn { background: var(--canvas); }
 
   /* The column starts under the middle card (about 120px tall, its title on one line). */
-  .screen:has(.split--first) > .screen__body { position: fixed; z-index: 10; top: calc(var(--map-edge) + 136px); right: var(--map-edge); bottom: calc(var(--map-edge) + var(--tap-min) + var(--spacing-base)); width: var(--map-panel); padding: 0 0 var(--spacing-xs); gap: var(--spacing-sm); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; pointer-events: none; }
+  .screen:has(.split--first) > .screen__body { position: fixed; z-index: 10; top: calc(var(--map-edge) + 136px); right: var(--map-edge); bottom: calc(var(--map-edge) + var(--tap-min) + var(--spacing-base)); width: var(--map-panel); padding: 0 0 var(--spacing-xs); gap: var(--spacing-sm); overflow-y: auto; overscroll-behavior: none; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; pointer-events: none; }
   .screen:has(.split--first) > .screen__body::-webkit-scrollbar { width: 6px; }
   .screen:has(.split--first) > .screen__body::-webkit-scrollbar-thumb { border-radius: var(--rounded-full); background: var(--border-strong); }
   .screen:has(.split--first) > .screen__body::-webkit-scrollbar-track { background: transparent; }
@@ -263,7 +266,7 @@ svg { display: block; flex-shrink: 0; }
   .screen:has(.split--first) .split__list { gap: var(--spacing-sm); }
 
   /* The map's colour key: at the top left, under the header's card, clear of the zoom buttons at the bottom left. */
-  .screen:has(.split--first) .split__map .cat-key { top: 190px; bottom: auto; left: var(--map-edge); }
+  .split__map--first .cat-key { top: 190px; bottom: auto; left: var(--map-edge); }
   .screen:has(.split--first) > .screen__footer { position: fixed; z-index: 20; right: var(--map-edge); bottom: var(--map-edge); left: auto; width: var(--map-panel); flex-direction: row; align-items: center; justify-content: flex-end; gap: var(--spacing-sm); padding: 0; border: 0; background: transparent; }
   .screen:has(.split--first) > .screen__footer > .btn { flex: 1 1 0; min-width: 0; border-radius: var(--rounded-full); box-shadow: var(--shadow-float); }
   .screen:has(.split--first) > .screen__footer > :not(.btn) { padding: var(--spacing-sm) var(--spacing-base); border-radius: var(--rounded-full); background: var(--canvas); box-shadow: var(--shadow-float); }
