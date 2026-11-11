@@ -10,18 +10,33 @@
 // mapFirst (desktop only): the map is the whole screen and the page floats over it: the header as a card at the top left, the list as
 // cards down the right, the button at the bottom right (Darius, 4 November 2026; Locate and the itinerary). The page's own rules are in
 // app.css ("Map-first pages"). Phones keep the List / Map switch. There is no "Expand map" there: the map already fills the screen.
-import { ref } from 'vue'
+// On a map-first page wide enough for it, the map is moved to the end of <body> (Teleport). Left inside the page's column, which
+// scrolls, Safari clipped the full-screen map to that column, so most of it showed white (Darius's friend, 11 November 2026).
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
 import SegmentTabs from './SegmentTabs.vue'
 
 const view = defineModel('view', { type: String, default: 'list' })
-defineProps({
+const props = defineProps({
   label: { type: String, required: true },
   // Desktop: give the list and the map equal widths, for lists that need the room (the itinerary).
   even: { type: Boolean, default: false },
   mapFirst: { type: Boolean, default: false },
 })
 const expanded = ref(false)
+
+// Whether the window is wide enough for a map-first page (the 1128px of the CSS below). Watched, so the map moves out of the column and
+// back again as the window is resized. How to call: wide.value -> true
+const WIDE = '(min-width: 1128px)'
+const wide = ref(false)
+let media = null
+const syncWide = () => { wide.value = !!media?.matches }
+onMounted(() => {
+  media = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(WIDE) : null
+  syncWide()
+  media?.addEventListener?.('change', syncWide)
+})
+onBeforeUnmount(() => media?.removeEventListener?.('change', syncWide))
 
 </script>
 
@@ -34,13 +49,15 @@ const expanded = ref(false)
       :tabs="[{ id: 'list', label: 'List' }, { id: 'map', label: 'Map', icon: 'map' }]"
     />
     <div class="split__list"><slot name="list" /></div>
-    <div class="split__map">
-      <button v-if="!mapFirst" type="button" class="split__expand" :aria-pressed="String(expanded)" @click="expanded = !expanded">
-        <AppIcon :name="expanded ? 'collapse' : 'expand'" :size="14" />
-        {{ expanded ? 'Show list' : 'Expand map' }}
-      </button>
-      <slot name="map" />
-    </div>
+    <Teleport to="body" :disabled="!(props.mapFirst && wide)">
+      <div class="split__map" :class="{ 'split__map--first': mapFirst }">
+        <button v-if="!mapFirst" type="button" class="split__expand" :aria-pressed="String(expanded)" @click="expanded = !expanded">
+          <AppIcon :name="expanded ? 'collapse' : 'expand'" :size="14" />
+          {{ expanded ? 'Show list' : 'Expand map' }}
+        </button>
+        <slot name="map" />
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -96,9 +113,10 @@ const expanded = ref(false)
    page's column, above the map. The zoom buttons sit at the bottom left, clear of the header's card. */
 @media (min-width: 1128px) {
   .split--first { display: block; }
-  .split--first .split__map { position: fixed; inset: 0; z-index: 0; display: block; height: auto; min-height: 0; max-height: none; border: 0; border-radius: 0; pointer-events: auto; }
+  /* The map is outside the page here (moved to <body>), so it is styled by its own class, not as a child of .split--first. */
+  .split__map--first { position: fixed; inset: 0; z-index: 0; display: block; height: auto; min-height: 0; max-height: none; border: 0; border-radius: 0; pointer-events: auto; }
   .split--first .split__list { position: relative; z-index: 1; }
   .split--first .split__list > :last-child { flex-grow: 0; }
-  .split--first .split__map :deep(.leaflet-top.leaflet-left) { top: auto; bottom: var(--spacing-lg); left: var(--spacing-sm); }
+  .split__map--first :deep(.leaflet-top.leaflet-left) { top: auto; bottom: var(--spacing-lg); left: var(--spacing-sm); }
 }
 </style>
