@@ -992,7 +992,7 @@ export async function postReaderCapabilities() {
   }
 }
 
-// The places named in one post (a YouTube, TikTok, Instagram or Xiaohongshu link), each with its Google match when there is one.
+// The places named in one post (a YouTube or TikTok link), each with its Google match when there is one.
 // Resolves the server's answer as it is: `status` is 'ok' (with `places`) or 'unreadable' (with `reason`, `retryable` and
 // `notes`). A link the server will not read rejects with `code` 'not_a_link' or 'unsupported_site', too many reads with
 // 'rate_limited', and a server whose AI key is missing with 'link_reader_unavailable'. `centre` leans the Google search towards
