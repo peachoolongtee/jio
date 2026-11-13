@@ -266,7 +266,11 @@ svg { display: block; flex-shrink: 0; }
   .screen:has(.split--first) .split__list { gap: var(--spacing-sm); }
 
   /* The map's colour key: at the top left, under the header's card, clear of the zoom buttons at the bottom left. */
-  .split__map--first .cat-key { top: 190px; bottom: auto; left: var(--map-edge); }
+  .split__map.split__map--first .cat-key { top: 190px; bottom: auto; left: var(--map-edge); }
+  /* The map sits outside .screen here (moved to <body> by SplitView), so the rule above that hides the walk line, the colour key and the
+     weather line on map-first pages does not reach it: hide them on the moved map too, or the key stretches down the map (13 November 2026).
+     Two classes, so these win over the components' own scoped rules, which load later. */
+  .split__map.split__map--first :is(.walk-from, .cat-key), .split__map.split__map--first .wx:not(:has(.wx__line--simulated)) { display: none; }
   .screen:has(.split--first) > .screen__footer { position: fixed; z-index: 20; right: var(--map-edge); bottom: var(--map-edge); left: auto; width: var(--map-panel); flex-direction: row; align-items: center; justify-content: flex-end; gap: var(--spacing-sm); padding: 0; border: 0; background: transparent; }
   .screen:has(.split--first) > .screen__footer > .btn { flex: 1 1 0; min-width: 0; border-radius: var(--rounded-full); box-shadow: var(--shadow-float); }
   .screen:has(.split--first) > .screen__footer > :not(.btn) { padding: var(--spacing-sm) var(--spacing-base); border-radius: var(--rounded-full); background: var(--canvas); box-shadow: var(--shadow-float); }

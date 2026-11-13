@@ -75,6 +75,7 @@ import { listSavedPlaces, watchSessions } from '@/lib/api.js'
 import { knownVenue, matchesQuery, savedArea, savedVenueId } from '@/lib/savedPlaces.js'
 import { CATEGORIES, CATEGORY_LABELS } from '@/lib/planner/slots.js'
 import { distanceText } from '@/lib/planner/format.js'
+import { PRICE_LIMITS, priceNote, withinPrice } from '@/lib/priceFilter.js'
 import { ORDER_TABS, VOTED, confirmKey, confirmView, sourceIcon, sourceText, suggestedRows, votedRows, rowProblem as problemOf } from '@/lib/confirmOrder.js'
 import { placeImage } from '@/lib/placeImages.js'
 import { walkFromText } from '@/lib/cardText.js'
@@ -264,17 +265,33 @@ const walkFrom = computed(() => (session.value?.meeting ? walkFromText(session.v
 const CDC_KINDS = ['eat', 'drink']
 const cdcView = ref(false)
 const takesCdc = (option) => (option.venue?.tags || []).includes('cdc')
+// "Up to $" and "Up to $$" beside it: every category shows only the places within that price (lib/priceFilter.js). Also this person's view
+// alone, nothing is saved. `priceHidden` counts what a category hides. 0 means no limit.
+const priceLimit = ref(0)
+const togglePrice = (tier) => { priceLimit.value = priceLimit.value === tier ? 0 : tier }
 const viewSlots = computed(() =>
   slots.value.map((s) => {
-    if (!cdcView.value || !CDC_KINDS.includes(s.category)) return s
-    const options = s.options.filter(takesCdc)
-    return { ...s, options, cdcHidden: s.options.length - options.length }
+    let options = s.options
+    let cdcHidden = 0
+    if (cdcView.value && CDC_KINDS.includes(s.category)) {
+      const kept = options.filter(takesCdc)
+      cdcHidden = options.length - kept.length
+      options = kept
+    }
+    let priceHidden = 0
+    if (priceLimit.value) {
+      const kept = options.filter((option) => withinPrice(option.venue?.price, priceLimit.value))
+      priceHidden = options.length - kept.length
+      options = kept
+    }
+    if (options === s.options) return s
+    return { ...s, options, ...(cdcView.value && CDC_KINDS.includes(s.category) ? { cdcHidden } : {}), ...(priceHidden ? { priceHidden } : {}) }
   }),
 )
 const shown = computed(() => (filter.value ? viewSlots.value.filter((s) => s.category === filter.value) : viewSlots.value))
 // Under All, categories with nothing nearby fold into one line instead of an empty section each. Eat left empty by the group's
 // dietary needs keeps its section, which offers the places we could not confirm, as does a category the CDC filter emptied.
-const keepsSection = (s) => s.options.length > 0 || !!s.dietFew || !!s.cdcHidden
+const keepsSection = (s) => s.options.length > 0 || !!s.dietFew || !!s.cdcHidden || !!s.priceHidden
 const listed = computed(() => (filter.value ? shown.value : shown.value.filter(keepsSection)))
 const emptyLabels = computed(() => (filter.value ? [] : shown.value.filter((s) => !keepsSection(s)).map((s) => CATEGORY_LABELS[s.category])))
 const listJoin = (words) => (words.length < 2 ? words.join('') : `${words.slice(0, -1).join(', ')} or ${words.at(-1)}`)
@@ -652,6 +669,7 @@ function emptyText(slot) {
   const e = slot.empty
   // The nearest distance may be missing, so the sentence about it is optional.
   const nearest = e?.nearestKm != null ? ` The nearest is ${e.nearestKm.toFixed(1)} km away.` : ''
+  if (slot.priceHidden) return `None of these ${CATEGORY_LABELS[slot.category]} places are in that price range. Search for one to add.`
   if (slot.cdcHidden) return `None of these ${CATEGORY_LABELS[slot.category]} places take CDC vouchers. Search for one to add.`
   if (e?.reason === 'outside_max_radius') return `Nothing that fits is within ${reachText.value}.${nearest}`
   if (slot.dietFew) return fewLine(0)
@@ -1127,6 +1145,14 @@ async function keepDialog(e) {
             <span class="caption text-muted">Dietary needs</span>
             <DietaryChips :mine="shownMine" :others="plan.othersDietary || []" :dropped="shownDropped" :can-drop="isHost" :busy="dietBusy" @change="saveDiet" />
           </div>
+
+          <!-- Price: hides the places above a price for this person's view only; nothing is saved and the ranking is the same (lib/priceFilter.js). -->
+          <div v-if="voting && slots.length" class="price-edit" data-testid="price-filter">
+            <span class="caption text-muted">Price per person, up to</span>
+            <div class="scroll-x" role="group" aria-label="Price per person">
+              <ChipButton v-for="p in PRICE_LIMITS" :key="p.tier" check :selected="priceLimit === p.tier" :title="p.title" :aria-label="`Up to ${p.label}: ${p.title}`" :data-testid="`price-${p.tier}`" @click="togglePrice(p.tier)">{{ p.label }}</ChipButton>
+            </div>
+          </div>
         </div>
 
         <SplitView v-model:view="view" class="plan-split" label="Places" map-first>
@@ -1149,6 +1175,7 @@ async function keepDialog(e) {
               </p>
 
               <p v-if="slot.cdcHidden && slot.options.length" class="caption-sm text-muted" data-testid="cdc-hidden">Only places that take CDC vouchers. {{ slot.cdcHidden }} {{ slot.cdcHidden === 1 ? 'other is' : 'others are' }} hidden.</p>
+              <p v-if="slot.priceHidden && slot.options.length" class="caption-sm text-muted" data-testid="price-hidden">{{ priceNote(priceLimit, slot.priceHidden) }}</p>
               <template v-if="!slot.options.length">
                 <p class="body-sm text-muted">{{ emptyText(slot) }}</p>
               </template>
@@ -1315,6 +1342,7 @@ async function keepDialog(e) {
 /* "Group dietary needs": the same stack as "Search within" above it; the label and the selected needs share a line. */
 .diet-unavailable { display: flex; align-items: center; flex-wrap: wrap; gap: var(--spacing-xs); margin: 0; }
 .diet-edit { display: flex; flex-direction: column; gap: var(--spacing-xs); }
+.price-edit { display: flex; flex-direction: column; gap: var(--spacing-sm); }
 .slot { display: flex; flex-direction: column; gap: var(--spacing-md); }
 .slot + .slot { padding-top: var(--spacing-lg); }
 .slot__head { display: flex; align-items: center; gap: var(--spacing-md); }
