@@ -10,10 +10,7 @@ describe('postLinkProblem', () => {
     'https://www.youtube.com/watch?v=abc',
     'https://youtu.be/abc',
     'https://vt.tiktok.com/ZS123/',
-    'https://www.tiktok.com/@a/video/1',
-    'https://www.instagram.com/p/abc/',
-    'https://xhslink.com/o/abc',
-    '  https://www.xiaohongshu.com/explore/abc  ',
+    '  https://www.tiktok.com/@a/video/1  ',
   ])('lets %s through', (link) => {
     expect(postLinkProblem(link)).toBe('')
   })
@@ -27,7 +24,12 @@ describe('postLinkProblem', () => {
   })
 
   it.each(['https://example.com/x', 'https://faketiktok.com/a', 'https://tiktok.com.evil.example/a'])('names the supported sites for %s', (link) => {
-    expect(postLinkProblem(link)).toBe('Only YouTube, TikTok, Instagram and Xiaohongshu links can be read.')
+    expect(postLinkProblem(link)).toBe('Only YouTube and TikTok links can be read.')
+  })
+
+  // The deployed server cannot read these without the development tools, so the screen turns them away before sending.
+  it.each(['https://www.instagram.com/p/abc/', 'https://xhslink.com/o/abc', 'https://www.xiaohongshu.com/explore/abc'])('turns away %s, which the live app cannot read', (link) => {
+    expect(postLinkProblem(link)).toBe('Only YouTube and TikTok links can be read.')
   })
 
   it('refuses a link longer than the server reads', () => {

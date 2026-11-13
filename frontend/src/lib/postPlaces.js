@@ -5,9 +5,10 @@
 // The most characters the server reads in a link.
 export const POST_LINK_MAX_CHARS = 600
 
-// The sites whose posts the server can read, as backend/src/services/link-source.js lists them. A subdomain counts
-// (www.youtube.com, vt.tiktok.com).
-const SITES = ['youtube.com', 'youtu.be', 'tiktok.com', 'instagram.com', 'xiaohongshu.com', 'xhslink.com']
+// The sites whose posts the deployed server can read. A subdomain counts (www.youtube.com, vt.tiktok.com).
+// The server also knows Instagram and Xiaohongshu (backend/src/services/link-source.js), but reading them needs the development
+// tools that only run on a developer's laptop (backend/docs/link-reader-api.md), so the screen does not offer them.
+const SITES = ['youtube.com', 'youtu.be', 'tiktok.com']
 
 // What is wrong with a pasted link, or '' when it is worth sending. The server checks it again and more closely (a profile
 // or a home page is not a post), so this only catches what is plainly not a supported link.
@@ -25,7 +26,7 @@ export function postLinkProblem(text) {
   if (url.protocol !== 'https:') return 'Paste the whole link, starting with https://'
   const host = url.hostname.toLowerCase()
   if (!SITES.some((site) => host === site || host.endsWith(`.${site}`))) {
-    return 'Only YouTube, TikTok, Instagram and Xiaohongshu links can be read.'
+    return 'Only YouTube and TikTok links can be read.'
   }
   return ''
 }
