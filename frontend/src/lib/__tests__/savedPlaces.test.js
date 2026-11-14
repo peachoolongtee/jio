@@ -17,7 +17,7 @@ const POST_PLACE = {
   locationHint: 'Katong',
   // Google's details are on the place, and must not be kept.
   match: { placeId: 'g_one', name: 'Next Door Spanish Cafe', address: '699 E Coast Rd', rating: 4.3, ratingCount: 1051 },
-  toSave: { googlePlaceId: 'g_one', name: '下一家咖啡', nameEnglish: 'Next Door Cafe', tip: 'Try the paella', postKey: 'tiktok:1', postUrl: 'https://www.tiktok.com/@a/video/1', platform: 'tiktok' },
+  toSave: { googlePlaceId: 'g_one', name: '下一家咖啡', nameEnglish: 'Next Door Cafe', tip: 'Try the paella', postKey: 'tiktok:1', postUrl: 'https://www.youtube.com/watch?v=a1', platform: 'tiktok' },
 }
 
 describe('a saved place in a vote', () => {
@@ -65,7 +65,7 @@ describe('a saved place in a vote', () => {
 describe('what is kept from a post', () => {
   it('keeps the post\'s words and Google\'s id, and nothing else of Google\'s', () => {
     const row = toSavedPlace(POST_PLACE, ['eat', 'drink'])
-    expect(row).toEqual({ name: '下一家咖啡', nameEnglish: 'Next Door Cafe', categories: ['eat', 'drink'], tip: 'Try the paella', locationHint: 'Katong', googlePlaceId: 'g_one', postKey: 'tiktok:1', postUrl: 'https://www.tiktok.com/@a/video/1' })
+    expect(row).toEqual({ name: '下一家咖啡', nameEnglish: 'Next Door Cafe', categories: ['eat', 'drink'], tip: 'Try the paella', locationHint: 'Katong', googlePlaceId: 'g_one', postKey: 'tiktok:1', postUrl: 'https://www.youtube.com/watch?v=a1' })
     expect(JSON.stringify(row)).not.toContain('699 E Coast')
     expect(JSON.stringify(row)).not.toContain('Spanish')
     expect(JSON.stringify(row)).not.toContain('1051')
@@ -135,7 +135,7 @@ describe('"Places from a post"', () => {
   const read = async () => {
     const view = await draw()
     await until(() => view.has('[data-testid=post-link]'))
-    view.type('input', 'https://www.tiktok.com/@a/video/1')
+    view.type('input', 'https://www.youtube.com/watch?v=a1')
     await view.click(view.one('[data-testid=post-read]'))
     await until(() => view.has('[data-testid=post-kind]'))
     return view
@@ -193,7 +193,7 @@ describe('"Places from a post"', () => {
     view.unmount()
     const back = await draw()
     await until(() => back.has('[data-testid=post-kind]'))
-    expect(back.one('input').value).toBe('https://www.tiktok.com/@a/video/1')
+    expect(back.one('input').value).toBe('https://www.youtube.com/watch?v=a1')
     expect(back.text('[data-testid=post-save]')).toBe('Save 1 place')
     expect(held.placesFromPost).toHaveBeenCalledTimes(1)
   })
@@ -201,11 +201,11 @@ describe('"Places from a post"', () => {
   it('keeps a link that was pasted and not read yet', async () => {
     const view = await draw()
     await until(() => view.has('[data-testid=post-link]'))
-    view.type('input', 'https://www.tiktok.com/@a/video/2')
+    view.type('input', 'https://www.youtube.com/watch?v=a2')
     view.unmount()
     const back = await draw()
     await until(() => back.has('[data-testid=post-link]'))
-    expect(back.one('input').value).toBe('https://www.tiktok.com/@a/video/2')
+    expect(back.one('input').value).toBe('https://www.youtube.com/watch?v=a2')
   })
 
   it('names no site in the box', async () => {
@@ -216,7 +216,7 @@ describe('"Places from a post"', () => {
 })
 
 describe('the Saved places page', () => {
-  const SAVED = { id: 's1', name: '下一家', nameEnglish: 'Next Door Cafe', categories: ['eat'], tip: 'Try the paella', locationHint: 'Katong', googlePlaceId: 'g_one', postUrl: 'https://www.tiktok.com/@a/video/1' }
+  const SAVED = { id: 's1', name: '下一家', nameEnglish: 'Next Door Cafe', categories: ['eat'], tip: 'Try the paella', locationHint: 'Katong', googlePlaceId: 'g_one', postUrl: 'https://www.youtube.com/watch?v=a1' }
   beforeEach(() => vi.clearAllMocks())
   const draw = async () => {
     const { default: View } = await import('@/views/SavedPlacesView.vue')

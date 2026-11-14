@@ -5,10 +5,14 @@
 // The most characters the server reads in a link.
 export const POST_LINK_MAX_CHARS = 600
 
-// The sites whose posts the deployed server can read. A subdomain counts (www.youtube.com, vt.tiktok.com).
-// The server also knows Instagram and Xiaohongshu (backend/src/services/link-source.js), but reading them needs the development
-// tools that only run on a developer's laptop (backend/docs/link-reader-api.md), so the screen does not offer them.
-const SITES = ['youtube.com', 'youtu.be', 'tiktok.com']
+// The sites whose posts the deployed server can read. A subdomain counts (www.youtube.com).
+// The server also knows Instagram, Xiaohongshu and TikTok (backend/src/services/link-source.js), but reading them needs the development
+// tools that only run on a developer's laptop (backend/docs/link-reader-api.md), so the screen does not offer them. TikTok's own caption
+// service stopped giving captions to any server on 14 November 2026, so a TikTok link ends "nothing to read" after a wait: it is turned
+// away at once, in its own words. To offer TikTok again, move it from TIKTOK_SITES to SITES.
+const SITES = ['youtube.com', 'youtu.be']
+const TIKTOK_SITES = ['tiktok.com']
+const onSite = (host, sites) => sites.some((site) => host === site || host.endsWith(`.${site}`))
 
 // What is wrong with a pasted link, or '' when it is worth sending. The server checks it again and more closely (a profile
 // or a home page is not a post), so this only catches what is plainly not a supported link.
@@ -25,9 +29,8 @@ export function postLinkProblem(text) {
   }
   if (url.protocol !== 'https:') return 'Paste the whole link, starting with https://'
   const host = url.hostname.toLowerCase()
-  if (!SITES.some((site) => host === site || host.endsWith(`.${site}`))) {
-    return 'Only YouTube and TikTok links can be read.'
-  }
+  if (onSite(host, TIKTOK_SITES)) return "TikTok links can't be read yet. Try a YouTube link."
+  if (!onSite(host, SITES)) return 'Only YouTube links can be read.'
   return ''
 }
 
