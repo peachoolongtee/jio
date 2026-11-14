@@ -1,5 +1,5 @@
 <script setup>
-// "Places from a post": paste a link to a YouTube video or a TikTok post (its caption) and see the places it names, each
+// "Places from a post": paste a link to a YouTube video and see the places it names, each
 // with its address and a link that opens it in Google Maps. No map is drawn: Google's places may not be shown on or beside the OneMap
 // map (CLAUDE.md), so a place opens in Google Maps instead. Picking one or more categories under a place selects it, and "Save" adds what is
 // selected to the person's saved places (Faith, 4 November 2026). Only the post's own words and Google's id are kept (lib/savedPlaces.js).
@@ -149,7 +149,7 @@ async function read() {
       </div>
       <div class="screen__titles">
         <h1 class="display-xl">Places from a post</h1>
-        <p class="body-sm text-muted">Paste a YouTube or TikTok link to see where its places are. Jio reads a TikTok's caption.</p>
+        <p class="body-sm text-muted">Paste a YouTube link to see where its places are.</p>
       </div>
     </header>
 
